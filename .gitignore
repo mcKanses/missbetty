@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/logs
+**/tmp
+**/.env
+**/.DS_Store
+**/Thumbs.db
+**/yarn-error.log
+**/pnpm-lock.yaml
+**/tsconfig.tsbuildinfo
+**/.eslintcache
+**/.prettiercache
+**/.cache

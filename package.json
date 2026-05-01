@@ -1,0 +1,29 @@
+{
+  "name": "betty",
+  "version": "0.1.0",
+  "description": "Cross-Platform CLI-Tool für lokale Domains mit Docker Compose & Traefik",
+  "main": "bin/betty.js",
+  "bin": "bin/betty.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node bin/betty.js"
+  },
+  "keywords": [
+    "cli",
+    "docker",
+    "traefik",
+    "proxy",
+    "dev"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.0.0",
+    "execa": "^8.0.1",
+    "yaml": "^2.3.4",
+    "yarn": "^1.22.22"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
