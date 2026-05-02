@@ -25,6 +25,9 @@ export default tseslint.config(
       '@typescript-eslint/strict-boolean-expressions': 'error',
 
       // General
+      'curly': ['error', 'multi'],
+      'nonblock-statement-body-position': ['error', 'beside'],
+      'semi': ['error', 'never'],
       'prefer-const': 'error',
       'no-var': 'error',
       'eqeqeq': ['error', 'always'],
