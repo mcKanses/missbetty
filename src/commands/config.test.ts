@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import configCommand from './config'
-import { getDomainSuffix, setDomainSuffix } from '../utils/config'
+import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix } from '../utils/config'
 
 jest.mock('../utils/config', () => ({
   __esModule: true,
@@ -12,9 +12,46 @@ jest.mock('../utils/config', () => ({
 describe('config command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    delete process.env.BETTY_DOMAIN_SUFFIX
     ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
       throw new Error(`process-exit-${String(code)}`)
     })
+  })
+
+  test('prints config for no action', () => {
+    ;(getDomainSuffix as unknown as jest.Mock).mockReturnValue('.dev')
+    ;(getStoredDomainSuffix as unknown as jest.Mock).mockReturnValue(null)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    configCommand(undefined)
+
+    expect(logSpy).toHaveBeenCalledWith('Betty config:')
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('.dev'))
+    logSpy.mockRestore()
+  })
+
+  test('prints config for list action', () => {
+    ;(getDomainSuffix as unknown as jest.Mock).mockReturnValue('.localhost')
+    ;(getStoredDomainSuffix as unknown as jest.Mock).mockReturnValue('.localhost')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    configCommand('list')
+
+    expect(logSpy).toHaveBeenCalledWith('Betty config:')
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('.localhost'))
+    logSpy.mockRestore()
+  })
+
+  test('shows env source when BETTY_DOMAIN_SUFFIX is set', () => {
+    process.env.BETTY_DOMAIN_SUFFIX = '.test'
+    ;(getDomainSuffix as unknown as jest.Mock).mockReturnValue('.test')
+    ;(getStoredDomainSuffix as unknown as jest.Mock).mockReturnValue(null)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    configCommand('list')
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('BETTY_DOMAIN_SUFFIX'))
+    logSpy.mockRestore()
   })
 
   test('prints configured domain suffix for get command', () => {
