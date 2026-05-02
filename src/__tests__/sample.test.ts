@@ -1,9 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
 
-// Beispiel-Test
+// Example test
 
-describe('Beispiel-Test', () => {
-  test('Addition funktioniert', () => {
+describe('Example test', () => {
+  test('addition works', () => {
     expect(1 + 2).toBe(3);
   });
 });
