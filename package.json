@@ -1,12 +1,13 @@
 {
   "name": "betty",
   "version": "0.1.0",
-  "description": "Cross-Platform CLI-Tool für lokale Domains mit Docker Compose & Traefik",
+  "description": "Cross-Platform CLI tool for local domains with Docker Compose & Traefik",
   "main": "bin/betty.js",
   "bin": "bin/betty.js",
   "scripts": {
     "build": "tsc",
-    "start": "node bin/betty.js"
+    "start": "node bin/betty.js",
+    "test": "jest"
   },
   "keywords": [
     "cli",
@@ -20,10 +21,12 @@
   "dependencies": {
     "commander": "^11.0.0",
     "execa": "^8.0.1",
+    "inquirer": "^8.2.6",
     "yaml": "^2.3.4",
     "yarn": "^1.22.22"
   },
   "devDependencies": {
+    "@types/inquirer": "^8.2.12",
     "@types/jest": "^30.0.0",
     "jest": "^30.3.0",
     "ts-jest": "^29.4.9",

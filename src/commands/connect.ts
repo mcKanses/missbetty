@@ -5,32 +5,164 @@ import os from 'os';
 import yaml from 'yaml';
 import inquirer from 'inquirer';
 
-const TRAEFIK_NETWORK = 'traefik_default';
-const BETTY_HOSTS_START = '### BETTY DOMAINS START ###';
-const BETTY_HOSTS_END = '### BETTY DOMAINS END ###';
+const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
+const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml');
+const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic');
+const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs');
+const TRAEFIK_NETWORK = 'betty_proxy';
+const TRAEFIK_CONTAINER = 'betty-traefik';
 
 const resolveTraefikComposePath = (): string => {
-  const candidates = [
-    path.resolve(process.cwd(), 'traefik', 'compose.yml'),
-    path.resolve(__dirname, '..', '..', 'traefik', 'compose.yml'),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
+  if (fs.existsSync(BETTY_PROXY_COMPOSE)) {
+    return BETTY_PROXY_COMPOSE;
   }
 
-  console.error('Kein traefik/compose.yml gefunden. Gesucht in:');
-  for (const candidate of candidates) console.error(` - ${candidate}`);
+  console.error("Betty's proxy is not set up yet. Run: betty serve");
   process.exit(1);
 };
 
-const resolveDynamicDir = (composePath: string): string => path.resolve(path.dirname(composePath), 'dynamic');
+const resolveDynamicDir = (): string => BETTY_DYNAMIC_DIR;
+
+const desiredProxyCompose = `services:
+  traefik:
+    image: traefik:v2.10
+    container_name: ${TRAEFIK_CONTAINER}
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=${TRAEFIK_NETWORK}
+      - --providers.file.directory=/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+    ports:
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/dynamic:ro
+      - ./certs:/certs:ro
+    networks:
+      - ${TRAEFIK_NETWORK}
+
+networks:
+  ${TRAEFIK_NETWORK}:
+    external: true
+    name: ${TRAEFIK_NETWORK}
+`;
+
+const ensureProxyComposeFile = () => {
+  if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true });
+  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true });
+  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true });
+
+  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== desiredProxyCompose) {
+    fs.writeFileSync(BETTY_PROXY_COMPOSE, desiredProxyCompose, 'utf8');
+    console.log(`Updated Docker Compose file: ${BETTY_PROXY_COMPOSE}`);
+  }
+};
+
+const getDockerPortOwners = (port: number): string[] => {
+  try {
+    return execSync(`docker ps --filter "publish=${port}" --format "{{.Names}}\t{{.Ports}}"`, { stdio: 'pipe' })
+      .toString()
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const getSystemPortOwners = (port: number): string[] => {
+  try {
+    if (process.platform === 'win32') {
+      const command = [
+        'powershell',
+        '-NoProfile',
+        '-Command',
+        `"Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + ' (PID ' + $_ + ')' } else { 'PID ' + $_ } }"`,
+      ].join(' ');
+      return execSync(command, { stdio: 'pipe' }).toString().trim().split('\n').filter(Boolean);
+    }
+
+    return execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN`, { stdio: 'pipe' })
+      .toString()
+      .trim()
+      .split('\n')
+      .slice(1)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const BETTY_SYSTEM_443_OWNER_PATTERNS = [
+  /^wslrelay\b/i,
+  /^com\.docker\.backend\b/i,
+  /^docker-proxy\b/i,
+  /^vpnkit\b/i,
+];
+
+const filterSystemOwnersForBettyPort = (systemOwners: string[], bettyOwnsPort: boolean): string[] => {
+  if (!bettyOwnsPort) return systemOwners;
+
+  return systemOwners.filter((owner) => {
+    const normalized = owner.trim();
+    return !BETTY_SYSTEM_443_OWNER_PATTERNS.some((pattern) => pattern.test(normalized));
+  });
+};
+
+const ensureHttpsPortAvailable = () => {
+  const allDockerOwners = getDockerPortOwners(443);
+  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(TRAEFIK_CONTAINER));
+  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(TRAEFIK_CONTAINER));
+  if (bettyOwnsPort && dockerOwners.length === 0) return;
+
+  const systemOwners = filterSystemOwnersForBettyPort(getSystemPortOwners(443), bettyOwnsPort);
+
+  if (dockerOwners.length === 0 && systemOwners.length === 0) return;
+
+  console.error('Port 443 is already in use.');
+  console.error('Betty needs host port 443 for HTTPS domains such as .dev.');
+  if (dockerOwners.length > 0) {
+    console.error('\nDocker containers publishing 443:');
+    dockerOwners.forEach((owner) => console.error(` - ${owner}`));
+  }
+  if (systemOwners.length > 0) {
+    console.error('\nProcesses listening on 443:');
+    systemOwners.forEach((owner) => console.error(` - ${owner}`));
+  }
+  console.error('\nStop the conflicting HTTPS server or proxy, then run: betty link');
+  process.exit(1);
+};
+
+const printProxyStartError = (message: string) => {
+  console.error("Betty's proxy could not be started.");
+  if (message.includes('Bind for 0.0.0.0:80 failed')) {
+    console.error('Port 80 is already in use by another service.');
+    console.error('Betty no longer needs host port 80. Run this command again to use the updated proxy compose file.');
+    return;
+  }
+  if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
+    console.error('Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve');
+    console.error('Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"');
+    return;
+  }
+  console.error(message);
+};
 
 const ensureProxyRunning = (traefikComposePath: string) => {
-  execSync(`docker compose -f "${traefikComposePath}" up -d`, {
-    cwd: path.dirname(traefikComposePath),
-    stdio: 'inherit',
-  });
+  try {
+    execSync(`docker compose -f "${traefikComposePath}" up -d`, {
+      cwd: path.dirname(traefikComposePath),
+      stdio: 'inherit',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    printProxyStartError(message);
+    process.exit(1);
+  }
 };
 
 const ensureTraefikNetwork = () => {
@@ -38,7 +170,7 @@ const ensureTraefikNetwork = () => {
     execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' });
   } catch {
     execSync(`docker network create ${TRAEFIK_NETWORK}`, { stdio: 'inherit' });
-    console.log(`Docker-Netzwerk '${TRAEFIK_NETWORK}' angelegt.`);
+    console.log(`Created Docker network '${TRAEFIK_NETWORK}'.`);
   }
 };
 
@@ -49,15 +181,15 @@ const connectContainerToNetwork = (containerName: string) => {
     );
     const networks: Record<string, unknown> = info[0]?.NetworkSettings?.Networks || {};
     if (networks[TRAEFIK_NETWORK]) {
-      return; // bereits verbunden
+      return; // already connected
     }
   } catch {
-    console.error(`Container '${containerName}' nicht gefunden.`);
+    console.error(`Container '${containerName}' not found.`);
     process.exit(1);
   }
 
   execSync(`docker network connect ${TRAEFIK_NETWORK} ${containerName}`, { stdio: 'inherit' });
-  console.log(`Container '${containerName}' mit Netzwerk '${TRAEFIK_NETWORK}' verbunden.`);
+  console.log(`Connected container '${containerName}' to network '${TRAEFIK_NETWORK}'.`);
 };
 
 const getContainerIp = (containerName: string): string => {
@@ -66,22 +198,73 @@ const getContainerIp = (containerName: string): string => {
   );
   const ip: string | undefined = info[0]?.NetworkSettings?.Networks?.[TRAEFIK_NETWORK]?.IPAddress;
   if (!ip) {
-    console.error(`Konnte IP von '${containerName}' im Netzwerk '${TRAEFIK_NETWORK}' nicht ermitteln.`);
+    console.error(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`);
     process.exit(1);
   }
   return ip;
 };
 
-const writeDynamicConfig = (name: string, domain: string, ip: string, port: number, traefikComposePath: string) => {
-  const config = {
+const sanitizeFileName = (value: string): string => value.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase();
+
+const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
+  if (!fs.existsSync(BETTY_CERTS_DIR)) {
+    fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true });
+  }
+
+  const baseName = sanitizeFileName(domain);
+  const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`);
+  const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`);
+
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    return {
+      certFile: `/certs/${baseName}.pem`,
+      keyFile: `/certs/${baseName}-key.pem`,
+    };
+  }
+
+  try {
+    execSync('mkcert -install', { stdio: 'inherit' });
+    execSync(`mkcert -cert-file "${certPath}" -key-file "${keyPath}" "${domain}"`, { stdio: 'inherit' });
+    return {
+      certFile: `/certs/${baseName}.pem`,
+      keyFile: `/certs/${baseName}-key.pem`,
+    };
+  } catch {
+    console.log(`\n⚠️  Could not create a local certificate for ${domain}.`);
+    console.log('   Install mkcert and run this command again to enable HTTPS for this domain.');
+    console.log('   Routing will still be written, but Betty publishes HTTPS on port 443.');
+    return null;
+  }
+};
+
+const writeDynamicConfig = (
+  name: string,
+  domain: string,
+  ip: string,
+  port: number,
+  traefikComposePath: string,
+  certificate: { certFile: string; keyFile: string } | null
+) => {
+  const routers: Record<string, any> = {
+    [name]: {
+      rule: `Host("${domain}")`,
+      entryPoints: ['web'],
+      service: name,
+    },
+  };
+
+  if (certificate) {
+    routers[`${name}-secure`] = {
+      rule: `Host("${domain}")`,
+      entryPoints: ['websecure'],
+      service: name,
+      tls: {},
+    };
+  }
+
+  const config: any = {
     http: {
-      routers: {
-        [name]: {
-          rule: `Host("${domain}")`,
-          entryPoints: ['web'],
-          service: name,
-        },
-      },
+      routers,
       services: {
         [name]: {
           loadBalancer: {
@@ -92,203 +275,98 @@ const writeDynamicConfig = (name: string, domain: string, ip: string, port: numb
     },
   };
 
+  if (certificate) {
+    config.tls = {
+      certificates: [
+        {
+          certFile: certificate.certFile,
+          keyFile: certificate.keyFile,
+        },
+      ],
+    };
+  }
+
   const configYaml = yaml.stringify(config);
-  const dynamicDir = resolveDynamicDir(traefikComposePath);
+  const dynamicDir = resolveDynamicDir();
 
   if (!fs.existsSync(dynamicDir)) {
     fs.mkdirSync(dynamicDir, { recursive: true });
   }
   fs.writeFileSync(path.join(dynamicDir, `${name}.yml`), configYaml, 'utf8');
-  console.log(`Routing-Konfiguration geschrieben: ${name}.yml`);
+  console.log(`Wrote routing configuration: ${name}.yml`);
 
-  // Traefik neu starten damit die Config übernommen wird
-  // (Windows-Bind-Mounts lösen keine inotify-Events im Container aus)
+  // Restart Traefik so it picks up the config.
+  // Windows bind mounts do not trigger inotify events in the container.
   execSync(`docker compose -f "${traefikComposePath}" restart traefik`, {
     cwd: path.dirname(traefikComposePath),
     stdio: 'inherit',
   });
-  console.log('Traefik neu gestartet.');
-};
-
-const ensureFileProviderInTraefik = (composePath: string) => {
-  const raw = fs.readFileSync(composePath, 'utf8');
-  const composeDoc = yaml.parse(raw);
-
-  const traefik = composeDoc?.services?.traefik;
-  if (!traefik) return;
-
-  let changed = false;
-
-  // commands: docker-provider entfernen (Socket nicht verfügbar im devcontainer), file-provider setzen
-  if (!Array.isArray(traefik.command)) traefik.command = [];
-  traefik.command = (traefik.command as string[]).filter(
-    (c) => c !== '--providers.docker=true' && c !== '--providers.docker'
-  );
-  const fileProviderFlag = '--providers.file.directory=/dynamic';
-  const fileWatchFlag = '--providers.file.watch=true';
-  if (!traefik.command.includes(fileProviderFlag)) {
-    traefik.command.push(fileProviderFlag);
-    changed = true;
-  }
-  if (!traefik.command.includes(fileWatchFlag)) {
-    traefik.command.push(fileWatchFlag);
-    changed = true;
-  }
-
-  // Docker-Socket-Volume entfernen
-  if (Array.isArray(traefik.volumes)) {
-    const before = traefik.volumes.length;
-    traefik.volumes = (traefik.volumes as string[]).filter(
-      (v) => !v.includes('docker.sock')
-    );
-    if (traefik.volumes.length !== before) changed = true;
-  } else {
-    traefik.volumes = [];
-  }
-
-  // Named volumes auf /dynamic entfernen, Bind-Mount auf lokales Verzeichnis setzen
-  traefik.volumes = (traefik.volumes as string[]).filter(
-    (v) => !(typeof v === 'string' && v.includes(':/dynamic'))
-  );
-  const bindMount = './dynamic:/dynamic:ro';
-  if (!(traefik.volumes as string[]).includes(bindMount)) {
-    traefik.volumes.push(bindMount);
-    changed = true;
-  }
-
-  // Named volume für traefik-dynamic entfernen falls vorhanden
-  if (composeDoc.volumes && composeDoc.volumes['traefik-dynamic'] !== undefined) {
-    delete composeDoc.volumes['traefik-dynamic'];
-    if (Object.keys(composeDoc.volumes).length === 0) delete composeDoc.volumes;
-    changed = true;
-  }
-
-  if (changed) {
-    fs.writeFileSync(composePath, yaml.stringify(composeDoc), 'utf8');
-    console.log('Traefik file-provider aktiviert (traefik/compose.yml aktualisiert).');
-  }
+  console.log('Restarted Traefik.');
 };
 
 const ensureHostsEntry = (domain: string): boolean => {
-  const isWindows = process.platform === 'win32';
-  const hostsPath = isWindows
+  if (domain.toLowerCase().endsWith('.localhost')) {
+    return true;
+  }
+
+  const hostsPath = process.platform === 'win32'
     ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
     : '/etc/hosts';
   const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+  const entry = `127.0.0.1 ${domain} # added by betty`;
   const hasEntry = () => {
     const content = fs.readFileSync(hostsPath, 'utf8');
     return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content);
   };
 
-  const addDomainToBettyBlock = (content: string): string | null => {
-    if (new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)) return null;
-
-    const newline = content.includes('\r\n') ? '\r\n' : '\n';
-    const lines = content.split(/\r?\n/);
-    const startIndex = lines.findIndex((line) => line.trim() === BETTY_HOSTS_START);
-    const endIndex = lines.findIndex((line, index) => index > startIndex && line.trim() === BETTY_HOSTS_END);
-    const entry = `127.0.0.1 ${domain} # added by betty`;
-
-    let nextLines = lines;
-    if (startIndex >= 0 && endIndex > startIndex) {
-      nextLines = [...lines.slice(0, endIndex), entry, ...lines.slice(endIndex)];
-    } else {
-      nextLines = [...lines];
-      if (nextLines.length > 0 && nextLines[nextLines.length - 1].trim() !== '') nextLines.push('');
-      nextLines.push(BETTY_HOSTS_START, entry, BETTY_HOSTS_END);
-    }
-
-    return `${nextLines.join(newline).replace(/[\r\n]*$/, '')}${newline}`;
-  };
-
-  const tryAutoElevateWindows = () => {
-    const scriptPath = path.join(os.tmpdir(), `betty-hosts-${Date.now()}.ps1`);
-    const scriptDomain = domain.replace(/'/g, "''");
-    const scriptStart = BETTY_HOSTS_START.replace(/'/g, "''");
-    const scriptEnd = BETTY_HOSTS_END.replace(/'/g, "''");
-    // SAFE: only appends, never overwrites the entire file
-    const script = [
-      "$ErrorActionPreference = 'Stop'",
-      `$domain = '${scriptDomain}'`,
-      `$startMarker = '${scriptStart}'`,
-      `$endMarker = '${scriptEnd}'`,
-      "$hostsPath = Join-Path $env:SystemRoot 'System32\\drivers\\etc\\hosts'",
-      "$content = [System.IO.File]::ReadAllText($hostsPath)",
-      "if ($content -match ('(?m)(^|\\s)' + [regex]::Escape($domain) + '(\\s|$)')) { exit 0 }",
-      "$entry = \"127.0.0.1 $domain # added by betty\"",
-      "$append = \"`r`n$startMarker`r`n$entry`r`n$endMarker`r`n\"",
-      "[System.IO.File]::AppendAllText($hostsPath, $append, [System.Text.Encoding]::ASCII)",
-    ].join('\n');
-
-    fs.writeFileSync(scriptPath, script, 'utf8');
-    try {
-      execSync(
-        `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}' -Wait"`,
-        { stdio: 'inherit' }
-      );
-    } finally {
-      try {
-        fs.unlinkSync(scriptPath);
-      } catch {
-        // ignore cleanup errors
-      }
-    }
-  };
-
   try {
     if (hasEntry()) return true;
-
-    try {
-      fs.accessSync(hostsPath, fs.constants.W_OK);
-      const content = fs.readFileSync(hostsPath, 'utf8');
-      const updated = addDomainToBettyBlock(content);
-      if (updated !== null) {
-        fs.writeFileSync(hostsPath, updated, 'utf8');
-        console.log(`Hosts-Eintrag gesetzt: 127.0.0.1 ${domain}`);
-        return true;
-      }
-      return true;
-    } catch {
-      if (isWindows) {
-        try {
-          console.log('Erhöhe Rechte, um Hosts-Eintrag automatisch zu setzen...');
-          tryAutoElevateWindows();
-          if (hasEntry()) {
-            console.log(`Hosts-Eintrag gesetzt: 127.0.0.1 ${domain}`);
-            return true;
-          }
-        } catch {
-          // fallback hint below
-        }
-        console.log(`\n⚠️  Hosts-Eintrag konnte nicht automatisch gesetzt werden (UAC evtl. abgebrochen).`);
-        console.log('   Bitte hosts-Datei manuell bearbeiten: 127.0.0.1 ' + domain);
-        return false;
-      } else {
-        console.log(`\n⚠️  Bitte einmalig ausführen: sudo sh -c 'echo "127.0.0.1 ${domain}" >> /etc/hosts'`);
-        return false;
-      }
-    }
   } catch {
-    if (isWindows) {
+    // continue to append attempt or manual hint
+  }
+
+  try {
+    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8');
+    console.log(`Added hosts entry: ${entry}`);
+    return true;
+  } catch {
+    if (process.platform === 'win32') {
+      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${Date.now()}.ps1`);
+      const scriptDomain = domain.replace(/'/g, "''");
+      const scriptEntry = entry.replace(/'/g, "''");
+      const script = [
+        "$ErrorActionPreference = 'Stop'",
+        `$domain = '${scriptDomain}'`,
+        `$entry = '${scriptEntry}'`,
+        "$hostsPath = Join-Path $env:SystemRoot 'System32\\drivers\\etc\\hosts'",
+        "$content = [System.IO.File]::ReadAllText($hostsPath)",
+        "if ($content -match ('(?m)(^|\\s)' + [regex]::Escape($domain) + '(\\s|$)')) { exit 0 }",
+        "[System.IO.File]::AppendAllText($hostsPath, \"`r`n$entry`r`n\", [System.Text.Encoding]::UTF8)",
+      ].join('\n');
+
+      fs.writeFileSync(scriptPath, script, 'utf8');
       try {
-        console.log('Erhöhe Rechte, um Hosts-Eintrag automatisch zu setzen...');
-        tryAutoElevateWindows();
-        if (hasEntry()) {
-          console.log(`Hosts-Eintrag gesetzt: 127.0.0.1 ${domain}`);
-          return true;
-        }
+        execSync(
+          `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}' -Wait"`,
+          { stdio: 'inherit' }
+        );
+        return hasEntry();
       } catch {
-        // fallback hint below
+        // manual hint below
+      } finally {
+        try {
+          fs.unlinkSync(scriptPath);
+        } catch {
+          // ignore cleanup errors
+        }
       }
-      console.log(`\n⚠️  Hosts-Eintrag konnte nicht automatisch gesetzt werden (UAC evtl. abgebrochen).`);
-      console.log('   Bitte hosts-Datei manuell bearbeiten: 127.0.0.1 ' + domain);
-      return false;
-    } else {
-      console.log(`Konnte /etc/hosts nicht lesen. Stelle sicher, dass ${domain} auf 127.0.0.1 zeigt.`);
-      return false;
     }
   }
+
+  console.log(`\n⚠️  Could not add hosts entry automatically.`);
+  console.log(`   Add this line manually to ${hostsPath}:`);
+  console.log(`   ${entry}`);
+  return false;
 };
 
 const getRunningContainers = (): string[] => {
@@ -303,6 +381,12 @@ const getRunningContainers = (): string[] => {
   }
 };
 
+const validateLocalDomain = (domain: string): true | string => {
+  const normalized = domain.trim();
+  if (!normalized) return 'Domain cannot be empty';
+  return true;
+};
+
 const connectCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }) => {
   let resolvedContainer = containerName;
   let resolvedDomain = opts.domain;
@@ -315,21 +399,21 @@ const connectCommand = async (containerName: string | undefined, opts: { domain?
       ...(!resolvedContainer ? [{
         type: runningContainers.length > 0 ? 'list' : 'input',
         name: 'container',
-        message: 'Container-Name:',
+        message: 'Container:',
         ...(runningContainers.length > 0 ? { choices: runningContainers } : {}),
       }] : []),
       ...(!resolvedDomain ? [{
         type: 'input',
         name: 'domain',
-        message: 'Domain (z.B. myapp.localhost):',
-        validate: (v: string) => !!v || 'Domain darf nicht leer sein',
+        message: 'Domain (e.g. myapp.localhost):',
+        validate: validateLocalDomain,
       }] : []),
       ...(!resolvedPort ? [{
         type: 'input',
         name: 'port',
         message: 'Port:',
         default: '80',
-        validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Bitte einen gültigen Port angeben',
+        validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Please provide a valid port',
       }] : []),
     ]);
 
@@ -339,39 +423,57 @@ const connectCommand = async (containerName: string | undefined, opts: { domain?
   }
 
   if (!resolvedContainer) {
-    console.error('Kein Container angegeben.');
+    console.error('No container provided.');
     process.exit(1);
   }
 
   if (!resolvedDomain) {
-    console.error('Keine Domain angegeben.');
+    console.error('No domain provided.');
+    process.exit(1);
+  }
+
+  const domainValidation = validateLocalDomain(resolvedDomain);
+  if (domainValidation !== true) {
+    console.error(domainValidation);
     process.exit(1);
   }
 
   const port = parseInt(resolvedPort || '80', 10);
   if (!Number.isFinite(port) || port <= 0) {
-    console.error('Ungültiger Port. Beispiel: --port 3000');
+    console.error('Invalid port. Example: --port 3000');
     process.exit(1);
   }
 
   const containerNameResolved = resolvedContainer;
-  const domainResolved = resolvedDomain;
+  const domainResolved = resolvedDomain.trim();
+
+  ensureProxyComposeFile();
   const traefikComposePath = resolveTraefikComposePath();
 
-  console.log(`Verbinde '${containerNameResolved}' mit Domain '${domainResolved}' auf Port ${port}...`);
+  console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${port}...`);
 
-  ensureFileProviderInTraefik(traefikComposePath);
-  ensureProxyRunning(traefikComposePath);        // proxy startet und legt traefik_default-Netz an
-  ensureTraefikNetwork();      // sicherstellen, falls compose das Netz nicht angelegt hat
+  ensureHttpsPortAvailable();
+  ensureProxyRunning(traefikComposePath);
+  ensureTraefikNetwork();      // ensure it exists if compose did not create the network
   connectContainerToNetwork(containerNameResolved);
   const ip = getContainerIp(containerNameResolved);
-  writeDynamicConfig(containerNameResolved.replace(/[^a-zA-Z0-9-]/g, '-'), domainResolved, ip, port, traefikComposePath);
+  const certificate = ensureCertificate(domainResolved);
+  writeDynamicConfig(containerNameResolved.replace(/[^a-zA-Z0-9-]/g, '-'), domainResolved, ip, port, traefikComposePath, certificate);
   const hostsUpdated = ensureHostsEntry(domainResolved);
   if (!hostsUpdated) {
-    console.log(`\n⚠️  Domain ist erst erreichbar, nachdem der Hosts-Eintrag gesetzt wurde: ${domainResolved}`);
+    console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`);
   }
 
-  console.log(`\n✅ '${containerNameResolved}' ist jetzt erreichbar unter http://${domainResolved}`);
+  if (certificate) {
+    console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`);
+  } else {
+    console.log(`\n⚠️  Routing was written, but no HTTPS certificate is available for ${domainResolved}.`);
+    console.log('   Install mkcert and run this command again. Betty publishes HTTPS on port 443.');
+  }
 };
 
 export default connectCommand;
+
+export const __testables = {
+  filterSystemOwnersForBettyPort,
+};

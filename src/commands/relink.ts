@@ -1,0 +1,336 @@
+import { execSync } from 'child_process';
+import fs from 'fs';
+import inquirer from 'inquirer';
+import os from 'os';
+import path from 'path';
+import yaml from 'yaml';
+
+type RouteEntry = {
+  filePath: string;
+  fileName: string;
+  routerName: string;
+  domain: string;
+  target: string;
+  port: string;
+};
+
+type RelinkOptions = {
+  container?: string;
+  domain?: string;
+  port?: string;
+};
+
+const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
+const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml');
+const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic');
+const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs');
+const TRAEFIK_NETWORK = 'betty_proxy';
+
+const resolveTraefikComposePath = (): string => {
+  if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE;
+  console.error("Betty's proxy is not set up yet. Run: betty serve");
+  process.exit(1);
+};
+
+const sanitizeFileName = (value: string): string => value.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase();
+
+const readRoutes = (): RouteEntry[] => {
+  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return [];
+
+  return fs.readdirSync(BETTY_DYNAMIC_DIR)
+    .filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
+    .map((file) => {
+      const filePath = path.join(BETTY_DYNAMIC_DIR, file);
+      try {
+        const doc = yaml.parse(fs.readFileSync(filePath, 'utf8'));
+        const routers = doc?.http?.routers || {};
+        const services = doc?.http?.services || {};
+        const firstRouterKey = Object.keys(routers).find((key) => !key.endsWith('-secure')) || Object.keys(routers)[0] || path.basename(file, path.extname(file));
+        const firstServiceKey = Object.keys(services)[0] || firstRouterKey;
+        const rule = String(routers[firstRouterKey]?.rule || '');
+        const domain = rule.match(/Host\("([^"]+)"\)/)?.[1] || '';
+        const target = String(services[firstServiceKey]?.loadBalancer?.servers?.[0]?.url || '');
+        const port = target.match(/:(\d+)(?:\/)?$/)?.[1] || '';
+        return { filePath, fileName: file, routerName: firstRouterKey, domain, target, port } as RouteEntry;
+      } catch {
+        return null;
+      }
+    })
+    .filter((entry): entry is RouteEntry => entry !== null);
+};
+
+const getRunningContainers = (): string[] => {
+  try {
+    return execSync('docker ps --format {{.Names}}', { stdio: 'pipe' })
+      .toString()
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const connectContainerToNetwork = (containerName: string) => {
+  try {
+    const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString());
+    const networks: Record<string, unknown> = info[0]?.NetworkSettings?.Networks || {};
+    if (networks[TRAEFIK_NETWORK]) return;
+  } catch {
+    console.error(`Container '${containerName}' not found.`);
+    process.exit(1);
+  }
+
+  execSync(`docker network connect ${TRAEFIK_NETWORK} ${containerName}`, { stdio: 'inherit' });
+  console.log(`Connected container '${containerName}' to network '${TRAEFIK_NETWORK}'.`);
+};
+
+const getContainerIp = (containerName: string): string => {
+  const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString());
+  const ip: string | undefined = info[0]?.NetworkSettings?.Networks?.[TRAEFIK_NETWORK]?.IPAddress;
+  if (!ip) {
+    console.error(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`);
+    process.exit(1);
+  }
+  return ip;
+};
+
+const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
+  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true });
+
+  const baseName = sanitizeFileName(domain);
+  const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`);
+  const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`);
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    return { certFile: `/certs/${baseName}.pem`, keyFile: `/certs/${baseName}-key.pem` };
+  }
+
+  try {
+    execSync('mkcert -install', { stdio: 'inherit' });
+    execSync(`mkcert -cert-file "${certPath}" -key-file "${keyPath}" "${domain}"`, { stdio: 'inherit' });
+    return { certFile: `/certs/${baseName}.pem`, keyFile: `/certs/${baseName}-key.pem` };
+  } catch {
+    console.log(`\n⚠️  Could not create a local certificate for ${domain}.`);
+    return null;
+  }
+};
+
+const ensureHostsEntry = (domain: string): boolean => {
+  if (domain.toLowerCase().endsWith('.localhost')) {
+    return true;
+  }
+
+  const hostsPath = process.platform === 'win32'
+    ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+    : '/etc/hosts';
+  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const entry = `127.0.0.1 ${domain} # added by betty`;
+  const hasEntry = () => {
+    const content = fs.readFileSync(hostsPath, 'utf8');
+    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content);
+  };
+
+  try {
+    if (hasEntry()) return true;
+  } catch {
+    // continue to append attempt or manual hint
+  }
+
+  try {
+    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8');
+    console.log(`Added hosts entry: ${entry}`);
+    return true;
+  } catch {
+    if (process.platform === 'win32') {
+      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${Date.now()}.ps1`);
+      const scriptDomain = domain.replace(/'/g, "''");
+      const scriptEntry = entry.replace(/'/g, "''");
+      const script = [
+        "$ErrorActionPreference = 'Stop'",
+        `$domain = '${scriptDomain}'`,
+        `$entry = '${scriptEntry}'`,
+        "$hostsPath = Join-Path $env:SystemRoot 'System32\\drivers\\etc\\hosts'",
+        "$content = [System.IO.File]::ReadAllText($hostsPath)",
+        "if ($content -match ('(?m)(^|\\s)' + [regex]::Escape($domain) + '(\\s|$)')) { exit 0 }",
+        "[System.IO.File]::AppendAllText($hostsPath, \"`r`n$entry`r`n\", [System.Text.Encoding]::UTF8)",
+      ].join('\n');
+
+      fs.writeFileSync(scriptPath, script, 'utf8');
+      try {
+        execSync(
+          `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}' -Wait"`,
+          { stdio: 'inherit' }
+        );
+        return hasEntry();
+      } catch {
+        // manual hint below
+      } finally {
+        try {
+          fs.unlinkSync(scriptPath);
+        } catch {
+          // ignore cleanup errors
+        }
+      }
+    }
+  }
+
+  console.log(`\n⚠️  Could not add hosts entry automatically.`);
+  console.log(`   Add this line manually to ${hostsPath}:`);
+  console.log(`   ${entry}`);
+  return false;
+};
+
+const writeRoute = (
+  route: RouteEntry,
+  containerName: string,
+  domain: string,
+  ip: string,
+  port: number,
+  certificate: { certFile: string; keyFile: string } | null
+) => {
+  const serviceName = containerName.replace(/[^a-zA-Z0-9-]/g, '-');
+  const routers: Record<string, any> = {
+    [serviceName]: {
+      rule: `Host("${domain}")`,
+      entryPoints: ['web'],
+      service: serviceName,
+    },
+  };
+
+  if (certificate) {
+    routers[`${serviceName}-secure`] = {
+      rule: `Host("${domain}")`,
+      entryPoints: ['websecure'],
+      service: serviceName,
+      tls: {},
+    };
+  }
+
+  const config: any = {
+    http: {
+      routers,
+      services: {
+        [serviceName]: {
+          loadBalancer: {
+            servers: [{ url: `http://${ip}:${port}` }],
+          },
+        },
+      },
+    },
+  };
+
+  if (certificate) {
+    config.tls = {
+      certificates: [{ certFile: certificate.certFile, keyFile: certificate.keyFile }],
+    };
+  }
+
+  const nextPath = path.join(BETTY_DYNAMIC_DIR, `${serviceName}.yml`);
+  if (route.filePath !== nextPath && fs.existsSync(route.filePath)) fs.unlinkSync(route.filePath);
+  fs.writeFileSync(nextPath, yaml.stringify(config), 'utf8');
+  console.log(`Updated routing configuration: ${path.basename(nextPath)}`);
+};
+
+const restartTraefik = (composePath: string) => {
+  execSync(`docker compose -f "${composePath}" restart traefik`, {
+    cwd: path.dirname(composePath),
+    stdio: 'inherit',
+  });
+  console.log('Restarted Traefik.');
+};
+
+const selectRoute = async (routes: RouteEntry[], target?: string): Promise<RouteEntry> => {
+  if (target) {
+    const normalized = target.toLowerCase();
+    const matches = routes.filter((route) =>
+      route.routerName.toLowerCase() === normalized ||
+      route.domain.toLowerCase() === normalized ||
+      path.basename(route.fileName, path.extname(route.fileName)).toLowerCase() === normalized
+    );
+    if (matches.length === 1) return matches[0];
+  }
+
+  const answer = await inquirer.prompt([{
+    type: 'list',
+    name: 'route',
+    message: 'Which link should be updated?',
+    choices: routes.map((route) => ({
+      name: `${route.routerName} -> ${route.domain} (${route.target || 'n/a'})`,
+      value: route.filePath,
+    })),
+  }]);
+  return routes.find((route) => route.filePath === answer.route) || routes[0];
+};
+
+const relinkCommand = async (target?: string, opts?: RelinkOptions) => {
+  const composePath = resolveTraefikComposePath();
+  const routes = readRoutes();
+  if (routes.length === 0) {
+    console.log('No links found.');
+    return;
+  }
+
+  const route = await selectRoute(routes, target);
+  const runningContainers = getRunningContainers();
+  const shouldPromptValues = !opts?.container && !opts?.domain && !opts?.port;
+
+  const answers = await inquirer.prompt([
+    ...(shouldPromptValues ? [{
+      type: runningContainers.length > 0 ? 'list' : 'input',
+      name: 'container',
+      message: 'Container:',
+      default: route.routerName,
+      ...(runningContainers.length > 0 ? { choices: runningContainers } : {}),
+    }] : []),
+    ...(shouldPromptValues ? [{
+      type: 'input',
+      name: 'domain',
+      message: 'Domain:',
+      default: route.domain,
+      validate: (value: string) => !!value.trim() || 'Domain cannot be empty',
+    }] : []),
+    ...(shouldPromptValues ? [{
+      type: 'input',
+      name: 'port',
+      message: 'Port:',
+      default: route.port || '80',
+      validate: (value: string) => (Number.isFinite(parseInt(value, 10)) && parseInt(value, 10) > 0) || 'Please provide a valid port',
+    }] : []),
+  ]);
+
+  const containerName = (opts?.container || answers.container || route.routerName).trim();
+  const domain = (opts?.domain || answers.domain || route.domain).trim();
+  const port = parseInt(opts?.port || answers.port || route.port || '80', 10);
+
+  if (!containerName) {
+    console.error('No container provided.');
+    process.exit(1);
+  }
+
+  if (!domain) {
+    console.error('No domain provided.');
+    process.exit(1);
+  }
+
+  if (!Number.isFinite(port) || port <= 0) {
+    console.error('Invalid port. Example: --port 3000');
+    process.exit(1);
+  }
+
+  connectContainerToNetwork(containerName);
+  const ip = getContainerIp(containerName);
+  const certificate = ensureCertificate(domain);
+  writeRoute(route, containerName, domain, ip, port, certificate);
+  const hostsUpdated = ensureHostsEntry(domain);
+  if (!hostsUpdated) {
+    console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`);
+  }
+  restartTraefik(composePath);
+
+  console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${port}`);
+  if (certificate) {
+    console.log(`✅ HTTPS is available at https://${domain}`);
+  }
+};
+
+export default relinkCommand;

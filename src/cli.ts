@@ -1,28 +1,57 @@
-import { Command } from 'commander'
-import initCommand from './commands/init'
-import proxyUpCommand from './commands/proxyUp'
-import upCommand from './commands/up'
+import connectCommand from './commands/connect';
 
-const program = new Command()
+import { Command } from 'commander';
+import restCommand from './commands/disconnect';
+import proxyUpCommand from './commands/proxyUp';
+import relinkCommand from './commands/relink';
+import statusCommand from './commands/status';
+import unlinkCommand from './commands/unlink';
+
+
+const program = new Command();
 
 program
   .name('betty')
-  .description('Betty CLI – Cross-Platform Dev Domains mit Docker Compose & Traefik')
+  .description('Betty CLI - switch local domains for Docker projects')
   .version('0.1.0')
 
 program
-  .command('init')
-  .description('Projekt für Betty initialisieren')
-  .action(initCommand)
-
-program
-  .command('proxy up')
-  .description('Globalen Traefik-Proxy starten')
+  .command('serve')
+  .description("Start Betty's local switchboard service")
   .action(proxyUpCommand)
 
 program
-  .command('up')
-  .description('Projekt inkl. Routing starten')
-  .action(upCommand)
+  .command('rest')
+  .description("Stop Betty's local switchboard service")
+  .action(restCommand)
 
-program.parse(process.argv)
+program
+  .command('status')
+  .description("Show Betty's local switchboard status")
+  .option('--long', 'Show detailed proxy container info')
+  .option('--json', 'Output status as JSON')
+  .option('--format <format>', 'Output format, e.g. json')
+  .action((opts) => statusCommand(opts))
+
+program
+  .command('link [container]')
+  .description('Link a running container to a local domain')
+  .option('--domain <domain>', 'Target domain, e.g. testapp.localhost')
+  .option('--port <port>', 'Internal container port')
+  .action((container, opts) => connectCommand(container, opts))
+
+program
+  .command('relink [target]')
+  .description('Update an existing local domain link')
+  .option('--container <container>', 'New target container')
+  .option('--domain <domain>', 'New linked domain')
+  .option('--port <port>', 'New internal container port')
+  .action((target, opts) => relinkCommand(target, opts))
+
+program
+  .command('unlink [target]')
+  .description('Remove a local domain link')
+  .option('--domain <domain>', 'Linked domain, e.g. testapp.localhost')
+  .action((target, opts) => unlinkCommand(target, opts))
+
+program.parse(process.argv);
