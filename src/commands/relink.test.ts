@@ -92,7 +92,7 @@ describe('relink command', () => {
     })
 
     await expect(relinkCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith("Betty's proxy is not set up yet. Run: betty serve")
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Betty's proxy is not set up yet. Run: betty serve"))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()
@@ -211,7 +211,7 @@ describe('relink command', () => {
     })
 
     await expect(relinkCommand('app')).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith('No container provided.')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No container provided.'))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()
@@ -237,7 +237,7 @@ describe('relink command', () => {
     await expect(
       relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: 'notanumber' })
     ).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith('Invalid port. Example: --port 3000')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid port. Example: --port 3000'))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()

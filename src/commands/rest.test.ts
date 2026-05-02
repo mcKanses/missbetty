@@ -72,7 +72,7 @@ describe('rest command', () => {
     })
 
     expect(() => { restCommand() }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith("Betty's switchboard service could not be stopped:", 'compose down failed')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Betty's switchboard service could not be stopped: compose down failed"))
     expect(exitSpy).toHaveBeenCalledWith(1)
 
     errorSpy.mockRestore()

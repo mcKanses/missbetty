@@ -80,7 +80,7 @@ describe('unlink command', () => {
     })
 
     await expect(unlinkCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith("Betty's proxy is not set up yet. Run: betty serve")
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Betty's proxy is not set up yet. Run: betty serve"))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()

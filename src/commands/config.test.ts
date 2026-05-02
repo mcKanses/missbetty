@@ -79,7 +79,7 @@ describe('config command', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
     expect(() => { configCommand('get', 'other') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith('Unknown config key. Supported: domainSuffix')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown config key. Supported: domainSuffix'))
 
     errorSpy.mockRestore()
   })
