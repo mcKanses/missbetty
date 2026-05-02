@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
-import linkCommand, { suggestDomain } from './link'
+import linkCommand, { suggestDomain, readExposedPorts } from './link'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -219,6 +219,43 @@ describe('suggestDomain', () => {
     expect(suggestDomain('myapp')).toBe('myapp.localhost')
 
     process.env.BETTY_DOMAIN_SUFFIX = previous
+  })
+})
+
+describe('readExposedPorts', () => {
+  test('returns sorted port list from ExposedPorts', () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(JSON.stringify([
+      {
+        NetworkSettings: { Networks: {} },
+        State: {},
+        RestartCount: 0,
+        Config: {
+          Labels: {},
+          ExposedPorts: { '8080/tcp': {}, '3000/tcp': {}, '443/tcp': {} },
+        },
+      },
+    ])))
+
+    expect(readExposedPorts('myapp')).toEqual([443, 3000, 8080])
+  })
+
+  test('returns empty array when docker inspect fails', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('not found') })
+
+    expect(readExposedPorts('missing')).toEqual([])
+  })
+
+  test('returns empty array when ExposedPorts is absent', () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(JSON.stringify([
+      {
+        NetworkSettings: { Networks: {} },
+        State: {},
+        RestartCount: 0,
+        Config: { Labels: {} },
+      },
+    ])))
+
+    expect(readExposedPorts('myapp')).toEqual([])
   })
 })
 
