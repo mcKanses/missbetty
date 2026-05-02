@@ -504,7 +504,17 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   writeDynamicConfig(containerNameResolved.replace(/[^a-zA-Z0-9-]/g, '-'), domainResolved, ip, port, traefikComposePath, certificate)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)
-  
+
+  const hostsStatus = domainResolved.toLowerCase().endsWith('.localhost')
+    ? 'not required (.localhost)'
+    : hostsUpdated ? 'updated/ok' : 'manual action required'
+
+  console.log('\nSummary:')
+  console.log(`- domain: ${domainResolved}`)
+  console.log(`- target: ${containerNameResolved}:${String(port)}`)
+  console.log(`- route: ${routeFileName}`)
+  console.log(`- hosts: ${hostsStatus}`)
+  console.log('- traefik: restarted')
 
   if (certificate) console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`)
    else {

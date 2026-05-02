@@ -349,11 +349,23 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   connectContainerToNetwork(containerName)
   const ip = getContainerIp(containerName)
   const certificate = ensureCertificate(domain)
+  const routeFileName = `${containerName.replace(/[^a-zA-Z0-9-]/g, '-')}.yml`
   writeRoute(route, containerName, domain, ip, port, certificate)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
-  
+
   restartTraefik(composePath)
+
+  const hostsStatus = domain.toLowerCase().endsWith('.localhost')
+    ? 'not required (.localhost)'
+    : hostsUpdated ? 'updated/ok' : 'manual action required'
+
+  console.log('\nSummary:')
+  console.log(`- domain: ${domain}`)
+  console.log(`- target: ${containerName}:${String(port)}`)
+  console.log(`- route: ${routeFileName}`)
+  console.log(`- hosts: ${hostsStatus}`)
+  console.log('- traefik: restarted')
 
   console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`)
   if (certificate) console.log(`✅ HTTPS is available at https://${domain}`)

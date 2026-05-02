@@ -230,14 +230,25 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string }): Promi
 
   const remainingRoutes = readRoutes(composePath)
   const domainStillUsed = remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)
+  let hostsStatus: string
   if (!domainStillUsed) {
     const hostsUpdated = removeHostsEntry(route.domain)
     if (!hostsUpdated) console.log(`Domain still needs manual cleanup in hosts: ${route.domain}`)
+    hostsStatus = hostsUpdated ? 'removed/ok' : 'manual action required'
   }
-   else console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
-  
+   else {
+    console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
+    hostsStatus = 'kept (domain still used)'
+  }
 
   restartTraefik(composePath)
+
+  console.log('\nSummary:')
+  console.log(`- removed domain: ${route.domain}`)
+  console.log(`- removed route: ${route.fileName}`)
+  console.log(`- hosts: ${hostsStatus}`)
+  console.log('- traefik: restarted')
+
   console.log(`\n✅ Removed link: ${route.routerName} (${route.domain})`)
 }
 
