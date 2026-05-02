@@ -341,6 +341,15 @@ interface LinkPromptAnswers {
   port?: string;
 }
 
+export const suggestDomain = (containerName: string): string => {
+  const cleaned = containerName
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/-\d+$/, '')
+    .replace(/[^a-z0-9-]/g, '')
+  return `${cleaned}.localhost`
+}
+
 const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }): Promise<void> => {
   let resolvedContainer = containerName
   let resolvedDomain = opts.domain
@@ -359,7 +368,8 @@ const linkCommand = async (containerName: string | undefined, opts: { domain?: s
       ...(resolvedDomain === undefined ? [{
         type: 'input',
         name: 'domain',
-        message: 'Domain (e.g. myapp.localhost):',
+        message: 'Domain:',
+        default: (answers: { container?: string }) => suggestDomain(resolvedContainer ?? answers.container ?? ''),
         validate: validateLocalDomain,
       }] : []),
       ...(resolvedPort === undefined ? [{

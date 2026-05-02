@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
-import linkCommand from './link'
+import linkCommand, { suggestDomain } from './link'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -128,6 +128,30 @@ describe('link command', () => {
     )
 
     logSpy.mockRestore()
+  })
+})
+
+describe('suggestDomain', () => {
+  test('appends .localhost to a simple name', () => {
+    expect(suggestDomain('myapp')).toBe('myapp.localhost')
+  })
+
+  test('strips trailing replica number', () => {
+    expect(suggestDomain('myapp-1')).toBe('myapp.localhost')
+    expect(suggestDomain('frontend-12')).toBe('frontend.localhost')
+  })
+
+  test('converts underscores to hyphens', () => {
+    expect(suggestDomain('my_project')).toBe('my-project.localhost')
+  })
+
+  test('lowercases the name', () => {
+    expect(suggestDomain('MyApp')).toBe('myapp.localhost')
+  })
+
+  test('handles Docker Compose service names with replica suffix', () => {
+    expect(suggestDomain('myapp-web-1')).toBe('myapp-web.localhost')
+    expect(suggestDomain('my_project-backend-2')).toBe('my-project-backend.localhost')
   })
 })
 
