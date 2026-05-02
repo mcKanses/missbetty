@@ -382,7 +382,23 @@ const stripReplicaSuffix = (value: string): string => value.replace(/-\d+$/, '')
 interface DockerInspectComposeLabelsEntry extends DockerInspectEntry {
   Config?: {
     Labels?: Record<string, string>;
+    ExposedPorts?: Record<string, unknown>;
   };
+}
+
+export const readExposedPorts = (containerName: string): number[] => {
+  try {
+    const info = JSON.parse(
+      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+    ) as DockerInspectComposeLabelsEntry[]
+    const exposed = info[0]?.Config?.ExposedPorts ?? {}
+    return Object.keys(exposed)
+      .map((key) => parseInt(key.split('/')[0], 10))
+      .filter((p) => Number.isFinite(p) && p > 0)
+      .sort((a, b) => a - b)
+  } catch {
+    return []
+  }
 }
 
 const readComposeLabels = (containerName: string): { project: string; service: string } | null => {
@@ -432,18 +448,47 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
         default: (answers: { container?: string }) => suggestDomain(resolvedContainer ?? answers.container ?? ''),
         validate: validateLocalDomain,
       }] : []),
-      ...(resolvedPort === undefined ? [{
+    ]) as LinkPromptAnswers
+
+    if (answers.container !== undefined && answers.container !== '') resolvedContainer = answers.container
+    if (answers.domain !== undefined && answers.domain !== '') resolvedDomain = answers.domain
+  }
+
+  if (resolvedPort === undefined) {
+    const exposedPorts = resolvedContainer !== undefined ? readExposedPorts(resolvedContainer) : []
+    const CUSTOM_PORT = '__custom__'
+    if (exposedPorts.length > 0) {
+      const choices = [
+        ...exposedPorts.map(String),
+        { name: 'Other (enter manually)', value: CUSTOM_PORT },
+      ]
+      const portAnswer = await inquirer.prompt([{
+        type: 'list',
+        name: 'port',
+        message: 'Port:',
+        choices,
+        default: String(exposedPorts[0]),
+      }]) as { port: string }
+      if (portAnswer.port === CUSTOM_PORT) {
+        const customAnswer = await inquirer.prompt([{
+          type: 'input',
+          name: 'port',
+          message: 'Port:',
+          validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Please provide a valid port',
+        }]) as { port: string }
+        resolvedPort = customAnswer.port
+      } else resolvedPort = portAnswer.port
+      
+    } else {
+      const portAnswer = await inquirer.prompt([{
         type: 'input',
         name: 'port',
         message: 'Port:',
         default: '80',
         validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Please provide a valid port',
-      }] : []),
-    ]) as LinkPromptAnswers
-
-    if (answers.container !== undefined && answers.container !== '') resolvedContainer = answers.container
-    if (answers.domain !== undefined && answers.domain !== '') resolvedDomain = answers.domain
-    if (answers.port !== undefined && answers.port !== '') resolvedPort = answers.port
+      }]) as { port: string }
+      resolvedPort = portAnswer.port
+    }
   }
 
   if (resolvedContainer === undefined || resolvedContainer === '') {
@@ -462,7 +507,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
     process.exit(1)
   }
 
-  const port = parseInt(resolvedPort ?? '80', 10)
+  const port = parseInt(resolvedPort, 10)
   if (!Number.isFinite(port) || port <= 0) {
     console.error('Invalid port. Example: --port 3000')
     process.exit(1)
