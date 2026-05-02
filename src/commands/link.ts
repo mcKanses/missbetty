@@ -9,6 +9,7 @@ import {
   getSystemPortOwners,
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners'
+import { getDomainSuffix } from '../utils/config'
 import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter } from '../types'
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
@@ -371,12 +372,13 @@ const readComposeLabels = (containerName: string): { project: string; service: s
 }
 
 export const suggestDomain = (containerName: string): string => {
+  const suffix = getDomainSuffix()
   const compose = readComposeLabels(containerName)
-  if (compose !== null) return `${compose.service}.${compose.project}.dev`
+  if (compose !== null) return `${compose.service}.${compose.project}${suffix}`
 
   const cleaned = normalizeDomainLabel(stripReplicaSuffix(containerName))
-  if (cleaned === '') return 'app.dev'
-  return `${cleaned}.dev`
+  if (cleaned === '') return `app${suffix}`
+  return `${cleaned}${suffix}`
 }
 
 const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }): Promise<void> => {

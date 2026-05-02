@@ -6,6 +6,7 @@ import serveCommand from './commands/serve'
 import relinkCommand from './commands/relink'
 import statusCommand from './commands/status'
 import unlinkCommand from './commands/unlink'
+import configCommand from './commands/config'
 
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
@@ -64,7 +65,7 @@ program
 program
   .command('link [container]')
   .description('Link a running container to a local domain')
-  .option('--domain <domain>', 'Target domain, e.g. testapp.localhost')
+  .option('--domain <domain>', 'Target domain, e.g. testapp.dev')
   .option('--port <port>', 'Internal container port')
   .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
 
@@ -79,8 +80,13 @@ program
 program
   .command('unlink [target]')
   .description('Remove a local domain link')
-  .option('--domain <domain>', 'Linked domain, e.g. testapp.localhost')
+  .option('--domain <domain>', 'Linked domain, e.g. testapp.dev')
   .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts) })
+
+program
+  .command('config [action] [key] [value]')
+  .description('Read or update Betty configuration')
+  .action((action?: string, key?: string, value?: string) => { configCommand(action, key, value) })
 
 const run = async (): Promise<void> => {
   if (!cmd) {

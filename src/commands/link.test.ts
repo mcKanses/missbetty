@@ -50,7 +50,7 @@ const DOCKER_INSPECT = JSON.stringify([
 ])
 
 beforeEach(() => {
-  jest.clearAllMocks()
+  jest.resetAllMocks()
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
@@ -171,6 +171,15 @@ describe('suggestDomain', () => {
     })
 
     expect(suggestDomain('mckanses-auth-ory-ui-1')).toBe('ory-ui.mckanses-auth.dev')
+  })
+
+  test('respects configured domain suffix from environment', () => {
+    const previous = process.env.BETTY_DOMAIN_SUFFIX
+    process.env.BETTY_DOMAIN_SUFFIX = '.localhost'
+
+    expect(suggestDomain('myapp')).toBe('myapp.localhost')
+
+    process.env.BETTY_DOMAIN_SUFFIX = previous
   })
 })
 

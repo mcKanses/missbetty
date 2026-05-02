@@ -16,8 +16,10 @@ export function printHelp(): void {
   console.log(commandLine('link', 'connect a service to a domain'))
   console.log(commandLine('relink', 'update an existing domain link'))
   console.log(commandLine('unlink', 'remove a domain link'))
+  console.log(commandLine('config', 'read or update betty settings'))
   console.log('')
   console.log('Examples:')
   console.log('  betty serve')
   console.log('  betty link myapp --domain myapp.dev --port 3000')
+  console.log('  betty config set domainSuffix .localhost')
 }
