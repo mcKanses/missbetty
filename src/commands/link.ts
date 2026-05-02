@@ -336,6 +336,29 @@ const validateLocalDomain = (domain: string): true | string => {
   return true
 }
 
+const findDomainConflict = (domain: string, ignoreFilePath?: string): { fileName: string; routerName: string } | null => {
+  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return null
+
+  const files = fs.readdirSync(BETTY_DYNAMIC_DIR).filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
+  for (const file of files) {
+    const filePath = path.join(BETTY_DYNAMIC_DIR, file)
+    if (ignoreFilePath !== undefined && filePath === ignoreFilePath) continue
+
+    try {
+      const doc = yaml.parse(fs.readFileSync(filePath, 'utf8')) as TraefikDynamicConfig
+      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
+      for (const [routerName, router] of Object.entries(routers)) {
+        const existingDomain = /Host\("([^"]+)"\)/.exec(router.rule ?? '')?.[1] ?? ''
+        if (existingDomain.toLowerCase() === domain.toLowerCase()) return { fileName: file, routerName }
+      }
+    } catch {
+      // ignore malformed route files
+    }
+  }
+
+  return null
+}
+
 interface LinkPromptAnswers {
   container?: string;
   domain?: string;
@@ -441,6 +464,12 @@ const linkCommand = async (containerName: string | undefined, opts: { domain?: s
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()
+  const conflict = findDomainConflict(domainResolved)
+  if (conflict !== null) {
+    console.error(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
+    console.error('Use `betty relink` to move an existing domain to another container.')
+    process.exit(1)
+  }
 
   ensureProxyComposeFile()
   const traefikComposePath = resolveTraefikComposePath()

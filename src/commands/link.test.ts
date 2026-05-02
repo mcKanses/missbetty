@@ -19,6 +19,7 @@ jest.mock('fs', () => ({
   __esModule: true,
   default: {
     existsSync: jest.fn(),
+    readdirSync: jest.fn(),
     mkdirSync: jest.fn(),
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
@@ -26,6 +27,7 @@ jest.mock('fs', () => ({
     unlinkSync: jest.fn(),
   },
   existsSync: jest.fn(),
+  readdirSync: jest.fn(),
   mkdirSync: jest.fn(),
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
@@ -51,6 +53,7 @@ const DOCKER_INSPECT = JSON.stringify([
 
 beforeEach(() => {
   jest.resetAllMocks()
+  ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue([])
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
@@ -100,6 +103,24 @@ describe('link command', () => {
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: 'abc' })).rejects.toThrow(
       'process-exit-1'
     )
+  })
+
+  test('exits with 1 when domain is already linked', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('/.betty/dynamic') || normalized.endsWith('/existing.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['existing.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      'http:',
+      '  routers:',
+      '    existing:',
+      '      rule: \'Host("myapp.localhost")\'',
+      '      entryPoints: [web]',
+      '      service: existing',
+    ].join('\n'))
+
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
   })
 
   test('writes route config and restarts traefik on success', async () => {

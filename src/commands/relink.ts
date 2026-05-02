@@ -63,6 +63,16 @@ const readRoutes = (): RouteEntry[] => {
     .filter((entry): entry is RouteEntry => entry !== null)
 }
 
+const findDomainConflict = (domain: string, ignoreFilePath?: string): { fileName: string; routerName: string } | null => {
+  const routes = readRoutes()
+  for (const route of routes) {
+    if (ignoreFilePath !== undefined && route.filePath === ignoreFilePath) continue
+    if (route.domain.toLowerCase() !== domain.toLowerCase()) continue
+    return { fileName: route.fileName, routerName: route.routerName }
+  }
+  return null
+}
+
 const getRunningContainers = (): string[] => {
   try {
     return execSync('docker ps --format {{.Names}}', { stdio: 'pipe' })
@@ -320,6 +330,12 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
 
   if (!domain) {
     console.error('No domain provided.')
+    process.exit(1)
+  }
+
+  const conflict = findDomainConflict(domain, route.filePath)
+  if (conflict !== null) {
+    console.error(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
     process.exit(1)
   }
 

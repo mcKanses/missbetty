@@ -54,6 +54,20 @@ const YAML_APP_ROUTE = [
   '          - url: http://172.18.0.2:5173',
 ].join('\n')
 
+const YAML_OTHER_ROUTE = [
+  'http:',
+  '  routers:',
+  '    other:',
+  '      rule: \'Host("used.localhost")\'',
+  '      entryPoints: [web]',
+  '      service: other',
+  '  services:',
+  '    other:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://172.18.0.9:5173',
+].join('\n')
+
 const normalizePath = (p: string) => p.replace(/\\/g, '/')
 
 const DOCKER_INSPECT_WITH_NETWORK = JSON.stringify([{
@@ -191,6 +205,35 @@ describe('relink command', () => {
       relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: 'notanumber' })
     ).rejects.toThrow('process-exit-1')
     expect(errorSpy).toHaveBeenCalledWith('Invalid port. Example: --port 3000')
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('exits when target domain is already linked by another route', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/dynamic/other.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE
+      return YAML_APP_ROUTE
+    })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(relinkCommand('app', { container: 'app', domain: 'used.localhost', port: '80' })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Domain 'used.localhost' is already linked"))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()
