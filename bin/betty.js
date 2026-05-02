@@ -1,2 +1,4 @@
 #!/usr/bin/env node
-require('./cli');
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+require("./cli");

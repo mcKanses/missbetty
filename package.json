@@ -5,7 +5,7 @@
   "main": "bin/betty.js",
   "bin": "bin/betty.js",
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('fs').rmSync('bin',{recursive:true,force:true})\" && tsc",
     "start": "node bin/betty.js",
     "test": "jest"
   },
@@ -20,10 +20,8 @@
   "license": "MIT",
   "dependencies": {
     "commander": "^11.0.0",
-    "execa": "^8.0.1",
     "inquirer": "^8.2.6",
-    "yaml": "^2.3.4",
-    "yarn": "^1.22.22"
+    "yaml": "^2.3.4"
   },
   "devDependencies": {
     "@types/inquirer": "^8.2.12",
