@@ -20,11 +20,13 @@ jest.mock('fs', () => ({
     existsSync: jest.fn(),
     readdirSync: jest.fn(),
     readFileSync: jest.fn(),
+    writeFileSync: jest.fn(),
     unlinkSync: jest.fn(),
   },
   existsSync: jest.fn(),
   readdirSync: jest.fn(),
   readFileSync: jest.fn(),
+  writeFileSync: jest.fn(),
   unlinkSync: jest.fn(),
 }))
 
@@ -39,6 +41,20 @@ const YAML_APP_ROUTE = [
   '  routers:',
   '    app:',
   '      rule: \'Host("app.localhost")\'',
+  '      entryPoints: [web]',
+  '      service: app',
+  '  services:',
+  '    app:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://172.18.0.2:5173',
+].join('\n')
+
+const YAML_DEV_ROUTE = [
+  'http:',
+  '  routers:',
+  '    app:',
+  '      rule: \'Host("ory-ui.mckanses-auth.dev")\'',
   '      entryPoints: [web]',
   '      service: app',
   '  services:',
@@ -197,6 +213,38 @@ describe('unlink command', () => {
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('app.yml'))
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed link:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('removes hosts entry automatically for .dev domains', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/.betty/dynamic/app.yml')) return YAML_DEV_ROUTE
+      if (np.includes('/drivers/etc/hosts') || np.endsWith('/etc/hosts')) return '127.0.0.1 ory-ui.mckanses-auth.dev # added by betty\n'
+      return ''
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirm: true }))
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand('app')
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/hosts$/),
+      expect.not.stringContaining('ory-ui.mckanses-auth.dev'),
+      'utf8'
+    )
+    expect(logSpy).toHaveBeenCalledWith('Removed hosts entry for: ory-ui.mckanses-auth.dev')
 
     logSpy.mockRestore()
   })
