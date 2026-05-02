@@ -136,6 +136,7 @@ const removeHostsEntry = (domain: string): boolean => {
 
 interface FindRouteAnswer { selection: string; }
 interface ConfirmAnswer { confirm: boolean; }
+interface ConfirmAllAnswer { confirmAll: boolean; }
 
 const findRoute = async (routes: RouteEntry[], target?: string, domain?: string): Promise<RouteEntry> => {
   let matches = routes
@@ -195,12 +196,57 @@ const findRoute = async (routes: RouteEntry[], target?: string, domain?: string)
   process.exit(1)
 }
 
-const unlinkCommand = async (target?: string, opts?: { domain?: string }): Promise<void> => {
+const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<void> => {
+  console.log(`\nAbout to remove all ${String(routes.length)} link(s):`)
+  for (const r of routes) console.log(`  - ${r.domain} (${r.fileName})`)
+
+  const answer = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmAll',
+      message: `Remove all ${String(routes.length)} link(s)?`,
+      default: false,
+    },
+  ]) as ConfirmAllAnswer
+
+  if (!answer.confirmAll) {
+    console.log('Cancelled.')
+    return
+  }
+
+  const removedDomains: string[] = []
+  const failedDomains: string[] = []
+
+  for (const route of routes) {
+    if (!fs.existsSync(route.filePath)) {
+      console.error(`Routing file not found: ${route.fileName}`)
+      failedDomains.push(route.domain)
+      continue
+    }
+    fs.unlinkSync(route.filePath)
+    removeHostsEntry(route.domain)
+    removedDomains.push(route.domain)
+  }
+
+  restartTraefik(composePath)
+
+  console.log('\nSummary:')
+  for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
+  for (const d of failedDomains) console.log(`  ❌ failed:  ${d}`)
+  console.log('- traefik: restarted')
+}
+
+const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: boolean }): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes(composePath)
 
   if (routes.length === 0) {
     console.log('No links found.')
+    return
+  }
+
+  if (opts?.all === true) {
+    await unlinkAll(composePath, routes)
     return
   }
 
