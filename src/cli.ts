@@ -31,6 +31,7 @@ interface LinkOptions {
   domain?: string;
   port?: string;
   dryRun?: boolean;
+  open?: boolean;
 }
 
 interface UnlinkOptions {
@@ -70,6 +71,7 @@ program
   .option('--domain <domain>', 'Target domain, e.g. testapp.dev')
   .option('--port <port>', 'Internal container port')
   .option('--dry-run', 'Preview planned changes without applying them')
+  .option('--open', 'Open the linked domain in the browser after linking')
   .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
 
 program

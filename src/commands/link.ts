@@ -370,6 +370,7 @@ interface LinkCommandOptions {
   domain?: string;
   port?: string;
   dryRun?: boolean;
+  open?: boolean;
 }
 
 const normalizeDomainLabel = (value: string): string => value
@@ -562,10 +563,25 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   console.log(`- hosts: ${hostsStatus}`)
   console.log('- traefik: restarted')
 
-  if (certificate) console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`)
-   else {
+  if (certificate) {
+    console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`)
+    if (opts.open === true) openInBrowser(`https://${domainResolved}`)
+  } else {
     console.log(`\n⚠️  Routing was written, but no HTTPS certificate is available for ${domainResolved}.`)
     console.log('   Install mkcert and run this command again. Betty publishes HTTPS on port 443.')
+    if (opts.open === true) openInBrowser(`http://${domainResolved}`)
+  }
+}
+
+const openInBrowser = (url: string): void => {
+  const cmd =
+    process.platform === 'win32' ? `start "" "${url}"` :
+    process.platform === 'darwin' ? `open "${url}"` :
+    `xdg-open "${url}"`
+  try {
+    execSync(cmd, { stdio: 'ignore' })
+  } catch {
+    printHint(`Could not open browser. Visit manually: ${url}`)
   }
 }
 
