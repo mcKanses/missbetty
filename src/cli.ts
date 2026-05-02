@@ -7,6 +7,9 @@ import relinkCommand from './commands/relink'
 import statusCommand from './commands/status'
 import unlinkCommand from './commands/unlink'
 
+import { printHelp } from './cli/ui/help'
+import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../../package.json') as { version: string }
 
@@ -33,6 +36,7 @@ interface UnlinkOptions {
 }
 
 const program = new Command()
+const cmd = process.argv[2]
 
 program
   .name('betty')
@@ -78,4 +82,21 @@ program
   .option('--domain <domain>', 'Linked domain, e.g. testapp.localhost')
   .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts) })
 
-program.parse(process.argv)
+const run = async (): Promise<void> => {
+  if (!cmd) {
+    await animateBettyLogo()
+    console.log('\nRun `betty help` to get started\n')
+    process.exit(0)
+  }
+
+  if (cmd === 'help') {
+    printBettyLogo()
+    console.log('')
+    printHelp()
+    process.exit(0)
+  }
+
+  program.parse(process.argv)
+}
+
+void run()
