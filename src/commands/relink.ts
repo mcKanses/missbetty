@@ -1,6 +1,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
+import { printError } from '../cli/ui/output'
 import os from 'os'
 import path from 'path'
 import yaml from 'yaml'
@@ -29,7 +30,7 @@ const TRAEFIK_NETWORK = 'betty_proxy'
 
 const resolveTraefikComposePath = (): string => {
   if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE
-  console.error("Betty's proxy is not set up yet. Run: betty serve")
+  printError("Betty's proxy is not set up yet. Run: betty serve")
   process.exit(1)
 }
 
@@ -91,7 +92,7 @@ const connectContainerToNetwork = (containerName: string): void => {
     const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
     if (networkKeys.includes(TRAEFIK_NETWORK)) return
   } catch {
-    console.error(`Container '${containerName}' not found.`)
+    printError(`Container '${containerName}' not found.`)
     process.exit(1)
   }
 
@@ -104,7 +105,7 @@ const getContainerIp = (containerName: string): string => {
   const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
   const ip = networks[TRAEFIK_NETWORK]?.IPAddress ?? ''
   if (ip === '') {
-    console.error(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`)
+    printError(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`)
     process.exit(1)
   }
   return ip
@@ -326,23 +327,23 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   const port = parseInt((opts?.port ?? answers.port ?? route.port) || '80', 10)
 
   if (!containerName) {
-    console.error('No container provided.')
+    printError('No container provided.')
     process.exit(1)
   }
 
   if (!domain) {
-    console.error('No domain provided.')
+    printError('No domain provided.')
     process.exit(1)
   }
 
   const conflict = findDomainConflict(domain, route.filePath)
   if (conflict !== null) {
-    console.error(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
+    printError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
     process.exit(1)
   }
 
   if (!Number.isFinite(port) || port <= 0) {
-    console.error('Invalid port. Example: --port 3000')
+    printError('Invalid port. Example: --port 3000')
     process.exit(1)
   }
 

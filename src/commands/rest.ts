@@ -1,6 +1,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
+import { printError } from '../cli/ui/output'
 import path from 'path'
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
@@ -22,7 +23,7 @@ const restCommand = (): void => {
     console.log('Betty is resting.')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error("Betty's switchboard service could not be stopped:", message)
+    printError(`Betty's switchboard service could not be stopped: ${message}`)
     process.exit(1)
   }
 }

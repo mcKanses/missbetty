@@ -1,4 +1,5 @@
 import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix } from '../utils/config'
+import { printError } from '../cli/ui/output'
 
 const showCurrentConfig = (): void => {
   const stored = getStoredDomainSuffix()
@@ -20,7 +21,7 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
 
   if (action === 'get') {
     if (key !== 'domainSuffix') {
-      console.error('Unknown config key. Supported: domainSuffix')
+      printError('Unknown config key. Supported: domainSuffix')
       process.exit(1)
     }
 
@@ -30,12 +31,12 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
 
   if (action === 'set') {
     if (key !== 'domainSuffix') {
-      console.error('Unknown config key. Supported: domainSuffix')
+      printError('Unknown config key. Supported: domainSuffix')
       process.exit(1)
     }
 
     if (value === undefined || value.trim() === '') {
-      console.error('Missing value. Example: betty config set domainSuffix .localhost')
+      printError('Missing value. Example: betty config set domainSuffix .localhost')
       process.exit(1)
     }
 
@@ -45,12 +46,12 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
       return
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(message)
+      printError(message)
       process.exit(1)
     }
   }
 
-  console.error('Usage: betty config [get|set] domainSuffix [value]')
+  printError('Usage: betty config [get|set] domainSuffix [value]')
   process.exit(1)
 }
 

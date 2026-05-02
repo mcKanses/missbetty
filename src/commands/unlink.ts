@@ -1,6 +1,7 @@
 import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import { printError } from '../cli/ui/output'
 import os from 'os'
 import yaml from 'yaml'
 import inquirer from 'inquirer'
@@ -22,7 +23,7 @@ const resolveTraefikComposePath = (): string => {
   if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE
   
 
-  console.error("Betty's proxy is not set up yet. Run: betty serve")
+  printError("Betty's proxy is not set up yet. Run: betty serve")
   process.exit(1)
 }
 
@@ -190,8 +191,8 @@ const findRoute = async (routes: RouteEntry[], target?: string, domain?: string)
     if (selected !== undefined) return selected
   }
 
-  if (target !== undefined || domain !== undefined) console.error(`No link found for ${domain !== undefined ? `domain '${domain}'` : `target '${target ?? ''}'`}.`)
-   else console.error('No link found.')
+  if (target !== undefined || domain !== undefined) printError(`No link found for ${domain !== undefined ? `domain '${domain}'` : `target '${target ?? ''}'`}.`)
+   else printError('No link found.')
   
   process.exit(1)
 }
@@ -219,7 +220,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
 
   for (const route of routes) {
     if (!fs.existsSync(route.filePath)) {
-      console.error(`Routing file not found: ${route.fileName}`)
+      printError(`Routing file not found: ${route.fileName}`)
       failedDomains.push(route.domain)
       continue
     }
@@ -267,7 +268,7 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
   }
 
   if (!fs.existsSync(route.filePath)) {
-    console.error(`Routing file not found: ${route.fileName}`)
+    printError(`Routing file not found: ${route.fileName}`)
     process.exit(1)
   }
 

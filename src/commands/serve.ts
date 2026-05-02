@@ -2,6 +2,7 @@ import { execSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { printError, printHint } from '../cli/ui/output'
 import {
   getDockerPortOwners,
   getSystemPortOwners,
@@ -97,33 +98,33 @@ const ensureHttpsPortAvailable = (): void => {
 
   if (dockerOwners.length === 0 && systemOwners.length === 0) return
 
-  console.error('Port 443 is already in use.')
-  console.error('Betty needs host port 443 for HTTPS domains such as .dev.')
+  printError('Port 443 is already in use.')
+  printHint('Betty needs host port 443 for HTTPS domains such as .dev.')
   if (dockerOwners.length > 0) {
-    console.error('\nDocker containers publishing 443:')
-    dockerOwners.forEach((owner) => { console.error(` - ${owner}`) })
+    printHint('\nDocker containers publishing 443:')
+    dockerOwners.forEach((owner) => { printHint(` - ${owner}`) })
   }
   if (systemOwners.length > 0) {
-    console.error('\nProcesses listening on 443:')
-    systemOwners.forEach((owner) => { console.error(` - ${owner}`) })
+    printHint('\nProcesses listening on 443:')
+    systemOwners.forEach((owner) => { printHint(` - ${owner}`) })
   }
-  console.error('\nStop the conflicting HTTPS server or proxy, then run: betty serve')
+  printHint('\nStop the conflicting HTTPS server or proxy, then run: betty serve')
   process.exit(1)
 }
 
 const printProxyStartError = (message: string): void => {
-  console.error('Traefik proxy could not be started.')
+  printError('Traefik proxy could not be started.')
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
-    console.error('Port 80 is already in use by another service.')
-    console.error('Betty no longer needs host port 80. Run "betty serve" once to rewrite the global compose file.')
+    printHint('Port 80 is already in use by another service.')
+    printHint('Betty no longer needs host port 80. Run "betty serve" once to rewrite the global compose file.')
     return
   }
   if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
-    console.error('Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve')
-    console.error('Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"')
+    printHint('Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve')
+    printHint('Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"')
     return
   }
-  console.error(message)
+  printHint(message)
 }
 
 const serveCommand = (): void => {
