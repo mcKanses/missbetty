@@ -30,6 +30,7 @@ interface RelinkOptions {
 interface LinkOptions {
   domain?: string;
   port?: string;
+  dryRun?: boolean;
 }
 
 interface UnlinkOptions {
@@ -67,6 +68,7 @@ program
   .description('Link a running container to a local domain')
   .option('--domain <domain>', 'Target domain, e.g. testapp.dev')
   .option('--port <port>', 'Internal container port')
+  .option('--dry-run', 'Preview planned changes without applying them')
   .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
 
 program

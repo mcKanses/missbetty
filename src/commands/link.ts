@@ -365,6 +365,12 @@ interface LinkPromptAnswers {
   port?: string;
 }
 
+interface LinkCommandOptions {
+  domain?: string;
+  port?: string;
+  dryRun?: boolean;
+}
+
 const normalizeDomainLabel = (value: string): string => value
   .toLowerCase()
   .replace(/_/g, '-')
@@ -404,7 +410,7 @@ export const suggestDomain = (containerName: string): string => {
   return `${cleaned}${suffix}`
 }
 
-const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }): Promise<void> => {
+const linkCommand = async (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> => {
   let resolvedContainer = containerName
   let resolvedDomain = opts.domain
   let resolvedPort = opts.port
@@ -464,11 +470,24 @@ const linkCommand = async (containerName: string | undefined, opts: { domain?: s
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()
+  const routeFileName = `${containerNameResolved.replace(/[^a-zA-Z0-9-]/g, '-')}.yml`
   const conflict = findDomainConflict(domainResolved)
   if (conflict !== null) {
     console.error(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
     console.error('Use `betty relink` to move an existing domain to another container.')
     process.exit(1)
+  }
+
+  if (opts.dryRun === true) {
+    console.log('Dry run: no changes were applied.')
+    console.log(`- container: ${containerNameResolved}`)
+    console.log(`- domain: ${domainResolved}`)
+    console.log(`- port: ${String(port)}`)
+    console.log(`- route file: ${routeFileName}`)
+    if (domainResolved.toLowerCase().endsWith('.localhost')) console.log('- hosts entry: not required for .localhost')
+    else console.log(`- hosts entry: 127.0.0.1 ${domainResolved} # added by betty`)
+    console.log('- traefik restart: yes')
+    return
   }
 
   ensureProxyComposeFile()

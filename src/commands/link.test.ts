@@ -150,6 +150,24 @@ describe('link command', () => {
 
     logSpy.mockRestore()
   })
+
+  test('does not apply changes in dry-run mode', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue([])
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.dev', port: '3000', dryRun: true })
+
+    expect(logSpy).toHaveBeenCalledWith('Dry run: no changes were applied.')
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+    expect(execSync).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
 })
 
 describe('suggestDomain', () => {
