@@ -18,7 +18,7 @@ const renderFrame = ({ leftCable, rightCable, bottomCableLength }: LogoFrame): v
 
   console.log(`${GRAY}●   ●${RESET}`)
   console.log(left)
-  console.log(`${GRAY}●   ●${RESET}   betty`)
+  console.log(`${GRAY}●${RESET}${YELLOW}───${RESET}${GRAY}●${RESET}   betty`)
   console.log(`${left}   ${right}   ${DIM}local domains for docker${RESET}`)
   console.log(bottom)
 }

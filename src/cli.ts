@@ -11,7 +11,7 @@ import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { version } = require('../../package.json') as { version: string }
+const { version } = require('../package.json') as { version: string }
 
 interface StatusOptions {
   long?: boolean;
