@@ -132,26 +132,45 @@ describe('link command', () => {
 })
 
 describe('suggestDomain', () => {
-  test('appends .localhost to a simple name', () => {
-    expect(suggestDomain('myapp')).toBe('myapp.localhost')
+  test('appends .dev to a simple name', () => {
+    expect(suggestDomain('myapp')).toBe('myapp.dev')
   })
 
   test('strips trailing replica number', () => {
-    expect(suggestDomain('myapp-1')).toBe('myapp.localhost')
-    expect(suggestDomain('frontend-12')).toBe('frontend.localhost')
+    expect(suggestDomain('myapp-1')).toBe('myapp.dev')
+    expect(suggestDomain('frontend-12')).toBe('frontend.dev')
   })
 
   test('converts underscores to hyphens', () => {
-    expect(suggestDomain('my_project')).toBe('my-project.localhost')
+    expect(suggestDomain('my_project')).toBe('my-project.dev')
   })
 
   test('lowercases the name', () => {
-    expect(suggestDomain('MyApp')).toBe('myapp.localhost')
+    expect(suggestDomain('MyApp')).toBe('myapp.dev')
   })
 
   test('handles Docker Compose service names with replica suffix', () => {
-    expect(suggestDomain('myapp-web-1')).toBe('myapp-web.localhost')
-    expect(suggestDomain('my_project-backend-2')).toBe('my-project-backend.localhost')
+    expect(suggestDomain('myapp-web-1')).toBe('myapp-web.dev')
+    expect(suggestDomain('my_project-backend-2')).toBe('my-project-backend.dev')
+  })
+
+  test('uses compose service and project labels for subdomain suggestion', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker inspect')) return Buffer.from(JSON.stringify([
+        {
+          Config: {
+            Labels: {
+              'com.docker.compose.project': 'mckanses-auth',
+              'com.docker.compose.service': 'ory-ui',
+            },
+          },
+        },
+      ]))
+      return Buffer.from('')
+    })
+
+    expect(suggestDomain('mckanses-auth-ory-ui-1')).toBe('ory-ui.mckanses-auth.dev')
   })
 })
 

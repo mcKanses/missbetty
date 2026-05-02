@@ -341,13 +341,42 @@ interface LinkPromptAnswers {
   port?: string;
 }
 
+const normalizeDomainLabel = (value: string): string => value
+  .toLowerCase()
+  .replace(/_/g, '-')
+  .replace(/[^a-z0-9-]/g, '')
+  .replace(/^-+|-+$/g, '')
+
+const stripReplicaSuffix = (value: string): string => value.replace(/-\d+$/, '')
+
+interface DockerInspectComposeLabelsEntry extends DockerInspectEntry {
+  Config?: {
+    Labels?: Record<string, string>;
+  };
+}
+
+const readComposeLabels = (containerName: string): { project: string; service: string } | null => {
+  try {
+    const info = JSON.parse(
+      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+    ) as DockerInspectComposeLabelsEntry[]
+    const labels = info[0]?.Config?.Labels ?? {}
+    const project = normalizeDomainLabel(labels['com.docker.compose.project'] ?? '')
+    const service = normalizeDomainLabel(labels['com.docker.compose.service'] ?? '')
+    if (project === '' || service === '') return null
+    return { project, service }
+  } catch {
+    return null
+  }
+}
+
 export const suggestDomain = (containerName: string): string => {
-  const cleaned = containerName
-    .toLowerCase()
-    .replace(/_/g, '-')
-    .replace(/-\d+$/, '')
-    .replace(/[^a-z0-9-]/g, '')
-  return `${cleaned}.localhost`
+  const compose = readComposeLabels(containerName)
+  if (compose !== null) return `${compose.service}.${compose.project}.dev`
+
+  const cleaned = normalizeDomainLabel(stripReplicaSuffix(containerName))
+  if (cleaned === '') return 'app.dev'
+  return `${cleaned}.dev`
 }
 
 const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }): Promise<void> => {

@@ -19,5 +19,5 @@ export function printHelp(): void {
   console.log('')
   console.log('Examples:')
   console.log('  betty serve')
-  console.log('  betty link myapp --domain myapp.localhost --port 3000')
+  console.log('  betty link myapp --domain myapp.dev --port 3000')
 }
