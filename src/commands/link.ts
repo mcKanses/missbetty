@@ -4,6 +4,11 @@ import fs from 'fs';
 import os from 'os';
 import yaml from 'yaml';
 import inquirer from 'inquirer';
+import {
+  getDockerPortOwners,
+  getSystemPortOwners,
+  filterSystemOwnersForBettyPort,
+} from '../utils/portOwners';
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
 const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml');
@@ -60,57 +65,6 @@ const ensureProxyComposeFile = () => {
     fs.writeFileSync(BETTY_PROXY_COMPOSE, desiredProxyCompose, 'utf8');
     console.log(`Updated Docker Compose file: ${BETTY_PROXY_COMPOSE}`);
   }
-};
-
-const getDockerPortOwners = (port: number): string[] => {
-  try {
-    return execSync(`docker ps --filter "publish=${port}" --format "{{.Names}}\t{{.Ports}}"`, { stdio: 'pipe' })
-      .toString()
-      .trim()
-      .split('\n')
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-};
-
-const getSystemPortOwners = (port: number): string[] => {
-  try {
-    if (process.platform === 'win32') {
-      const command = [
-        'powershell',
-        '-NoProfile',
-        '-Command',
-        `"Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + ' (PID ' + $_ + ')' } else { 'PID ' + $_ } }"`,
-      ].join(' ');
-      return execSync(command, { stdio: 'pipe' }).toString().trim().split('\n').filter(Boolean);
-    }
-
-    return execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN`, { stdio: 'pipe' })
-      .toString()
-      .trim()
-      .split('\n')
-      .slice(1)
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-};
-
-const BETTY_SYSTEM_443_OWNER_PATTERNS = [
-  /^wslrelay\b/i,
-  /^com\.docker\.backend\b/i,
-  /^docker-proxy\b/i,
-  /^vpnkit\b/i,
-];
-
-const filterSystemOwnersForBettyPort = (systemOwners: string[], bettyOwnsPort: boolean): string[] => {
-  if (!bettyOwnsPort) return systemOwners;
-
-  return systemOwners.filter((owner) => {
-    const normalized = owner.trim();
-    return !BETTY_SYSTEM_443_OWNER_PATTERNS.some((pattern) => pattern.test(normalized));
-  });
 };
 
 const ensureHttpsPortAvailable = () => {
@@ -387,7 +341,7 @@ const validateLocalDomain = (domain: string): true | string => {
   return true;
 };
 
-const connectCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }) => {
+const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }) => {
   let resolvedContainer = containerName;
   let resolvedDomain = opts.domain;
   let resolvedPort = opts.port;
@@ -472,8 +426,4 @@ const connectCommand = async (containerName: string | undefined, opts: { domain?
   }
 };
 
-export default connectCommand;
-
-export const __testables = {
-  filterSystemOwnersForBettyPort,
-};
+export default linkCommand;

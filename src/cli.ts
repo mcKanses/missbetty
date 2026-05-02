@@ -1,12 +1,11 @@
-import connectCommand from './commands/connect';
+import linkCommand from './commands/link';
 
 import { Command } from 'commander';
-import restCommand from './commands/disconnect';
-import proxyUpCommand from './commands/proxyUp';
+import restCommand from './commands/rest';
+import serveCommand from './commands/serve';
 import relinkCommand from './commands/relink';
 import statusCommand from './commands/status';
 import unlinkCommand from './commands/unlink';
-
 
 const program = new Command();
 
@@ -18,7 +17,7 @@ program
 program
   .command('serve')
   .description("Start Betty's local switchboard service")
-  .action(proxyUpCommand)
+  .action(serveCommand)
 
 program
   .command('rest')
@@ -38,7 +37,7 @@ program
   .description('Link a running container to a local domain')
   .option('--domain <domain>', 'Target domain, e.g. testapp.localhost')
   .option('--port <port>', 'Internal container port')
-  .action((container, opts) => connectCommand(container, opts))
+  .action((container, opts) => linkCommand(container, opts))
 
 program
   .command('relink [target]')

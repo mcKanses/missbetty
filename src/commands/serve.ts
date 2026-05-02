@@ -2,6 +2,11 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import {
+  getDockerPortOwners,
+  getSystemPortOwners,
+  filterSystemOwnersForBettyPort,
+} from '../utils/portOwners';
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
 const BETTY_PROXY_NETWORK = 'betty_proxy';
@@ -82,48 +87,13 @@ const ensureProxyNetwork = () => {
   }
 };
 
-const getDockerPortOwners = (port: number): string[] => {
-  try {
-    return execSync(`docker ps --filter "publish=${port}" --format "{{.Names}}\t{{.Ports}}"`, { stdio: 'pipe' })
-      .toString()
-      .trim()
-      .split('\n')
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-};
-
-const getSystemPortOwners = (port: number): string[] => {
-  try {
-    if (process.platform === 'win32') {
-      const command = [
-        'powershell',
-        '-NoProfile',
-        '-Command',
-        `"Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + ' (PID ' + $_ + ')' } else { 'PID ' + $_ } }"`,
-      ].join(' ');
-      return execSync(command, { stdio: 'pipe' }).toString().trim().split('\n').filter(Boolean);
-    }
-
-    return execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN`, { stdio: 'pipe' })
-      .toString()
-      .trim()
-      .split('\n')
-      .slice(1)
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-};
-
 const ensureHttpsPortAvailable = () => {
   const allDockerOwners = getDockerPortOwners(443);
   const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(BETTY_TRAEFIK_CONTAINER));
   const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(BETTY_TRAEFIK_CONTAINER));
   if (bettyOwnsPort && dockerOwners.length === 0) return;
 
-  const systemOwners = getSystemPortOwners(443);
+  const systemOwners = filterSystemOwnersForBettyPort(getSystemPortOwners(443), bettyOwnsPort);
 
   if (dockerOwners.length === 0 && systemOwners.length === 0) return;
 
@@ -156,7 +126,7 @@ const printProxyStartError = (message: string) => {
   console.error(message);
 };
 
-const proxyUpCommand = () => {
+const serveCommand = () => {
   try {
     ensureBettyHome();
     ensureDynamicDir();
@@ -178,4 +148,4 @@ const proxyUpCommand = () => {
   }
 };
 
-export default proxyUpCommand;
+export default serveCommand;
