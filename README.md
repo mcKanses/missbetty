@@ -1,5 +1,116 @@
 # Betty
 
+Betty is a CLI tool that links running Docker containers to local `.localhost` domains via a Traefik reverse proxy with HTTPS support (mkcert).
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) + Docker Compose
+- [mkcert](https://github.com/FiloSottile/mkcert) (for local TLS certificates)
+- Node.js 20+
+
+## Installation
+
+```bash
+npm install -g .
+```
+
+## Quick Start
+
+```bash
+# 1. Start Betty's proxy
+betty serve
+
+# 2. Link a container to a domain
+betty link my-app --domain myapp.localhost --port 3000
+
+# 3. Open https://myapp.localhost in your browser
+```
+
+## Commands
+
+### `betty serve`
+
+Starts Betty's local Traefik proxy.
+
+```bash
+betty serve
+```
+
+### `betty rest`
+
+Stops Betty's local Traefik proxy.
+
+```bash
+betty rest
+```
+
+### `betty status`
+
+Shows the current proxy status and linked domains.
+
+```bash
+betty status
+betty status --long       # Detailed container info
+betty status --json       # JSON output
+```
+
+| Option | Description |
+|--------|-------------|
+| `--long` | Show detailed proxy container info |
+| `--json` | Output status as JSON |
+
+### `betty link [container]`
+
+Links a running Docker container to a local domain via HTTPS.
+
+```bash
+betty link my-app --domain myapp.localhost --port 3000
+```
+
+If arguments are omitted, Betty will prompt for them interactively.
+
+| Option | Description |
+|--------|-------------|
+| `--domain <domain>` | Target domain, e.g. `myapp.localhost` |
+| `--port <port>` | Internal container port |
+
+### `betty relink [target]`
+
+Updates an existing local domain link (container, domain, or port).
+
+```bash
+betty relink myapp.localhost --container new-app --port 4000
+```
+
+| Option | Description |
+|--------|-------------|
+| `--container <container>` | New target container |
+| `--domain <domain>` | New linked domain |
+| `--port <port>` | New internal container port |
+
+### `betty unlink [target]`
+
+Removes a local domain link and cleans up the hosts entry.
+
+```bash
+betty unlink myapp.localhost
+betty unlink --domain myapp.localhost
+```
+
+| Option | Description |
+|--------|-------------|
+| `--domain <domain>` | Domain to unlink |
+
+## Development
+
+```bash
+npm test              # Run all tests
+npm run test:coverage # Run tests with coverage report
+npm run lint          # Lint source files
+npm run build         # Compile TypeScript
+```
+
+
 Betty is a lightweight CLI for local Docker development domains.
 
 The name is inspired by a 1950s telephone switchboard operator: Betty does not
