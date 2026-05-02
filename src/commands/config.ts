@@ -3,14 +3,17 @@ import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix } from '../util
 const showCurrentConfig = (): void => {
   const stored = getStoredDomainSuffix()
   const effective = getDomainSuffix()
+  const envOverride = process.env.BETTY_DOMAIN_SUFFIX
 
   console.log('Betty config:')
-  console.log(`  domainSuffix (effective): ${effective}`)
-  console.log(`  domainSuffix (stored): ${stored ?? 'not set (using default or env)'}`)
+  console.log(`  domainSuffix  ${effective}`)
+  if (envOverride !== undefined && envOverride.trim() !== '') console.log(`    source: BETTY_DOMAIN_SUFFIX env var`)
+  else if (stored !== null) console.log(`    source: ~/.betty/config.json`)
+  else console.log(`    source: default`)
 }
 
 const configCommand = (action?: string, key?: string, value?: string): void => {
-  if (action === undefined) {
+  if (action === undefined || action === 'list') {
     showCurrentConfig()
     return
   }
