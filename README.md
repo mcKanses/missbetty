@@ -3,7 +3,7 @@
 Betty is a lightweight CLI for local Docker development domains.
 
 The name is inspired by a 1950s telephone switchboard operator: Betty does not
-become your reverse proxy. She connects local domains to running containers and
+become your reverse proxy. She links local domains to running containers and
 keeps the global proxy infrastructure out of individual projects.
 
 Betty currently orchestrates:
@@ -47,6 +47,7 @@ git clone <repo-url>
 cd getbetty.dev
 npm install
 npm run build
+npm test
 npm link
 ```
 
@@ -120,7 +121,7 @@ If required values are missing, Betty asks interactively for:
 - domain
 - internal container port
 
-Betty connects the container to the global Docker network `betty_proxy`, writes
+Betty links the container into the global Docker network `betty_proxy`, writes
 a route file to `~/.betty/dynamic`, and reloads the global Traefik container.
 If mkcert is installed, Betty also creates a certificate in `~/.betty/certs`
 and enables HTTPS for the linked domain.
@@ -208,3 +209,25 @@ Future work may include:
 - better host file handling across Windows, WSL, Linux, and macOS
 - cleaner persistent link state
 - optional project discovery
+
+## Troubleshooting
+
+### Port 443 is already in use
+
+If `betty serve` reports a conflict on `443`, list the containers using it:
+
+```sh
+docker ps --filter "publish=443" --format "table {{.Names}}\t{{.Ports}}"
+```
+
+If an old Traefik stack is still running (for example `traefik-traefik-1`), stop it:
+
+```sh
+docker stop traefik-traefik-1
+```
+
+Then run:
+
+```sh
+betty serve
+```
