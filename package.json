@@ -7,6 +7,8 @@
   "scripts": {
     "build": "node -e \"require('fs').rmSync('bin',{recursive:true,force:true})\" && tsc",
     "binary": "node scripts/build-binary.mjs",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
     "start": "node bin/betty.js",
     "test": "jest"
   },
@@ -25,12 +27,17 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/inquirer": "^8.2.12",
     "@types/jest": "^30.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
     "@vercel/ncc": "^0.38.4",
+    "eslint": "^10.3.0",
     "jest": "^30.3.0",
     "postject": "^1.0.0-alpha.6",
     "ts-jest": "^29.4.9",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.59.1"
   }
 }
