@@ -1,11 +1,11 @@
-import linkCommand from './commands/link';
+import linkCommand from './commands/link'
 
-import { Command } from 'commander';
-import restCommand from './commands/rest';
-import serveCommand from './commands/serve';
-import relinkCommand from './commands/relink';
-import statusCommand from './commands/status';
-import unlinkCommand from './commands/unlink';
+import { Command } from 'commander'
+import restCommand from './commands/rest'
+import serveCommand from './commands/serve'
+import relinkCommand from './commands/relink'
+import statusCommand from './commands/status'
+import unlinkCommand from './commands/unlink'
 
 interface StatusOptions {
   long?: boolean;
@@ -29,7 +29,7 @@ interface UnlinkOptions {
   domain?: string;
 }
 
-const program = new Command();
+const program = new Command()
 
 program
   .name('betty')
@@ -52,14 +52,14 @@ program
   .option('--long', 'Show detailed proxy container info')
   .option('--json', 'Output status as JSON')
   .option('--format <format>', 'Output format, e.g. json')
-  .action((opts: StatusOptions) => { statusCommand(opts); })
+  .action((opts: StatusOptions) => { statusCommand(opts) })
 
 program
   .command('link [container]')
   .description('Link a running container to a local domain')
   .option('--domain <domain>', 'Target domain, e.g. testapp.localhost')
   .option('--port <port>', 'Internal container port')
-  .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts); })
+  .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
 
 program
   .command('relink [target]')
@@ -67,12 +67,12 @@ program
   .option('--container <container>', 'New target container')
   .option('--domain <domain>', 'New linked domain')
   .option('--port <port>', 'New internal container port')
-  .action((target: string | undefined, opts: RelinkOptions) => { void relinkCommand(target, opts); })
+  .action((target: string | undefined, opts: RelinkOptions) => { void relinkCommand(target, opts) })
 
 program
   .command('unlink [target]')
   .description('Remove a local domain link')
   .option('--domain <domain>', 'Linked domain, e.g. testapp.localhost')
-  .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts); })
+  .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts) })
 
-program.parse(process.argv);
+program.parse(process.argv)

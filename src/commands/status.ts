@@ -1,10 +1,10 @@
 
-import { execSync } from 'child_process';
-import path from 'path';
-import fs from 'fs';
-import os from 'os';
-import yaml from 'yaml';
-import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types';
+import { execSync } from 'child_process'
+import path from 'path'
+import fs from 'fs'
+import os from 'os'
+import yaml from 'yaml'
+import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 
 interface ProjectStatus {
   name: string;
@@ -24,93 +24,92 @@ interface StatusOptions {
 }
 
 const resolveTraefikComposePath = (): string | null => {
-  const composePath = path.join(os.homedir(), '.betty', 'docker-compose.yml');
-  return fs.existsSync(composePath) ? composePath : null;
-};
+  const composePath = path.join(os.homedir(), '.betty', 'docker-compose.yml')
+  return fs.existsSync(composePath) ? composePath : null
+}
 
 const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolean; proxyInfo: string; proxyUptime: string; traefikContainer: DockerInspectEntry | null } => {
-  let proxyRunning = false;
-  let proxyInfo = 'Proxy is not running.';
-  let proxyUptime = '';
-  let traefikContainer: DockerInspectEntry | null = null;
+  let proxyRunning = false
+  let proxyInfo = 'Proxy is not running.'
+  let proxyUptime = ''
+  let traefikContainer: DockerInspectEntry | null = null
 
   try {
-    const output = execSync('docker inspect betty-traefik', { stdio: 'pipe' });
-    const containers = JSON.parse(output.toString()) as DockerInspectEntry[];
-    traefikContainer = containers.length > 0 ? containers[0] : null;
-    proxyRunning = traefikContainer?.State.Running === true;
-    const startedAt = traefikContainer?.State.StartedAt;
+    const output = execSync('docker inspect betty-traefik', { stdio: 'pipe' })
+    const containers = JSON.parse(output.toString()) as DockerInspectEntry[]
+    traefikContainer = containers.length > 0 ? containers[0] : null
+    proxyRunning = traefikContainer?.State.Running === true
+    const startedAt = traefikContainer?.State.StartedAt
     proxyUptime = startedAt !== undefined && startedAt !== '0001-01-01T00:00:00Z'
       ? `${String(Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000)))}m`
-      : '';
-    proxyInfo = proxyRunning ? 'Proxy is running.' : 'Proxy is not running.';
+      : ''
+    proxyInfo = proxyRunning ? 'Proxy is running.' : 'Proxy is not running.'
   } catch {
     // proxyInfo defaults to 'Proxy is not running.'
   }
 
-  return { proxyRunning, proxyInfo, proxyUptime, traefikContainer };
-};
+  return { proxyRunning, proxyInfo, proxyUptime, traefikContainer }
+}
 
 const getContainerMetaByIp = (ip: string): { uptime: string; health: string; restarts: string } => {
   try {
-    const idsOutput = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().trim();
-    if (!idsOutput) return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' };
+    const idsOutput = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().trim()
+    if (!idsOutput) return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
-    const ids = idsOutput.split('\n').filter(Boolean);
-    for (const id of ids) {
-      try {
-        const inspectOut = execSync(`docker inspect ${id}`, { stdio: 'pipe' }).toString();
-        const inspectJson = JSON.parse(inspectOut) as DockerInspectEntry[];
-        const container = inspectJson.length > 0 ? inspectJson[0] : null;
-        if (!container) continue;
-        const networks = container.NetworkSettings.Networks;
-        const networkMatch = Object.values(networks).find((n) => n.IPAddress === ip);
-        if (!networkMatch) continue;
+    const ids = idsOutput.split('\n').filter(Boolean)
+    for (const id of ids) try {
+        const inspectOut = execSync(`docker inspect ${id}`, { stdio: 'pipe' }).toString()
+        const inspectJson = JSON.parse(inspectOut) as DockerInspectEntry[]
+        const container = inspectJson.length > 0 ? inspectJson[0] : null
+        if (!container) continue
+        const networks = container.NetworkSettings.Networks
+        const networkMatch = Object.values(networks).find((n) => n.IPAddress === ip)
+        if (!networkMatch) continue
 
-        const startedAt = container.State.StartedAt;
+        const startedAt = container.State.StartedAt
         const uptime = startedAt !== '0001-01-01T00:00:00Z'
           ? `${String(Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000)))}m`
-          : 'n/a';
-        const health = container.State.Health?.Status ?? container.State.Status;
-        const restarts = String(container.RestartCount);
-        return { uptime, health, restarts };
+          : 'n/a'
+        const health = container.State.Health?.Status ?? container.State.Status
+        const restarts = String(container.RestartCount)
+        return { uptime, health, restarts }
       } catch {
         // next container
       }
-    }
+    
   } catch {
     // ignore
   }
 
-  return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' };
-};
+  return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
+}
 
 const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
-  const dynamicDir = path.resolve(path.dirname(composePath), 'dynamic');
-  if (!fs.existsSync(dynamicDir)) return [];
+  const dynamicDir = path.resolve(path.dirname(composePath), 'dynamic')
+  if (!fs.existsSync(dynamicDir)) return []
 
-  const files = fs.readdirSync(dynamicDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+  const files = fs.readdirSync(dynamicDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
 
   return files
     .map((file) => {
       try {
-        const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig;
-        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {};
-        const services: Record<string, TraefikService> = doc.http?.services ?? {};
-        const routerKeys = Object.keys(routers);
-        const serviceKeys = Object.keys(services);
-        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure')) ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)));
-        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey;
-        const rule = (routers[firstRouterKey] as TraefikRouter | undefined)?.rule ?? '';
-        const domainMatch = /Host\("([^"]+)"\)/.exec(rule);
-        const domain = domainMatch?.[1] ?? 'n/a';
-        const url = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? '';;
-        const target = url !== '' ? url : 'n/a';
-        const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null;
-        const port = portMatch?.[1] ?? 'n/a';
-        const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url);
-        const ip = ipMatch?.[1] ?? '';
-        const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' };
+        const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
+        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
+        const services: Record<string, TraefikService> = doc.http?.services ?? {}
+        const routerKeys = Object.keys(routers)
+        const serviceKeys = Object.keys(services)
+        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure')) ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)))
+        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey
+        const rule = (routers[firstRouterKey] as TraefikRouter | undefined)?.rule ?? ''
+        const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
+        const domain = domainMatch?.[1] ?? 'n/a'
+        const url = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
+        const target = url !== '' ? url : 'n/a'
+        const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null
+        const port = portMatch?.[1] ?? 'n/a'
+        const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)
+        const ip = ipMatch?.[1] ?? ''
+        const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
         return {
           name: firstRouterKey,
@@ -120,16 +119,16 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
           uptime: meta.uptime,
           health: meta.health,
           restarts: meta.restarts,
-        } satisfies ProjectStatus;
+        } satisfies ProjectStatus
       } catch {
-        return null;
+        return null
       }
     })
-    .filter((entry): entry is ProjectStatus => entry !== null);
-};
+    .filter((entry): entry is ProjectStatus => entry !== null)
+}
 
 const statusCommand = (opts?: StatusOptions): void => {
-  const composePath = resolveTraefikComposePath();
+  const composePath = resolveTraefikComposePath()
   const proxy = composePath !== null
     ? getTraefikContainerStatus(composePath)
     : {
@@ -137,9 +136,9 @@ const statusCommand = (opts?: StatusOptions): void => {
         proxyInfo: 'Could not determine proxy status.',
         proxyUptime: '',
         traefikContainer: null,
-      };
+      }
 
-  const projects = composePath !== null ? readProjectsFromDynamicFiles(composePath) : [];
+  const projects = composePath !== null ? readProjectsFromDynamicFiles(composePath) : []
 
   if (opts !== undefined && (opts.json === true || opts.format === 'json')) {
     const output = {
@@ -150,52 +149,51 @@ const statusCommand = (opts?: StatusOptions): void => {
         container: proxy.traefikContainer ?? null,
       },
       projects,
-    };
-    console.log(JSON.stringify(output, null, 2));
-    return;
+    }
+    console.log(JSON.stringify(output, null, 2))
+    return
   }
 
   if (projects.length > 0) {
-    const nameW = Math.max(12, ...projects.map((p) => p.name.length));
-    const domainW = Math.max(12, ...projects.map((p) => p.domain.length));
-    const portW = Math.max(4, ...projects.map((p) => p.port.length));
+    const nameW = Math.max(12, ...projects.map((p) => p.name.length))
+    const domainW = Math.max(12, ...projects.map((p) => p.domain.length))
+    const portW = Math.max(4, ...projects.map((p) => p.port.length))
     if (opts?.short === true) {
-      const targetW = Math.max(12, ...projects.map((p) => p.target.length));
-      const header = `${'project name'.padEnd(nameW)} | ${'domain'.padEnd(domainW)} | ${'port'.padEnd(portW)} | ${'target'.padEnd(targetW)}`;
-      const sep = `${'-'.repeat(nameW)}-|-${'-'.repeat(domainW)}-|-${'-'.repeat(portW)}-|-${'-'.repeat(targetW)}`;
-      console.log(`\n${header}`);
-      console.log(sep);
+      const targetW = Math.max(12, ...projects.map((p) => p.target.length))
+      const header = `${'project name'.padEnd(nameW)} | ${'domain'.padEnd(domainW)} | ${'port'.padEnd(portW)} | ${'target'.padEnd(targetW)}`
+      const sep = `${'-'.repeat(nameW)}-|-${'-'.repeat(domainW)}-|-${'-'.repeat(portW)}-|-${'-'.repeat(targetW)}`
+      console.log(`\n${header}`)
+      console.log(sep)
       projects.forEach((p) => {
-        console.log(`${p.name.padEnd(nameW)} | ${p.domain.padEnd(domainW)} | ${p.port.padEnd(portW)} | ${p.target.padEnd(targetW)}`);
-      });
+        console.log(`${p.name.padEnd(nameW)} | ${p.domain.padEnd(domainW)} | ${p.port.padEnd(portW)} | ${p.target.padEnd(targetW)}`)
+      })
     } else {
-      const uptimeW = Math.max(6, ...projects.map((p) => p.uptime.length));
-      const healthW = Math.max(6, ...projects.map((p) => p.health.length));
-      const restartsW = Math.max(8, ...projects.map((p) => p.restarts.length));
-      const targetW = Math.max(12, ...projects.map((p) => p.target.length));
-      const header = `${'project name'.padEnd(nameW)} | ${'domain'.padEnd(domainW)} | ${'port'.padEnd(portW)} | ${'target'.padEnd(targetW)} | ${'uptime'.padEnd(uptimeW)} | ${'health'.padEnd(healthW)} | ${'restarts'.padEnd(restartsW)}`;
-      const sep = `${'-'.repeat(nameW)}-|-${'-'.repeat(domainW)}-|-${'-'.repeat(portW)}-|-${'-'.repeat(targetW)}-|-${'-'.repeat(uptimeW)}-|-${'-'.repeat(healthW)}-|-${'-'.repeat(restartsW)}`;
-      console.log(`\n${header}`);
-      console.log(sep);
+      const uptimeW = Math.max(6, ...projects.map((p) => p.uptime.length))
+      const healthW = Math.max(6, ...projects.map((p) => p.health.length))
+      const restartsW = Math.max(8, ...projects.map((p) => p.restarts.length))
+      const targetW = Math.max(12, ...projects.map((p) => p.target.length))
+      const header = `${'project name'.padEnd(nameW)} | ${'domain'.padEnd(domainW)} | ${'port'.padEnd(portW)} | ${'target'.padEnd(targetW)} | ${'uptime'.padEnd(uptimeW)} | ${'health'.padEnd(healthW)} | ${'restarts'.padEnd(restartsW)}`
+      const sep = `${'-'.repeat(nameW)}-|-${'-'.repeat(domainW)}-|-${'-'.repeat(portW)}-|-${'-'.repeat(targetW)}-|-${'-'.repeat(uptimeW)}-|-${'-'.repeat(healthW)}-|-${'-'.repeat(restartsW)}`
+      console.log(`\n${header}`)
+      console.log(sep)
       projects.forEach((p) => {
-        console.log(`${p.name.padEnd(nameW)} | ${p.domain.padEnd(domainW)} | ${p.port.padEnd(portW)} | ${p.target.padEnd(targetW)} | ${p.uptime.padEnd(uptimeW)} | ${p.health.padEnd(healthW)} | ${p.restarts.padEnd(restartsW)}`);
-      });
+        console.log(`${p.name.padEnd(nameW)} | ${p.domain.padEnd(domainW)} | ${p.port.padEnd(portW)} | ${p.target.padEnd(targetW)} | ${p.uptime.padEnd(uptimeW)} | ${p.health.padEnd(healthW)} | ${p.restarts.padEnd(restartsW)}`)
+      })
     }
   } else {
-    console.log(proxy.proxyInfo);
-    console.log('No links found. Link a container first with "betty link".');
+    console.log(proxy.proxyInfo)
+    console.log('No links found. Link a container first with "betty link".')
   }
 
   if (opts?.long === true && proxy.traefikContainer !== null) {
-    console.log('\n--- Traefik Container Details ---');
+    console.log('\n--- Traefik Container Details ---')
     Object.entries(proxy.traefikContainer).forEach(([k, v]) => {
-      console.log(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
-    });
+      console.log(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
+    })
   }
-};
-
-if (require.main === module) {
-  statusCommand();
 }
 
-export default statusCommand;
+if (require.main === module) statusCommand()
+
+
+export default statusCommand
