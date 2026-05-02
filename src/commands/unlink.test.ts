@@ -146,6 +146,27 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
+  test('skips route list prompt when only one link exists', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirm: true }))
+
+    await unlinkCommand()
+
+    expect(inquirer.prompt).toHaveBeenCalledTimes(1)
+    expect(inquirer.prompt).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ type: 'confirm', name: 'confirm' }),
+    ]))
+  })
+
   test('logs "Cancelled." and does not delete file when user cancels', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

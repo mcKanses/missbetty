@@ -255,6 +255,8 @@ interface SelectRouteAnswer {
 }
 
 const selectRoute = async (routes: RouteEntry[], target?: string): Promise<RouteEntry> => {
+  if (target === undefined && routes.length === 1) return routes[0]
+
   if (target !== undefined) {
     const normalized = target.toLowerCase()
     const matches = routes.filter((route) =>

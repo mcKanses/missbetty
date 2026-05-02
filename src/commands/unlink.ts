@@ -141,6 +141,8 @@ const findRoute = async (routes: RouteEntry[], target?: string, domain?: string)
   let matches = routes
 
   if (target === undefined && domain === undefined) {
+    if (routes.length === 1) return routes[0]
+
     const answer = await inquirer.prompt([
       {
         type: 'list',

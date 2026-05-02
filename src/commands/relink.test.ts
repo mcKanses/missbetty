@@ -154,6 +154,39 @@ describe('relink command', () => {
     logSpy.mockRestore()
   })
 
+  test('skips route list prompt when only one link exists', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/myapp.pem') ||
+        np.endsWith('/myapp-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() =>
+      Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    )
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+
+    await relinkCommand()
+
+    expect(inquirer.prompt).toHaveBeenCalledTimes(1)
+    expect(inquirer.prompt).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ name: 'container' }),
+      expect.objectContaining({ name: 'domain' }),
+      expect.objectContaining({ name: 'port' }),
+    ]))
+  })
+
   test('exits when container name is empty', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
