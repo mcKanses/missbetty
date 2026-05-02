@@ -7,6 +7,9 @@ import relinkCommand from './commands/relink'
 import statusCommand from './commands/status'
 import unlinkCommand from './commands/unlink'
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version } = require('../../package.json') as { version: string }
+
 interface StatusOptions {
   long?: boolean;
   json?: boolean;
@@ -34,7 +37,7 @@ const program = new Command()
 program
   .name('betty')
   .description('Betty CLI - switch local domains for Docker projects')
-  .version('0.1.0')
+  .version(version)
 
 program
   .command('serve')
