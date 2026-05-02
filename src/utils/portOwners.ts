@@ -9,7 +9,7 @@ const BETTY_SYSTEM_443_OWNER_PATTERNS = [
 
 const getDockerPortOwners = (port: number): string[] => {
   try {
-    return execSync(`docker ps --filter "publish=${port}" --format "{{.Names}}\t{{.Ports}}"`, { stdio: 'pipe' })
+    return execSync(`docker ps --filter "publish=${String(port)}" --format "{{.Names}}\t{{.Ports}}"`, { stdio: 'pipe' })
       .toString()
       .trim()
       .split('\n')
@@ -26,12 +26,12 @@ const getSystemPortOwners = (port: number): string[] => {
         'powershell',
         '-NoProfile',
         '-Command',
-        `"Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + ' (PID ' + $_ + ')' } else { 'PID ' + $_ } }"`,
+        `"Get-NetTCPConnection -LocalPort ${String(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { $p = Get-Process -Id $_ -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + ' (PID ' + $_ + ')' } else { 'PID ' + $_ } }"`,
       ].join(' ');
       return execSync(command, { stdio: 'pipe' }).toString().trim().split('\n').filter(Boolean);
     }
 
-    return execSync(`lsof -nP -iTCP:${port} -sTCP:LISTEN`, { stdio: 'pipe' })
+    return execSync(`lsof -nP -iTCP:${String(port)} -sTCP:LISTEN`, { stdio: 'pipe' })
       .toString()
       .trim()
       .split('\n')

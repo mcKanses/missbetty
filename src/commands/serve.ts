@@ -43,28 +43,28 @@ networks:
     name: ${BETTY_PROXY_NETWORK}
 `;
 
-const ensureBettyHome = () => {
+const ensureBettyHome = (): void => {
   if (!fs.existsSync(BETTY_HOME_DIR)) {
     fs.mkdirSync(BETTY_HOME_DIR, { recursive: true });
     console.log(`Created global Betty directory: ${BETTY_HOME_DIR}`);
   }
 };
 
-const ensureDynamicDir = () => {
+const ensureDynamicDir = (): void => {
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) {
     fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true });
     console.log(`Created Betty dynamic config directory: ${BETTY_DYNAMIC_DIR}`);
   }
 };
 
-const ensureCertsDir = () => {
+const ensureCertsDir = (): void => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) {
     fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true });
     console.log(`Created Betty certs directory: ${BETTY_CERTS_DIR}`);
   }
 };
 
-const ensureComposeFile = () => {
+const ensureComposeFile = (): void => {
   if (!fs.existsSync(BETTY_PROXY_COMPOSE)) {
     fs.writeFileSync(BETTY_PROXY_COMPOSE, traefikCompose, 'utf8');
     console.log(`Created Docker Compose file: ${BETTY_PROXY_COMPOSE}`);
@@ -78,7 +78,7 @@ const ensureComposeFile = () => {
   }
 };
 
-const ensureProxyNetwork = () => {
+const ensureProxyNetwork = (): void => {
   try {
     execSync(`docker network inspect ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' });
   } catch {
@@ -87,7 +87,7 @@ const ensureProxyNetwork = () => {
   }
 };
 
-const ensureHttpsPortAvailable = () => {
+const ensureHttpsPortAvailable = (): void => {
   const allDockerOwners = getDockerPortOwners(443);
   const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(BETTY_TRAEFIK_CONTAINER));
   const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(BETTY_TRAEFIK_CONTAINER));
@@ -101,17 +101,17 @@ const ensureHttpsPortAvailable = () => {
   console.error('Betty needs host port 443 for HTTPS domains such as .dev.');
   if (dockerOwners.length > 0) {
     console.error('\nDocker containers publishing 443:');
-    dockerOwners.forEach((owner) => console.error(` - ${owner}`));
+    dockerOwners.forEach((owner) => { console.error(` - ${owner}`); });
   }
   if (systemOwners.length > 0) {
     console.error('\nProcesses listening on 443:');
-    systemOwners.forEach((owner) => console.error(` - ${owner}`));
+    systemOwners.forEach((owner) => { console.error(` - ${owner}`); });
   }
   console.error('\nStop the conflicting HTTPS server or proxy, then run: betty serve');
   process.exit(1);
 };
 
-const printProxyStartError = (message: string) => {
+const printProxyStartError = (message: string): void => {
   console.error('Traefik proxy could not be started.');
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
     console.error('Port 80 is already in use by another service.');
@@ -126,7 +126,7 @@ const printProxyStartError = (message: string) => {
   console.error(message);
 };
 
-const serveCommand = () => {
+const serveCommand = (): void => {
   try {
     ensureBettyHome();
     ensureDynamicDir();

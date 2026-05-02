@@ -7,6 +7,28 @@ import relinkCommand from './commands/relink';
 import statusCommand from './commands/status';
 import unlinkCommand from './commands/unlink';
 
+interface StatusOptions {
+  long?: boolean;
+  json?: boolean;
+  format?: string;
+  short?: boolean;
+}
+
+interface RelinkOptions {
+  container?: string;
+  domain?: string;
+  port?: string;
+}
+
+interface LinkOptions {
+  domain?: string;
+  port?: string;
+}
+
+interface UnlinkOptions {
+  domain?: string;
+}
+
 const program = new Command();
 
 program
@@ -30,14 +52,14 @@ program
   .option('--long', 'Show detailed proxy container info')
   .option('--json', 'Output status as JSON')
   .option('--format <format>', 'Output format, e.g. json')
-  .action((opts) => statusCommand(opts))
+  .action((opts: StatusOptions) => { statusCommand(opts); })
 
 program
   .command('link [container]')
   .description('Link a running container to a local domain')
   .option('--domain <domain>', 'Target domain, e.g. testapp.localhost')
   .option('--port <port>', 'Internal container port')
-  .action((container, opts) => linkCommand(container, opts))
+  .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts); })
 
 program
   .command('relink [target]')
@@ -45,12 +67,12 @@ program
   .option('--container <container>', 'New target container')
   .option('--domain <domain>', 'New linked domain')
   .option('--port <port>', 'New internal container port')
-  .action((target, opts) => relinkCommand(target, opts))
+  .action((target: string | undefined, opts: RelinkOptions) => { void relinkCommand(target, opts); })
 
 program
   .command('unlink [target]')
   .description('Remove a local domain link')
   .option('--domain <domain>', 'Linked domain, e.g. testapp.localhost')
-  .action((target, opts) => unlinkCommand(target, opts))
+  .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts); })
 
 program.parse(process.argv);

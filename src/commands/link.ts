@@ -9,6 +9,7 @@ import {
   getSystemPortOwners,
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners';
+import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter } from '../types';
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
 const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml');
@@ -56,7 +57,7 @@ networks:
     name: ${TRAEFIK_NETWORK}
 `;
 
-const ensureProxyComposeFile = () => {
+const ensureProxyComposeFile = (): void => {
   if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true });
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true });
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true });
@@ -67,7 +68,7 @@ const ensureProxyComposeFile = () => {
   }
 };
 
-const ensureHttpsPortAvailable = () => {
+const ensureHttpsPortAvailable = (): void => {
   const allDockerOwners = getDockerPortOwners(443);
   const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(TRAEFIK_CONTAINER));
   const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(TRAEFIK_CONTAINER));
@@ -81,17 +82,17 @@ const ensureHttpsPortAvailable = () => {
   console.error('Betty needs host port 443 for HTTPS domains such as .dev.');
   if (dockerOwners.length > 0) {
     console.error('\nDocker containers publishing 443:');
-    dockerOwners.forEach((owner) => console.error(` - ${owner}`));
+    dockerOwners.forEach((owner) => { console.error(` - ${owner}`); });
   }
   if (systemOwners.length > 0) {
     console.error('\nProcesses listening on 443:');
-    systemOwners.forEach((owner) => console.error(` - ${owner}`));
+    systemOwners.forEach((owner) => { console.error(` - ${owner}`); });
   }
   console.error('\nStop the conflicting HTTPS server or proxy, then run: betty link');
   process.exit(1);
 };
 
-const printProxyStartError = (message: string) => {
+const printProxyStartError = (message: string): void => {
   console.error("Betty's proxy could not be started.");
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
     console.error('Port 80 is already in use by another service.');
@@ -106,7 +107,7 @@ const printProxyStartError = (message: string) => {
   console.error(message);
 };
 
-const ensureProxyRunning = (traefikComposePath: string) => {
+const ensureProxyRunning = (traefikComposePath: string): void => {
   try {
     execSync(`docker compose -f "${traefikComposePath}" up -d`, {
       cwd: path.dirname(traefikComposePath),
@@ -119,7 +120,7 @@ const ensureProxyRunning = (traefikComposePath: string) => {
   }
 };
 
-const ensureTraefikNetwork = () => {
+const ensureTraefikNetwork = (): void => {
   try {
     execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' });
   } catch {
@@ -128,13 +129,13 @@ const ensureTraefikNetwork = () => {
   }
 };
 
-const connectContainerToNetwork = (containerName: string) => {
+const connectContainerToNetwork = (containerName: string): void => {
   try {
     const info = JSON.parse(
       execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
-    );
-    const networks: Record<string, unknown> = info[0]?.NetworkSettings?.Networks || {};
-    if (networks[TRAEFIK_NETWORK]) {
+    ) as DockerInspectEntry[];
+    const networkKeys = Object.keys(info[0].NetworkSettings.Networks);
+    if (networkKeys.includes(TRAEFIK_NETWORK)) {
       return; // already connected
     }
   } catch {
@@ -149,9 +150,10 @@ const connectContainerToNetwork = (containerName: string) => {
 const getContainerIp = (containerName: string): string => {
   const info = JSON.parse(
     execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
-  );
-  const ip: string | undefined = info[0]?.NetworkSettings?.Networks?.[TRAEFIK_NETWORK]?.IPAddress;
-  if (!ip) {
+  ) as DockerInspectEntry[];
+  const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>;
+  const ip = networks[TRAEFIK_NETWORK]?.IPAddress ?? '';
+  if (ip === '') {
     console.error(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`);
     process.exit(1);
   }
@@ -198,8 +200,8 @@ const writeDynamicConfig = (
   port: number,
   traefikComposePath: string,
   certificate: { certFile: string; keyFile: string } | null
-) => {
-  const routers: Record<string, any> = {
+): void => {
+  const routers: Record<string, TraefikRouter> = {
     [name]: {
       rule: `Host("${domain}")`,
       entryPoints: ['web'],
@@ -216,13 +218,13 @@ const writeDynamicConfig = (
     };
   }
 
-  const config: any = {
+  const config: TraefikDynamicConfig = {
     http: {
       routers,
       services: {
         [name]: {
           loadBalancer: {
-            servers: [{ url: `http://${ip}:${port}` }],
+            servers: [{ url: `http://${ip}:${String(port)}` }],
           },
         },
       },
@@ -268,7 +270,7 @@ const ensureHostsEntry = (domain: string): boolean => {
     : '/etc/hosts';
   const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const entry = `127.0.0.1 ${domain} # added by betty`;
-  const hasEntry = () => {
+  const hasEntry = (): boolean => {
     const content = fs.readFileSync(hostsPath, 'utf8');
     return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content);
   };
@@ -285,7 +287,7 @@ const ensureHostsEntry = (domain: string): boolean => {
     return true;
   } catch {
     if (process.platform === 'win32') {
-      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${Date.now()}.ps1`);
+      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${String(Date.now())}.ps1`);
       const scriptDomain = domain.replace(/'/g, "''");
       const scriptEntry = entry.replace(/'/g, "''");
       const script = [
@@ -341,47 +343,53 @@ const validateLocalDomain = (domain: string): true | string => {
   return true;
 };
 
-const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }) => {
+interface LinkPromptAnswers {
+  container?: string;
+  domain?: string;
+  port?: string;
+}
+
+const linkCommand = async (containerName: string | undefined, opts: { domain?: string; port?: string }): Promise<void> => {
   let resolvedContainer = containerName;
   let resolvedDomain = opts.domain;
   let resolvedPort = opts.port;
 
-  if (!resolvedContainer || !resolvedDomain) {
+  if (resolvedContainer === undefined || resolvedDomain === undefined) {
     const runningContainers = getRunningContainers();
 
     const answers = await inquirer.prompt([
-      ...(!resolvedContainer ? [{
+      ...(resolvedContainer === undefined ? [{
         type: runningContainers.length > 0 ? 'list' : 'input',
         name: 'container',
         message: 'Container:',
         ...(runningContainers.length > 0 ? { choices: runningContainers } : {}),
       }] : []),
-      ...(!resolvedDomain ? [{
+      ...(resolvedDomain === undefined ? [{
         type: 'input',
         name: 'domain',
         message: 'Domain (e.g. myapp.localhost):',
         validate: validateLocalDomain,
       }] : []),
-      ...(!resolvedPort ? [{
+      ...(resolvedPort === undefined ? [{
         type: 'input',
         name: 'port',
         message: 'Port:',
         default: '80',
         validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Please provide a valid port',
       }] : []),
-    ]);
+    ]) as LinkPromptAnswers;
 
-    if (answers.container) resolvedContainer = answers.container as string;
-    if (answers.domain) resolvedDomain = answers.domain as string;
-    if (answers.port) resolvedPort = answers.port as string;
+    if (answers.container !== undefined && answers.container !== '') resolvedContainer = answers.container;
+    if (answers.domain !== undefined && answers.domain !== '') resolvedDomain = answers.domain;
+    if (answers.port !== undefined && answers.port !== '') resolvedPort = answers.port;
   }
 
-  if (!resolvedContainer) {
+  if (resolvedContainer === undefined || resolvedContainer === '') {
     console.error('No container provided.');
     process.exit(1);
   }
 
-  if (!resolvedDomain) {
+  if (resolvedDomain === undefined || resolvedDomain === '') {
     console.error('No domain provided.');
     process.exit(1);
   }
@@ -392,7 +400,7 @@ const linkCommand = async (containerName: string | undefined, opts: { domain?: s
     process.exit(1);
   }
 
-  const port = parseInt(resolvedPort || '80', 10);
+  const port = parseInt(resolvedPort ?? '80', 10);
   if (!Number.isFinite(port) || port <= 0) {
     console.error('Invalid port. Example: --port 3000');
     process.exit(1);
@@ -404,7 +412,7 @@ const linkCommand = async (containerName: string | undefined, opts: { domain?: s
   ensureProxyComposeFile();
   const traefikComposePath = resolveTraefikComposePath();
 
-  console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${port}...`);
+  console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${String(port)}...`);
 
   ensureHttpsPortAvailable();
   ensureProxyRunning(traefikComposePath);

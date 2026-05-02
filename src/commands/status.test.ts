@@ -27,8 +27,6 @@ jest.mock('fs', () => ({
 
 describe('status command', () => {
   const normalizePath = (value: string) => value.replace(/\\/g, '/');
-  const composePath = '/home/test-user/.betty/docker-compose.yml';
-  const dynamicDir = '/home/test-user/.betty/dynamic';
 
   beforeEach(() => {
     jest.clearAllMocks();

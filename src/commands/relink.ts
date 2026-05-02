@@ -4,21 +4,22 @@ import inquirer from 'inquirer';
 import os from 'os';
 import path from 'path';
 import yaml from 'yaml';
+import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types';
 
-type RouteEntry = {
+interface RouteEntry {
   filePath: string;
   fileName: string;
   routerName: string;
   domain: string;
   target: string;
   port: string;
-};
+}
 
-type RelinkOptions = {
+interface RelinkOptions {
   container?: string;
   domain?: string;
   port?: string;
-};
+}
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
 const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml');
@@ -42,16 +43,19 @@ const readRoutes = (): RouteEntry[] => {
     .map((file) => {
       const filePath = path.join(BETTY_DYNAMIC_DIR, file);
       try {
-        const doc = yaml.parse(fs.readFileSync(filePath, 'utf8'));
-        const routers = doc?.http?.routers || {};
-        const services = doc?.http?.services || {};
-        const firstRouterKey = Object.keys(routers).find((key) => !key.endsWith('-secure')) || Object.keys(routers)[0] || path.basename(file, path.extname(file));
-        const firstServiceKey = Object.keys(services)[0] || firstRouterKey;
-        const rule = String(routers[firstRouterKey]?.rule || '');
-        const domain = rule.match(/Host\("([^"]+)"\)/)?.[1] || '';
-        const target = String(services[firstServiceKey]?.loadBalancer?.servers?.[0]?.url || '');
-        const port = target.match(/:(\d+)(?:\/)?$/)?.[1] || '';
-        return { filePath, fileName: file, routerName: firstRouterKey, domain, target, port } as RouteEntry;
+        const doc = yaml.parse(fs.readFileSync(filePath, 'utf8')) as TraefikDynamicConfig;
+        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {};
+        const services: Record<string, TraefikService> = doc.http?.services ?? {};
+        const routerKeys = Object.keys(routers);
+        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure'))
+          ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)));
+        const serviceKeys = Object.keys(services);
+        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey;
+        const rule = routers[firstRouterKey].rule ?? '';
+        const domain = /Host\("([^"]+)"\)/.exec(rule)?.[1] ?? '';
+        const target = services[firstServiceKey].loadBalancer?.servers?.[0]?.url ?? '';
+        const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? '';
+        return { filePath, fileName: file, routerName: firstRouterKey, domain, target, port };
       } catch {
         return null;
       }
@@ -71,11 +75,11 @@ const getRunningContainers = (): string[] => {
   }
 };
 
-const connectContainerToNetwork = (containerName: string) => {
+const connectContainerToNetwork = (containerName: string): void => {
   try {
-    const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString());
-    const networks: Record<string, unknown> = info[0]?.NetworkSettings?.Networks || {};
-    if (networks[TRAEFIK_NETWORK]) return;
+    const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[];
+    const networkKeys = Object.keys(info[0].NetworkSettings.Networks);
+    if (networkKeys.includes(TRAEFIK_NETWORK)) return;
   } catch {
     console.error(`Container '${containerName}' not found.`);
     process.exit(1);
@@ -86,9 +90,10 @@ const connectContainerToNetwork = (containerName: string) => {
 };
 
 const getContainerIp = (containerName: string): string => {
-  const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString());
-  const ip: string | undefined = info[0]?.NetworkSettings?.Networks?.[TRAEFIK_NETWORK]?.IPAddress;
-  if (!ip) {
+  const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[];
+  const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>;
+  const ip = networks[TRAEFIK_NETWORK]?.IPAddress ?? '';
+  if (ip === '') {
     console.error(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`);
     process.exit(1);
   }
@@ -125,7 +130,7 @@ const ensureHostsEntry = (domain: string): boolean => {
     : '/etc/hosts';
   const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const entry = `127.0.0.1 ${domain} # added by betty`;
-  const hasEntry = () => {
+  const hasEntry = (): boolean => {
     const content = fs.readFileSync(hostsPath, 'utf8');
     return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content);
   };
@@ -142,7 +147,7 @@ const ensureHostsEntry = (domain: string): boolean => {
     return true;
   } catch {
     if (process.platform === 'win32') {
-      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${Date.now()}.ps1`);
+      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${String(Date.now())}.ps1`);
       const scriptDomain = domain.replace(/'/g, "''");
       const scriptEntry = entry.replace(/'/g, "''");
       const script = [
@@ -187,9 +192,9 @@ const writeRoute = (
   ip: string,
   port: number,
   certificate: { certFile: string; keyFile: string } | null
-) => {
+): void => {
   const serviceName = containerName.replace(/[^a-zA-Z0-9-]/g, '-');
-  const routers: Record<string, any> = {
+  const routers: Record<string, TraefikRouter> = {
     [serviceName]: {
       rule: `Host("${domain}")`,
       entryPoints: ['web'],
@@ -206,13 +211,13 @@ const writeRoute = (
     };
   }
 
-  const config: any = {
+  const config: TraefikDynamicConfig = {
     http: {
       routers,
       services: {
         [serviceName]: {
           loadBalancer: {
-            servers: [{ url: `http://${ip}:${port}` }],
+            servers: [{ url: `http://${ip}:${String(port)}` }],
           },
         },
       },
@@ -231,7 +236,7 @@ const writeRoute = (
   console.log(`Updated routing configuration: ${path.basename(nextPath)}`);
 };
 
-const restartTraefik = (composePath: string) => {
+const restartTraefik = (composePath: string): void => {
   execSync(`docker compose -f "${composePath}" restart traefik`, {
     cwd: path.dirname(composePath),
     stdio: 'inherit',
@@ -239,8 +244,12 @@ const restartTraefik = (composePath: string) => {
   console.log('Restarted Traefik.');
 };
 
+interface SelectRouteAnswer {
+  route: string;
+}
+
 const selectRoute = async (routes: RouteEntry[], target?: string): Promise<RouteEntry> => {
-  if (target) {
+  if (target !== undefined) {
     const normalized = target.toLowerCase();
     const matches = routes.filter((route) =>
       route.routerName.toLowerCase() === normalized ||
@@ -258,11 +267,17 @@ const selectRoute = async (routes: RouteEntry[], target?: string): Promise<Route
       name: `${route.routerName} -> ${route.domain} (${route.target || 'n/a'})`,
       value: route.filePath,
     })),
-  }]);
-  return routes.find((route) => route.filePath === answer.route) || routes[0];
+  }]) as SelectRouteAnswer;
+  return routes.find((route) => route.filePath === answer.route) ?? routes[0];
 };
 
-const relinkCommand = async (target?: string, opts?: RelinkOptions) => {
+interface RelinkPromptAnswers {
+  container?: string;
+  domain?: string;
+  port?: string;
+}
+
+const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<void> => {
   const composePath = resolveTraefikComposePath();
   const routes = readRoutes();
   if (routes.length === 0) {
@@ -272,7 +287,7 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions) => {
 
   const route = await selectRoute(routes, target);
   const runningContainers = getRunningContainers();
-  const shouldPromptValues = !opts?.container && !opts?.domain && !opts?.port;
+  const shouldPromptValues = opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined;
 
   const answers = await inquirer.prompt([
     ...(shouldPromptValues ? [{
@@ -296,11 +311,11 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions) => {
       default: route.port || '80',
       validate: (value: string) => (Number.isFinite(parseInt(value, 10)) && parseInt(value, 10) > 0) || 'Please provide a valid port',
     }] : []),
-  ]);
+  ]) as RelinkPromptAnswers;
 
-  const containerName = (opts?.container || answers.container || route.routerName).trim();
-  const domain = (opts?.domain || answers.domain || route.domain).trim();
-  const port = parseInt(opts?.port || answers.port || route.port || '80', 10);
+  const containerName = (opts?.container ?? answers.container ?? route.routerName).trim();
+  const domain = (opts?.domain ?? answers.domain ?? route.domain).trim();
+  const port = parseInt((opts?.port ?? answers.port ?? route.port) || '80', 10);
 
   if (!containerName) {
     console.error('No container provided.');
@@ -327,7 +342,7 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions) => {
   }
   restartTraefik(composePath);
 
-  console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${port}`);
+  console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`);
   if (certificate) {
     console.log(`✅ HTTPS is available at https://${domain}`);
   }

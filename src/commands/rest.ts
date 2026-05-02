@@ -6,7 +6,7 @@ import path from 'path';
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty');
 const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml');
 
-const restCommand = () => {
+const restCommand = (): void => {
   if (!fs.existsSync(BETTY_PROXY_COMPOSE)) {
     console.log("Betty's local switchboard service is not set up yet.");
     console.log('Start it with: betty serve');

@@ -67,11 +67,11 @@ describe('rest command', () => {
     });
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('process-exit');
-    }) as never);
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`);
+    });
 
-    expect(() => restCommand()).toThrow('process-exit');
+    expect(() => { restCommand(); }).toThrow('process-exit-1');
     expect(errorSpy).toHaveBeenCalledWith("Betty's switchboard service could not be stopped:", 'compose down failed');
     expect(exitSpy).toHaveBeenCalledWith(1);
 
