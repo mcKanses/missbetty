@@ -238,6 +238,59 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
+  test('--all removes all routes after confirmation', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/dynamic/dev.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('dev.yml')) return YAML_DEV_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirmAll: true }))
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand(undefined, { all: true })
+
+    expect(fs.unlinkSync).toHaveBeenCalledTimes(2)
+    expect(execSync).toHaveBeenCalledWith(expect.stringContaining('restart traefik'), expect.anything())
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Summary:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('--all cancels without removing when user declines', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirmAll: false }))
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand(undefined, { all: true })
+
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+    expect(execSync).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+
+    logSpy.mockRestore()
+  })
+
   test('removes hosts entry automatically for .dev domains', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
