@@ -1,0 +1,23 @@
+name: Main Source Guard
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+jobs:
+  enforce-main-from-development:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate source branch
+        env:
+          SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ "$SOURCE_BRANCH" = "development" ]; then
+            echo "PR source branch is development."
+            exit 0
+          fi
+
+          echo "Only PRs from development to main are allowed."
+          echo "Current source branch: $SOURCE_BRANCH"
+          exit 1
