@@ -1,6 +1,6 @@
 <div align="center">
 
-![Betty Logo](assets/logo/betty-logo.svg)
+![Betty Logo](https://raw.githubusercontent.com/mcKanses/getbetty.dev/main/assets/logo/betty-logo.svg)
 
 # Betty
 
