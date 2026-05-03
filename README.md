@@ -41,7 +41,7 @@ domains.
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 24 or newer
 - Docker with Docker Compose
 - Access to the Docker socket
 - mkcert for HTTPS support
@@ -272,8 +272,7 @@ npm publish automatically.
 Configure the repository secret `NPM_TOKEN` with an npm automation or granular
 access token that can publish `missbetty`.
 
-The publish workflow uses Node.js 24 because semantic-release requires Node
-22.14 or newer. Betty itself still targets Node.js 20 or newer at runtime.
+The publish workflow uses Node.js 24. Betty itself requires Node.js 24 or newer at runtime.
 
 Manual fallback release scripts are still available:
 
