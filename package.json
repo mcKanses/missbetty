@@ -1,6 +1,6 @@
 {
   "name": "missbetty",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local Docker development domains through one Traefik switchboard",
   "main": "bin/betty.js",
   "bin": {
