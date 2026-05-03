@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build-and-upload:
@@ -19,18 +20,36 @@ jobs:
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
+            smoke_test: true
           - os: ubuntu-24.04-arm
             asset_name: betty-linux-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
+            smoke_test: true
+          - os: macos-13
+            asset_name: betty-darwin-x64.tar.gz
+            binary_name: betty
+            archive_kind: tar
+            target_node_dist: darwin-x64
+            target_node_binary: bin/node
+            smoke_test: false
           - os: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
+            smoke_test: true
           - os: windows-latest
             asset_name: betty-windows-x64.zip
             binary_name: betty.exe
             archive_kind: zip
+            smoke_test: true
+          - os: windows-latest
+            asset_name: betty-windows-arm64.zip
+            binary_name: betty.exe
+            archive_kind: zip
+            target_node_dist: win-arm64
+            target_node_binary: node.exe
+            smoke_test: false
 
     steps:
       - name: Checkout
@@ -45,8 +64,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare target Node runtime (tar)
+        if: matrix.target_node_dist != '' && matrix.archive_kind == 'tar'
+        shell: bash
+        run: |
+          NODE_VERSION="$(node -p \"process.version.slice(1)\")"
+          ARCHIVE="node-v${NODE_VERSION}-${{ matrix.target_node_dist }}.tar.gz"
+          URL="https://nodejs.org/dist/v${NODE_VERSION}/${ARCHIVE}"
+
+          mkdir -p .node-runtime
+          curl -fsSL "$URL" -o .node-runtime/node.tar.gz
+          tar -xzf .node-runtime/node.tar.gz -C .node-runtime --strip-components=1
+          echo "BETTY_SEA_NODE_BINARY=$PWD/.node-runtime/${{ matrix.target_node_binary }}" >> "$GITHUB_ENV"
+
+      - name: Prepare target Node runtime (zip)
+        if: matrix.target_node_dist != '' && matrix.archive_kind == 'zip'
+        shell: pwsh
+        run: |
+          $nodeVersion = node -p "process.version.slice(1)"
+          $archive = "node-v$nodeVersion-${{ matrix.target_node_dist }}.zip"
+          $url = "https://nodejs.org/dist/v$nodeVersion/$archive"
+
+          New-Item -ItemType Directory -Force -Path .node-runtime | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile .node-runtime\node.zip
+          Expand-Archive -Path .node-runtime\node.zip -DestinationPath .node-runtime\expanded -Force
+          $root = Get-ChildItem -Path .node-runtime\expanded | Select-Object -First 1
+          $targetNode = Join-Path $root.FullName '${{ matrix.target_node_binary }}'
+          "BETTY_SEA_NODE_BINARY=$targetNode" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build standalone binary
         run: npm run binary
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
 
       - name: Package binary (tar)
         if: matrix.archive_kind == 'tar'
@@ -61,6 +111,13 @@ jobs:
         shell: bash
         run: |
           shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
+
+      - name: Sign assets (tar)
+        if: matrix.archive_kind == 'tar'
+        shell: bash
+        run: |
+          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sig" --output-certificate "${{ matrix.asset_name }}.pem" "${{ matrix.asset_name }}"
+          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sha256.sig" --output-certificate "${{ matrix.asset_name }}.sha256.pem" "${{ matrix.asset_name }}.sha256"
 
       - name: Package binary (zip)
         if: matrix.archive_kind == 'zip'
@@ -77,17 +134,28 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 "${{ matrix.asset_name }}").Hash.ToLower()
           "$hash  ${{ matrix.asset_name }}" | Out-File -FilePath "${{ matrix.asset_name }}.sha256" -Encoding ascii
 
+      - name: Sign assets (zip)
+        if: matrix.archive_kind == 'zip'
+        shell: pwsh
+        run: |
+          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sig" --output-certificate "${{ matrix.asset_name }}.pem" "${{ matrix.asset_name }}"
+          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sha256.sig" --output-certificate "${{ matrix.asset_name }}.sha256.pem" "${{ matrix.asset_name }}.sha256"
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ matrix.asset_name }}
             ${{ matrix.asset_name }}.sha256
+            ${{ matrix.asset_name }}.sig
+            ${{ matrix.asset_name }}.pem
+            ${{ matrix.asset_name }}.sha256.sig
+            ${{ matrix.asset_name }}.sha256.pem
           fail_on_unmatched_files: true
           overwrite_files: true
 
       - name: Smoke test installer (Linux/macOS)
-        if: matrix.archive_kind == 'tar'
+        if: matrix.archive_kind == 'tar' && matrix.smoke_test == true
         shell: bash
         run: |
           export BETTY_VERSION="${{ github.event.release.tag_name }}"
@@ -111,7 +179,7 @@ jobs:
           "$BETTY_INSTALL_DIR/betty" --help > /dev/null
 
       - name: Smoke test installer (Windows)
-        if: matrix.archive_kind == 'zip'
+        if: matrix.archive_kind == 'zip' && matrix.smoke_test == true
         shell: pwsh
         run: |
           $env:BETTY_VERSION = '${{ github.event.release.tag_name }}'
