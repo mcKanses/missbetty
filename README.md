@@ -236,19 +236,16 @@ environments that cannot spawn parallel Jest workers.
 
 ## Release
 
-Before publishing, run the full local release check:
+Development happens on `development`. Publish releases from `main` by pushing a
+version tag.
+
+Before creating a release, run the full local release check:
 
 ```sh
 npm run release:check
 ```
 
-Publish to npm:
-
-```sh
-npm publish
-```
-
-Create a checked versioned release:
+Create a checked versioned release on `main`:
 
 ```sh
 npm run release:patch
@@ -257,11 +254,25 @@ npm run release:major
 ```
 
 These scripts run the full release check first, then create the `npm version`
-commit and Git tag, then publish to npm.
+commit and Git tag. They do not publish directly.
 
-`prepack` builds the TypeScript output before npm creates the package. If npm
-requires two-factor authentication, complete the browser or OTP prompt shown by
-the npm CLI.
+Push the version commit and tag:
+
+```sh
+git push origin main --follow-tags
+```
+
+GitHub Actions publishes to npm only when a `v*` tag is pushed. Configure the
+repository secret `NPM_TOKEN` with an npm automation or granular access token
+that can publish `missbetty`.
+
+For emergency manual publishing:
+
+```sh
+npm run release:publish
+```
+
+`prepack` builds the TypeScript output before npm creates the package.
 
 ## Devcontainer
 
