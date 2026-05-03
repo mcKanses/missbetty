@@ -19,7 +19,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('bin',{recursive:true,force:true})\" && tsc",
