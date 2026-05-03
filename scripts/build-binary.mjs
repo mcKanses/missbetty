@@ -22,6 +22,7 @@ const seaConfig = join(dist, 'sea-config.json');
 const isWin = process.platform === 'win32';
 const binaryName = isWin ? 'betty.exe' : 'betty';
 const binaryOut = join(dist, binaryName);
+const targetNodeBinary = process.env.BETTY_SEA_NODE_BINARY || process.execPath;
 
 const run = (cmd) => execSync(cmd, { stdio: 'inherit', cwd: root });
 
@@ -55,8 +56,7 @@ run(`node --experimental-sea-config ${seaConfig}`);
 
 // 6. Copy node binary + inject
 console.log('\n[5/5] Creating binary…');
-const nodeBin = process.execPath;
-copyFileSync(nodeBin, binaryOut);
+copyFileSync(targetNodeBinary, binaryOut);
 
 // On macOS, remove code signature before injection
 if (process.platform === 'darwin') {
