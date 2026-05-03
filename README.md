@@ -59,6 +59,13 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 Betty publishes standalone binaries on GitHub Releases.
 The installer scripts verify SHA256 checksums before installation.
 
+Current prebuilt targets:
+
+- Linux x64
+- Linux arm64
+- macOS arm64
+- Windows x64
+
 Linux/macOS:
 
 ```sh
