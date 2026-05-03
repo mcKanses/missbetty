@@ -115,6 +115,14 @@ const ensureHttpsPortAvailable = (): void => {
 
 const printProxyStartError = (message: string): void => {
   printError('Traefik proxy could not be started.')
+  if (message.includes('permission denied') && message.includes('/var/run/docker.sock')) {
+    printHint('Docker is installed, but your current shell has no access to /var/run/docker.sock.')
+    printHint('Run one of these and retry:')
+    printHint(' - newgrp docker')
+    printHint(' - log out and log back in')
+    printHint('Then run: betty serve')
+    return
+  }
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
     printHint('Port 80 is already in use by another service.')
     printHint('Stop the conflicting HTTP server or proxy, then run: betty serve')

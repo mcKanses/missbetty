@@ -38,40 +38,46 @@ jobs:
   build-and-upload:
     needs: resolve-release
     if: needs.resolve-release.outputs.tag_name != ''
-    name: Build Binary (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Build Binary (${{ matrix.asset_name }})
+    runs-on: ${{ matrix.runs_on }}
+    env:
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - runs_on: ubuntu-latest
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - os: ubuntu-24.04-arm
+          - runs_on: ubuntu-24.04-arm
             asset_name: betty-linux-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - os: macos-13
+          - runs_on:
+              - self-hosted
+              - macOS
+              - betty-macos13
+            self_hosted: true
             asset_name: betty-darwin-x64.tar.gz
             binary_name: betty
             archive_kind: tar
             target_node_dist: darwin-x64
             target_node_binary: bin/node
             smoke_test: false
-          - os: macos-latest
+          - runs_on: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - os: windows-latest
+          - runs_on: windows-latest
             asset_name: betty-windows-x64.zip
             binary_name: betty.exe
             archive_kind: zip
             smoke_test: true
-          - os: windows-latest
+          - runs_on: windows-latest
             asset_name: betty-windows-arm64.zip
             binary_name: betty.exe
             archive_kind: zip
@@ -92,11 +98,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Set binary version from release tag
+        shell: bash
+        run: |
+          RELEASE_VERSION="${{ needs.resolve-release.outputs.tag_name }}"
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+
+          node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version=process.argv[1]; fs.writeFileSync(path, JSON.stringify(pkg, null, 2)+'\\n');" "$RELEASE_VERSION"
+
       - name: Prepare target Node runtime (tar)
         if: matrix.target_node_dist != '' && matrix.archive_kind == 'tar'
         shell: bash
         run: |
-          NODE_VERSION="$(node -p \"process.version.slice(1)\")"
+          NODE_VERSION="$(node -p 'process.version.slice(1)')"
           ARCHIVE="node-v${NODE_VERSION}-${{ matrix.target_node_dist }}.tar.gz"
           URL="https://nodejs.org/dist/v${NODE_VERSION}/${ARCHIVE}"
 
@@ -232,3 +246,27 @@ jobs:
           if (-not $installed) { throw 'Installer smoke test failed.' }
 
           & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --help | Out-Null
+
+  update-readme:
+    needs: [resolve-release, build-and-upload]
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    name: Update README with Latest Version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Update README version examples
+        run: node scripts/update-readme-version.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
