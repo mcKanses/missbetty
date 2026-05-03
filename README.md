@@ -248,6 +248,17 @@ Publish to npm:
 npm publish
 ```
 
+Create a checked versioned release:
+
+```sh
+npm run release:patch
+npm run release:minor
+npm run release:major
+```
+
+These scripts run the full release check first, then create the `npm version`
+commit and Git tag, then publish to npm.
+
 `prepack` builds the TypeScript output before npm creates the package. If npm
 requires two-factor authentication, complete the browser or OTP prompt shown by
 the npm CLI.
