@@ -224,7 +224,10 @@ install_dependencies_linux() {
   fi
 
   echo "✓ Dependencies installed (Docker + mkcert)"
-  echo "If docker commands fail due to permissions, re-login once to apply docker group changes."
+  if ! docker info >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+    echo "Docker is ready, but this shell has not picked up docker group permissions yet."
+    echo "Run 'newgrp docker' now, or re-login once, then use Betty without sudo."
+  fi
 }
 
 install_dependencies_macos() {
