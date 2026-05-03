@@ -277,6 +277,8 @@ npm run release:minor
 npm run release:major
 ```
 
+The fallback scripts are guarded and only run on the `main` branch.
+
 For emergency manual publishing:
 
 ```sh
