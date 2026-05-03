@@ -54,6 +54,67 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 
 ## Installation
 
+### Install without Node.js or npm
+
+Betty publishes standalone binaries on GitHub Releases.
+The installer scripts verify SHA256 checksums before installation.
+Release assets are also signed with Sigstore Cosign (keyless certificates).
+
+Current prebuilt targets:
+
+- Linux x64
+- Linux arm64
+- macOS x64
+- macOS arm64
+- Windows x64
+- Windows arm64
+
+Linux/macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
+Optional version pinning:
+
+```sh
+BETTY_VERSION=v1.0.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+```
+
+```powershell
+$env:BETTY_VERSION = 'v1.0.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
+The binary install path is:
+
+- Linux/macOS: `/usr/local/bin/betty` (or `$BETTY_INSTALL_DIR/betty`)
+- Windows: `%LOCALAPPDATA%\\Programs\\betty\\betty.exe` (or `$env:BETTY_INSTALL_DIR\\betty.exe`)
+
+You still need runtime tools for Betty workflows (Docker and optionally mkcert),
+but Node.js and npm are no longer required for using Betty.
+
+### Uninstall standalone binary
+
+Linux/macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/uninstall.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/mcKanses/missbetty/main/uninstall.ps1 | iex
+```
+
+### Install from source (Node.js + npm)
+
 From this repository:
 
 ```sh
@@ -109,9 +170,8 @@ It creates:
 - Docker network `betty_proxy`
 - Traefik container `betty-traefik`
 
-Traefik publishes HTTPS on host port `443`. It still defines an internal HTTP
-entrypoint for routing config compatibility, but Betty does not bind host port
-`80`, so it can coexist with another local web server using port `80`.
+Traefik publishes HTTP on host port `80` and HTTPS on host port `443`.
+Both ports must be available on the host while Betty is running.
 
 Betty keeps routing config globally in `~/.betty/dynamic`, and local
 certificates in `~/.betty/certs`, so individual projects do not need
