@@ -125,9 +125,10 @@ install_dependencies_linux() {
 
     echo "Starting Docker daemon..."
     if command -v systemctl >/dev/null 2>&1; then
-      sudo systemctl start docker || true
+      sudo systemctl enable --now docker.service docker.socket >/dev/null 2>&1 || true
+      sudo systemctl start docker >/dev/null 2>&1 || true
     elif command -v service >/dev/null 2>&1; then
-      sudo service docker start || true
+      sudo service docker start >/dev/null 2>&1 || true
     elif command -v dockerd >/dev/null 2>&1; then
       sudo nohup dockerd >/tmp/betty-dockerd.log 2>&1 &
     fi
@@ -152,6 +153,13 @@ install_dependencies_linux() {
     fi
 
     echo "Docker was installed, but daemon is not reachable yet."
+    if command -v systemctl >/dev/null 2>&1; then
+      if [ "$(ps -p 1 -o comm= 2>/dev/null || true)" != "systemd" ]; then
+        echo "This host does not run systemd as PID 1; service startup may be restricted."
+      fi
+      echo "Docker service status (if available):"
+      sudo systemctl --no-pager --full status docker 2>/dev/null | tail -n 25 || true
+    fi
     echo "Try starting it manually and rerun:"
     echo "  sudo systemctl start docker"
     echo "or"
