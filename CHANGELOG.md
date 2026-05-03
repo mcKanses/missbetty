@@ -1,3 +1,10 @@
+# [1.1.3](https://github.com/mcKanses/missbetty/compare/v1.1.2...v1.1.3) (2026-05-03)
+
+
+### Bug Fixes
+
+* synchronize package metadata version after v1.1.2 tag sequence
+
 # [1.1.0](https://github.com/mcKanses/missbetty/compare/v1.0.1...v1.1.0) (2026-05-03)
 
 
