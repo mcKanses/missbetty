@@ -236,16 +236,40 @@ environments that cannot spawn parallel Jest workers.
 
 ## Release
 
-Development happens on `development`. Publish releases from `main` by pushing a
-version tag.
+Development happens on `development`. Releases are published from `main` by
+GitHub Actions with semantic-release.
 
-Before creating a release, run the full local release check:
+Use Conventional Commits so semantic-release can determine the next version:
+
+```txt
+fix: repair npm package contents
+feat: add a new link option
+feat!: change the link command contract
+```
+
+Release behavior:
+
+- `fix:` creates a patch release
+- `feat:` creates a minor release
+- `BREAKING CHANGE:` or `!` creates a major release
+
+Before merging to `main`, run the full local release check:
 
 ```sh
 npm run release:check
 ```
 
-Create a checked versioned release on `main`:
+After a merge to `main`, GitHub Actions runs semantic-release. If releasable
+commits exist, it creates the version, Git tag, changelog, GitHub release, and
+npm publish automatically.
+
+Configure the repository secret `NPM_TOKEN` with an npm automation or granular
+access token that can publish `missbetty`.
+
+The publish workflow uses Node.js 24 because semantic-release requires Node
+22.14 or newer. Betty itself still targets Node.js 20 or newer at runtime.
+
+Manual fallback release scripts are still available:
 
 ```sh
 npm run release:patch
@@ -253,26 +277,15 @@ npm run release:minor
 npm run release:major
 ```
 
-These scripts run the full release check first, then create the `npm version`
-commit and Git tag. They do not publish directly.
-
-Push the version commit and tag:
-
-```sh
-git push origin main --follow-tags
-```
-
-GitHub Actions publishes to npm only when a `v*` tag is pushed. Configure the
-repository secret `NPM_TOKEN` with an npm automation or granular access token
-that can publish `missbetty`.
-
 For emergency manual publishing:
 
 ```sh
 npm run release:publish
 ```
 
-`prepack` builds the TypeScript output before npm creates the package.
+`prepack` builds the TypeScript output before npm creates the package. Keep the
+manual scripts as fallback only; the normal release path is semantic-release on
+`main`.
 
 ## Devcontainer
 
