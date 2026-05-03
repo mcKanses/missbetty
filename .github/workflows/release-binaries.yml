@@ -40,6 +40,8 @@ jobs:
     if: needs.resolve-release.outputs.tag_name != ''
     name: Build Binary (${{ matrix.asset_name }})
     runs-on: ${{ matrix.runs_on }}
+    env:
+      NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
     strategy:
       fail-fast: false
       matrix:
@@ -239,9 +241,7 @@ jobs:
 
   update-readme:
     needs: [resolve-release, build-and-upload]
-    if: |
-      always() &&
-      (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'))
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
     name: Update README with Latest Version
     runs-on: ubuntu-latest
     permissions:
