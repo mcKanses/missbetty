@@ -298,8 +298,8 @@ terms.
 
 If Betty saves you time, consider supporting development:
 
-- GitHub Sponsors: `https://github.com/sponsors/YOUR_NAME`
-- Buy me a coffee: `https://buymeacoffee.com/YOUR_NAME`
+- GitHub Sponsors: https://github.com/sponsors/mcKanses
+- Buy me a coffee: https://buymeacoffee.com/mckanses
 
 Support helps me work on:
 
