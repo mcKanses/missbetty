@@ -203,6 +203,7 @@ jobs:
         run: |
           export BETTY_VERSION="${{ needs.resolve-release.outputs.tag_name }}"
           export BETTY_INSTALL_DIR="$RUNNER_TEMP/betty-bin"
+          export BETTY_SKIP_DEPS="true"
           mkdir -p "$BETTY_INSTALL_DIR"
 
           for attempt in 1 2 3 4 5; do
@@ -227,6 +228,7 @@ jobs:
         run: |
           $env:BETTY_VERSION = '${{ needs.resolve-release.outputs.tag_name }}'
           $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
+          $env:BETTY_SKIP_DEPS = 'true'
           New-Item -ItemType Directory -Force -Path $env:BETTY_INSTALL_DIR | Out-Null
 
           $installed = $false
