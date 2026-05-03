@@ -52,6 +52,12 @@ jobs:
           cp "dist/${{ matrix.binary_name }}" release/
           tar -C release -czf "${{ matrix.asset_name }}" "${{ matrix.binary_name }}"
 
+      - name: Create checksum (tar)
+        if: matrix.archive_kind == 'tar'
+        shell: bash
+        run: |
+          shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
+
       - name: Package binary (zip)
         if: matrix.archive_kind == 'zip'
         shell: pwsh
@@ -60,9 +66,18 @@ jobs:
           Copy-Item "dist/${{ matrix.binary_name }}" "release/${{ matrix.binary_name }}"
           Compress-Archive -Path "release/${{ matrix.binary_name }}" -DestinationPath "${{ matrix.asset_name }}" -Force
 
+      - name: Create checksum (zip)
+        if: matrix.archive_kind == 'zip'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 "${{ matrix.asset_name }}").Hash.ToLower()
+          "$hash  ${{ matrix.asset_name }}" | Out-File -FilePath "${{ matrix.asset_name }}.sha256" -Encoding ascii
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.asset_name }}
+          files: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
           fail_on_unmatched_files: true
           overwrite_files: true
