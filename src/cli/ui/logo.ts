@@ -19,11 +19,12 @@ const renderFrame = ({ leftCable, rightCable, bottomCableLength }: LogoFrame): v
   console.log(`${GRAY}●   ●${RESET}`)
   console.log(left)
   console.log(`${GRAY}●${RESET}${YELLOW}───${RESET}${GRAY}●${RESET}   betty`)
-  console.log(`${left}   ${right}   ${DIM}local domains for docker${RESET}`)
+  console.log(`${left}   ${right}   ${DIM}connects local domains to services${RESET}`)
   console.log(bottom)
 }
 
 export function printBettyLogo(): void {
+  console.log('')
   renderFrame({ leftCable: true, rightCable: true, bottomCableLength: 3 })
 }
 

@@ -1,3 +1,5 @@
 #!/usr/bin/env node
 
-import './cli'
+import { run } from './cli'
+
+void run()
