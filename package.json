@@ -32,11 +32,12 @@
     "test:coverage": "jest --coverage",
     "prepack": "npm run build",
     "release:check": "npm run build && npm run lint && npm test && npm pack --dry-run --ignore-scripts",
+    "release:guard": "node scripts/assert-main-branch.mjs",
     "release": "semantic-release",
     "release:publish": "npm run release:check && npm publish",
-    "release:patch": "npm run release:check && npm version patch",
-    "release:minor": "npm run release:check && npm version minor",
-    "release:major": "npm run release:check && npm version major",
+    "release:patch": "npm run release:guard && npm run release:check && npm version patch",
+    "release:minor": "npm run release:guard && npm run release:check && npm version minor",
+    "release:major": "npm run release:guard && npm run release:check && npm version major",
     "prepare": "husky"
   },
   "lint-staged": {
