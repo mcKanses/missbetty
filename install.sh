@@ -30,6 +30,12 @@ if [ "$OS" = "darwin" ] && [ "$ARCH" = "x64" ]; then
   exit 1
 fi
 
+if [ "$OS" = "linux" ] && [ "$ARCH" = "arm64" ]; then
+  echo "No prebuilt Linux arm64 binary published yet."
+  echo "Please use an x64 machine or build from source."
+  exit 1
+fi
+
 if [ "$VERSION" = "latest" ]; then
   URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
   CHECKSUM_URL="https://github.com/${REPO}/releases/latest/download/${ASSET}.sha256"

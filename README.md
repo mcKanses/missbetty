@@ -146,9 +146,8 @@ It creates:
 - Docker network `betty_proxy`
 - Traefik container `betty-traefik`
 
-Traefik publishes HTTPS on host port `443`. It still defines an internal HTTP
-entrypoint for routing config compatibility, but Betty does not bind host port
-`80`, so it can coexist with another local web server using port `80`.
+Traefik publishes HTTP on host port `80` and HTTPS on host port `443`.
+Both ports must be available on the host while Betty is running.
 
 Betty keeps routing config globally in `~/.betty/dynamic`, and local
 certificates in `~/.betty/certs`, so individual projects do not need
