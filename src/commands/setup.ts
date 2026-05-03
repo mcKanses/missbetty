@@ -1,8 +1,10 @@
 import inquirer from 'inquirer'
 import {
   addHostsEntry,
+  checkMkcertCaInstalled,
   checkMkcertInstalled,
   collectSetupStatus,
+  installMkcertPackage,
   printDockerInstallInstructions,
   printMkcertInstallInstructions,
   runMkcertInstall,
@@ -25,8 +27,15 @@ const askYesNo = async (message: string): Promise<boolean> => {
 const runSetupFix = (): void => {
   const status = collectSetupStatus()
 
-  if (!status.mkcertInstalled) printMkcertInstallInstructions()
-  else if (!status.mkcertCaInstalled) {
+  if (!status.mkcertInstalled) {
+    const installResult = installMkcertPackage()
+    if (!installResult.ok && installResult.warning !== undefined) {
+      console.log(`Warning: ${installResult.warning}`)
+      printMkcertInstallInstructions()
+    }
+  }
+
+  if (checkMkcertInstalled() && (!status.mkcertCaInstalled || !checkMkcertCaInstalled())) {
     const mkcertResult = runMkcertInstall()
     if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
   }
@@ -40,9 +49,18 @@ const runSetupFix = (): void => {
 const runSetupInteractive = async (): Promise<void> => {
   const status = collectSetupStatus()
 
-  if (!status.mkcertInstalled) printMkcertInstallInstructions()
+  if (!status.mkcertInstalled) {
+    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now? [Y/n]')
+    if (shouldInstallMkcert) {
+      const installResult = installMkcertPackage()
+      if (!installResult.ok && installResult.warning !== undefined) {
+        console.log(`Warning: ${installResult.warning}`)
+        printMkcertInstallInstructions()
+      }
+    } else printMkcertInstallInstructions()
+  }
 
-  if (checkMkcertInstalled()) {
+  if (checkMkcertInstalled() && (!status.mkcertCaInstalled || !checkMkcertCaInstalled())) {
     const shouldInstallCa = await askYesNo('Run mkcert -install to create local CA? [Y/n]')
     if (shouldInstallCa) {
       const mkcertResult = runMkcertInstall()
