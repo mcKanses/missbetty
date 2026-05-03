@@ -9,6 +9,8 @@ import relinkCommand from './commands/relink'
 import statusCommand from './commands/status'
 import unlinkCommand from './commands/unlink'
 import configCommand from './commands/config'
+import doctorCommand from './commands/doctor'
+import setupCommand from './commands/setup'
 
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
@@ -40,6 +42,10 @@ interface LinkOptions {
 interface UnlinkOptions {
   domain?: string;
   all?: boolean;
+}
+
+interface SetupOptions {
+  fix?: boolean;
 }
 
 export const createProgram = (): Command => {
@@ -103,6 +109,17 @@ export const createProgram = (): Command => {
     .command('config [action] [key] [value]')
     .description('Read or update Betty configuration')
     .action((action?: string, key?: string, value?: string) => { configCommand(action, key, value) })
+
+  program
+    .command('doctor')
+    .description('Run read-only diagnostics for local Betty dependencies')
+    .action(doctorCommand)
+
+  program
+    .command('setup')
+    .description('Guide local dependency setup and safe repairs')
+    .option('--fix', 'Apply safe automatic fixes without interactive confirmations')
+    .action((opts: SetupOptions) => { void setupCommand(opts) })
 
   return program
 }
