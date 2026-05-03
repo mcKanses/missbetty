@@ -32,6 +32,9 @@
     "prepack": "npm run build",
     "release:check": "npm run build && npm run lint && npm test && npm pack --dry-run --ignore-scripts",
     "release:publish": "npm run release:check && npm publish",
+    "release:patch": "npm run release:check && npm version patch && npm publish",
+    "release:minor": "npm run release:check && npm version minor && npm publish",
+    "release:major": "npm run release:check && npm version major && npm publish",
     "prepare": "husky"
   },
   "lint-staged": {
