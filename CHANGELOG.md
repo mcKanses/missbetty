@@ -4,6 +4,7 @@
 ### Bug Fixes
 
 * synchronize package metadata version after v1.1.2 tag sequence
+* harden Windows installer Docker daemon readiness checks and avoid false install failures
 
 # [1.1.0](https://github.com/mcKanses/missbetty/compare/v1.0.1...v1.1.0) (2026-05-03)
 
