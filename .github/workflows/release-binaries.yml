@@ -1,0 +1,68 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build Binary (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: betty-linux-x64.tar.gz
+            binary_name: betty
+            archive_kind: tar
+          - os: macos-latest
+            asset_name: betty-darwin-arm64.tar.gz
+            binary_name: betty
+            archive_kind: tar
+          - os: windows-latest
+            asset_name: betty-windows-x64.zip
+            binary_name: betty.exe
+            archive_kind: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone binary
+        run: npm run binary
+
+      - name: Package binary (tar)
+        if: matrix.archive_kind == 'tar'
+        shell: bash
+        run: |
+          mkdir -p release
+          cp "dist/${{ matrix.binary_name }}" release/
+          tar -C release -czf "${{ matrix.asset_name }}" "${{ matrix.binary_name }}"
+
+      - name: Package binary (zip)
+        if: matrix.archive_kind == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item "dist/${{ matrix.binary_name }}" "release/${{ matrix.binary_name }}"
+          Compress-Archive -Path "release/${{ matrix.binary_name }}" -DestinationPath "${{ matrix.asset_name }}" -Force
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}
+          fail_on_unmatched_files: true
+          overwrite_files: true

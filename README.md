@@ -54,6 +54,42 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 
 ## Installation
 
+### Install without Node.js or npm
+
+Betty publishes standalone binaries on GitHub Releases.
+
+Linux/macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
+Optional version pinning:
+
+```sh
+BETTY_VERSION=v1.0.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+```
+
+```powershell
+$env:BETTY_VERSION = 'v1.0.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
+The binary install path is:
+
+- Linux/macOS: `/usr/local/bin/betty` (or `$BETTY_INSTALL_DIR/betty`)
+- Windows: `%LOCALAPPDATA%\\Programs\\betty\\betty.exe` (or `$env:BETTY_INSTALL_DIR\\betty.exe`)
+
+You still need runtime tools for Betty workflows (Docker and optionally mkcert),
+but Node.js and npm are no longer required for using Betty.
+
+### Install from source (Node.js + npm)
+
 From this repository:
 
 ```sh
