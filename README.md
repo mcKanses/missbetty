@@ -91,6 +91,20 @@ BETTY_VERSION=v1.1.2 curl -fsSL https://raw.githubusercontent.com/mcKanses/missb
 $env:BETTY_VERSION = 'v1.1.2'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
+Windows installer options:
+
+- Skip dependency installation (Docker/mkcert):
+
+```powershell
+$env:BETTY_SKIP_DEPS = 'true'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
+- Increase Docker daemon wait timeout (seconds, default 240, minimum 30):
+
+```powershell
+$env:BETTY_DOCKER_WAIT_SECONDS = '420'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
 The binary install path is:
 
 - Linux/macOS: `/usr/local/bin/betty` (or `$BETTY_INSTALL_DIR/betty`)
