@@ -102,7 +102,7 @@ jobs:
         if: matrix.target_node_dist != '' && matrix.archive_kind == 'tar'
         shell: bash
         run: |
-          NODE_VERSION="$(node -p \"process.version.slice(1)\")"
+          NODE_VERSION="$(node -p 'process.version.slice(1)')"
           ARCHIVE="node-v${NODE_VERSION}-${{ matrix.target_node_dist }}.tar.gz"
           URL="https://nodejs.org/dist/v${NODE_VERSION}/${ARCHIVE}"
 
