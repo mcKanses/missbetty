@@ -25,6 +25,7 @@
     "build": "node -e \"require('fs').rmSync('bin',{recursive:true,force:true})\" && tsc",
     "binary": "node scripts/build-binary.mjs",
     "lint": "eslint src/**/*.ts",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules/**\"",
     "lint:fix": "eslint src/**/*.ts --fix",
     "start": "node bin/betty.js",
     "test": "jest --runInBand",
@@ -44,6 +45,9 @@
     "src/**/*.ts": [
       "eslint --fix",
       "jest --findRelatedTests --passWithNoTests"
+    ],
+    "**/*.md": [
+      "markdownlint-cli2"
     ]
   },
   "keywords": [
@@ -92,6 +96,7 @@
     "husky": "^9.1.7",
     "jest": "^30.3.0",
     "lint-staged": "^16.4.0",
+    "markdownlint-cli2": "^0.22.1",
     "postject": "^1.0.0-alpha.6",
     "semantic-release": "^25.0.3",
     "ts-jest": "^29.4.9",
