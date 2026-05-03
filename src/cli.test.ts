@@ -23,6 +23,8 @@ describe('cli command registration', () => {
       'relink',
       'unlink',
       'config',
+      'doctor',
+      'setup',
     ])
   })
 
@@ -56,6 +58,14 @@ describe('cli command registration', () => {
     expect(optionFlags(command(program, 'unlink'))).toEqual(expect.arrayContaining([
       '--domain <domain>',
       '--all',
+    ]))
+  })
+
+  test('registers setup repair option', () => {
+    const flags = optionFlags(command(createProgram(), 'setup'))
+
+    expect(flags).toEqual(expect.arrayContaining([
+      '--fix',
     ]))
   })
 

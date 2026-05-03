@@ -5,6 +5,7 @@ import { printError } from '../cli/ui/output'
 import os from 'os'
 import path from 'path'
 import yaml from 'yaml'
+import { checkMkcertInstalled, isHttpsRequestedDomain } from '../utils/setup'
 import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 
 interface RouteEntry {
@@ -118,6 +119,17 @@ const ensureCertificate = (domain: string): { certFile: string; keyFile: string 
   const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`)
   const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`)
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) return { certFile: `/certs/${baseName}.pem`, keyFile: `/certs/${baseName}-key.pem` }
+
+  const httpsRequested = isHttpsRequestedDomain(domain)
+  if (!checkMkcertInstalled()) {
+    if (httpsRequested) {
+      printError('HTTPS requested but mkcert is not installed. Run `betty setup`.')
+      process.exit(1)
+    }
+
+    console.log(`\n⚠️  mkcert is not installed. Falling back to HTTP for ${domain}.`)
+    return null
+  }
   
 
   try {
@@ -125,7 +137,13 @@ const ensureCertificate = (domain: string): { certFile: string; keyFile: string 
     execSync(`mkcert -cert-file "${certPath}" -key-file "${keyPath}" "${domain}"`, { stdio: 'inherit' })
     return { certFile: `/certs/${baseName}.pem`, keyFile: `/certs/${baseName}-key.pem` }
   } catch {
+    if (httpsRequested) {
+      printError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
+      process.exit(1)
+    }
+
     console.log(`\n⚠️  Could not create a local certificate for ${domain}.`)
+    console.log('   Falling back to HTTP on port 80 for this domain.')
     return null
   }
 }

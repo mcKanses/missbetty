@@ -30,6 +30,7 @@ const traefikCompose = `services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
     ports:
+      - "80:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -116,7 +117,7 @@ const printProxyStartError = (message: string): void => {
   printError('Traefik proxy could not be started.')
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
     printHint('Port 80 is already in use by another service.')
-    printHint('Betty no longer needs host port 80. Run "betty serve" once to rewrite the global compose file.')
+    printHint('Stop the conflicting HTTP server or proxy, then run: betty serve')
     return
   }
   if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
