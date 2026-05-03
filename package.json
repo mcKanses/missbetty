@@ -1,5 +1,5 @@
 {
-  "name": "betty",
+  "name": "missbetty",
   "version": "0.1.0",
   "description": "Local Docker development domains through one Traefik switchboard",
   "main": "bin/betty.js",
@@ -7,7 +7,12 @@
     "betty": "bin/betty.js"
   },
   "files": [
-    "bin/**",
+    "bin/betty.js",
+    "bin/cli.js",
+    "bin/cli/**",
+    "bin/commands/**",
+    "bin/utils/**",
+    "bin/types.js",
     "assets/logo",
     "README.md",
     "LICENSE"
