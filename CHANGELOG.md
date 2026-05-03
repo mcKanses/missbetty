@@ -1,0 +1,36 @@
+# 1.0.0 (2026-05-03)
+
+
+### Bug Fixes
+
+* Add shared TypeScript interfaces for Docker and Traefik types ([1ba5dec](https://github.com/mcKanses/getbetty.dev/commit/1ba5dec643406e0e63f988617ad87b47d6811b49))
+* Correct CLI help output and logo rendering ([4775ae2](https://github.com/mcKanses/getbetty.dev/commit/4775ae28ccba159b974c65d8ccfd4ebfd0849115))
+* Prevent domain collisions in link and relink ([ad710ff](https://github.com/mcKanses/getbetty.dev/commit/ad710ff1c08e1355999afa316d862c8888e70674))
+* Replace destructive Set-Content rewrite with safe AppendAllText in hosts UAC script ([6026798](https://github.com/mcKanses/getbetty.dev/commit/6026798b9434cefbf989040094dc6a7a49f5b620))
+* Resolve all ESLint strict TypeScript errors across CLI source files ([03e46a4](https://github.com/mcKanses/getbetty.dev/commit/03e46a4d65ce4327c30a2c03745b874b0bdc1327))
+* Restore automatic hosts cleanup on unlink ([ec3fd3c](https://github.com/mcKanses/getbetty.dev/commit/ec3fd3c40ea58ab20aac0a575ad020885eab1893))
+
+
+### Features
+
+* Add --all flag to unlink for bulk removal ([26a6a58](https://github.com/mcKanses/getbetty.dev/commit/26a6a5803ee133be723ca761a0e99a01a44a0b87))
+* Add --open flag to open browser after betty link ([862832b](https://github.com/mcKanses/getbetty.dev/commit/862832ba9b95dc8c7b319fde39176e2dcf851c76))
+* Add Betty logo asset set ([8ef2ccf](https://github.com/mcKanses/getbetty.dev/commit/8ef2ccf72e7cdbda11e9970dba1e32b2a0a8aed8))
+* Add colored error output helpers ([e1cb4ee](https://github.com/mcKanses/getbetty.dev/commit/e1cb4ee33ab4a055de4314fa0eec78e892ff9deb))
+* Add concise operation summaries for routing commands ([3528eca](https://github.com/mcKanses/getbetty.dev/commit/3528ecaa00feac6c9f420086512c70c0877a9ab6))
+* Add config list command to show current settings ([00afacb](https://github.com/mcKanses/getbetty.dev/commit/00afacba8e1b7f4813b045e73be9194b3a1f6d03))
+* Add configurable domain suffix support ([14f4599](https://github.com/mcKanses/getbetty.dev/commit/14f45996de57dea188d903846fb86c494ea89841))
+* Add dry-run preview for link command ([65feee6](https://github.com/mcKanses/getbetty.dev/commit/65feee6ea62c145a7661fdf5b738777b7d04be06))
+* Add initial devcontainer config ([ed9a931](https://github.com/mcKanses/getbetty.dev/commit/ed9a9311655a43957a7c881fedb45be97e6caa69))
+* Build betty as platform binary with ncc + SEA ([eccc2cd](https://github.com/mcKanses/getbetty.dev/commit/eccc2cdc72e7d3278ac78366fd32f286bb887363))
+* Improve command line onboarding ([db8998f](https://github.com/mcKanses/getbetty.dev/commit/db8998f70f1e44bd810a56eef6548cd7504be8fa))
+* Introduce switchboard command workflow ([57e9fc4](https://github.com/mcKanses/getbetty.dev/commit/57e9fc43ca5659b536fee5af5b6c11ff0481d3f1))
+* Prepare devcontainer ([a9809b3](https://github.com/mcKanses/getbetty.dev/commit/a9809b3c11fca7afecb71342dafe32fc0b0e68ac))
+* Read version dynamically from package.json ([f496007](https://github.com/mcKanses/getbetty.dev/commit/f4960071a1b20f0ea5cc0ee1cbf60cff9963b0c4))
+* Register --all option for unlink in CLI and tests ([b787da3](https://github.com/mcKanses/getbetty.dev/commit/b787da32885c9bbe735401818f342bc260c28496))
+* Skip route selection for single link ([3fa01ca](https://github.com/mcKanses/getbetty.dev/commit/3fa01ca4ac5d1b243cdb1a024f013bc71644cc12))
+* Suggest compose subdomains with .dev default ([e71aed4](https://github.com/mcKanses/getbetty.dev/commit/e71aed436620762b8d9fba3faf538411d4c23bd4))
+* Suggest domain from container name in link prompt ([d10acb7](https://github.com/mcKanses/getbetty.dev/commit/d10acb7fb8baf6e33310cccf8ba323368fbefcf3))
+* Suggest exposed container ports during link ([81ab384](https://github.com/mcKanses/getbetty.dev/commit/81ab384dda69088d8f773fb4e3f728c13fe53650))
+* Update and extend logo asset set ([ae36177](https://github.com/mcKanses/getbetty.dev/commit/ae36177634afc166d4352a3a7d2c406e6ab2ebcd))
+* Use colored error output across commands ([5e75a4a](https://github.com/mcKanses/getbetty.dev/commit/5e75a4a0409104acb417eeb8fddf63e9c1e8e4c6))
