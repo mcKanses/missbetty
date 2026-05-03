@@ -84,11 +84,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.0.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+BETTY_VERSION=v1.1.2 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.0.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.1.2'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 The binary install path is:

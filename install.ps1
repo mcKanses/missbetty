@@ -3,6 +3,75 @@ $ErrorActionPreference = 'Stop'
 $repo = 'mcKanses/missbetty'
 $version = if ($env:BETTY_VERSION) { $env:BETTY_VERSION } else { 'latest' }
 $asset = 'betty-windows-x64.zip'
+$skipDeps = if ($env:BETTY_SKIP_DEPS) { $env:BETTY_SKIP_DEPS -eq 'true' } else { $false }
+
+# Install dependencies
+function Install-Dependencies {
+  if ($skipDeps) {
+    Write-Host 'Skipping dependency installation (BETTY_SKIP_DEPS=true)'
+    return
+  }
+
+  Write-Host ''
+  Write-Host 'Betty requires Docker and optionally mkcert for local HTTPS.'
+  Write-Host ''
+
+  Install-DependenciesWindows
+}
+
+function Install-DependenciesWindows {
+  $missingTools = @()
+
+  # Check for Docker
+  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    $missingTools += 'docker'
+  }
+
+  # Check for mkcert
+  if (-not (Get-Command mkcert -ErrorAction SilentlyContinue)) {
+    $missingTools += 'mkcert'
+  }
+
+  if ($missingTools.Count -eq 0) {
+    Write-Host '✓ Docker and mkcert are already installed'
+    return
+  }
+
+  Write-Host "Missing tools: $($missingTools -join ', ')"
+  Write-Host ''
+
+  # Check for Chocolatey
+  if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host 'This script requires Chocolatey or Docker Desktop to be installed manually.'
+    Write-Host 'Please install from:'
+    if ($missingTools -contains 'docker') {
+      Write-Host '  - Docker Desktop: https://www.docker.com/products/docker-desktop'
+    }
+    if ($missingTools -contains 'mkcert') {
+      Write-Host '  - mkcert: https://github.com/FiloSottile/mkcert'
+      Write-Host '    OR via Chocolatey: choco install mkcert'
+    }
+    return
+  }
+
+  Write-Host 'Installing dependencies via Chocolatey...'
+  Write-Host ''
+
+  if ($missingTools -contains 'docker') {
+    Write-Host 'Installing Docker...'
+    choco install docker-desktop -y
+    Write-Host '✓ Docker Desktop installed (restart required)'
+  }
+
+  if ($missingTools -contains 'mkcert') {
+    Write-Host 'Installing mkcert...'
+    choco install mkcert -y
+    Write-Host '✓ mkcert installed'
+  }
+
+  Write-Host ''
+}
+
 
 $installDir = if ($env:BETTY_INSTALL_DIR) {
   $env:BETTY_INSTALL_DIR
@@ -58,6 +127,10 @@ try {
   }
 
   Write-Host "betty installed: $(Join-Path $installDir 'betty.exe')"
+
+  # Install dependencies after betty
+  Install-Dependencies
+
   Write-Host 'Run: betty --help'
 }
 finally {

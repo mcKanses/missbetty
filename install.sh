@@ -3,6 +3,7 @@ set -eu
 
 REPO="mcKanses/missbetty"
 VERSION="${BETTY_VERSION:-latest}"
+SKIP_DEPS="${BETTY_SKIP_DEPS:-false}"
 
 if [ "$(uname -s)" = "Linux" ]; then
   OS="linux"
@@ -12,6 +13,145 @@ else
   echo "Unsupported OS: $(uname -s)"
   exit 1
 fi
+
+# Install dependencies
+install_dependencies() {
+  if [ "$SKIP_DEPS" = "true" ]; then
+    echo "Skipping dependency installation (BETTY_SKIP_DEPS=true)"
+    return
+  fi
+
+  echo ""
+  echo "Betty requires Docker and optionally mkcert for local HTTPS."
+  echo ""
+
+  if [ "$OS" = "linux" ]; then
+    install_dependencies_linux
+  elif [ "$OS" = "darwin" ]; then
+    install_dependencies_macos
+  fi
+}
+
+install_dependencies_linux() {
+  MISSING_TOOLS=""
+
+  # Check for Docker
+  if ! command -v docker >/dev/null 2>&1; then
+    MISSING_TOOLS="$MISSING_TOOLS docker"
+  fi
+
+  # Check for mkcert
+  if ! command -v mkcert >/dev/null 2>&1; then
+    MISSING_TOOLS="$MISSING_TOOLS mkcert"
+  fi
+
+  if [ -z "$MISSING_TOOLS" ]; then
+    echo "✓ Docker and mkcert are already installed"
+    return
+  fi
+
+  echo "Missing tools:$MISSING_TOOLS"
+  echo ""
+
+  if ! command -v apt >/dev/null 2>&1; then
+    echo "This script requires apt (Debian/Ubuntu). Please install manually:"
+    echo "  - Docker: https://docs.docker.com/engine/install/"
+    echo "  - mkcert: https://github.com/FiloSottile/mkcert"
+    return
+  fi
+
+  echo "Running apt update..."
+  sudo apt update
+
+  if echo "$MISSING_TOOLS" | grep -q "docker"; then
+    echo "Installing Docker..."
+    # Check if docker is available in apt
+    if apt-cache search --names-only "^docker.io$" 2>/dev/null | grep -q "docker"; then
+      sudo apt install -y docker.io docker-compose-plugin
+      sudo usermod -aG docker "$USER" 2>/dev/null || true
+      echo "✓ Docker installed (you may need to log out and back in for group changes)"
+    else
+      echo "⚠ Docker not found in apt. Please install from https://docs.docker.com/engine/install/"
+    fi
+  fi
+
+  if echo "$MISSING_TOOLS" | grep -q "mkcert"; then
+    echo "Installing mkcert..."
+    # Try to install from apt first, then from source
+    if apt-cache search --names-only "^mkcert$" 2>/dev/null | grep -q "mkcert"; then
+      sudo apt install -y mkcert
+      echo "✓ mkcert installed"
+    else
+      echo "Installing mkcert from source..."
+      MKCERT_VERSION="v1.4.4"
+      MKCERT_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+      MKCERT_URL="https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-${MKCERT_ARCH}"
+      
+      if command -v curl >/dev/null 2>&1; then
+        sudo curl -fsSL "$MKCERT_URL" -o /usr/local/bin/mkcert
+      elif command -v wget >/dev/null 2>&1; then
+        sudo wget -qO /usr/local/bin/mkcert "$MKCERT_URL"
+      else
+        echo "⚠ Neither curl nor wget available. Cannot install mkcert."
+        echo "Please install manually: https://github.com/FiloSottile/mkcert"
+        return
+      fi
+      
+      sudo chmod +x /usr/local/bin/mkcert
+      echo "✓ mkcert installed"
+    fi
+  fi
+
+  echo ""
+}
+
+install_dependencies_macos() {
+  MISSING_TOOLS=""
+
+  # Check for Docker
+  if ! command -v docker >/dev/null 2>&1; then
+    MISSING_TOOLS="$MISSING_TOOLS docker"
+  fi
+
+  # Check for mkcert
+  if ! command -v mkcert >/dev/null 2>&1; then
+    MISSING_TOOLS="$MISSING_TOOLS mkcert"
+  fi
+
+  if [ -z "$MISSING_TOOLS" ]; then
+    echo "✓ Docker and mkcert are already installed"
+    return
+  fi
+
+  echo "Missing tools:$MISSING_TOOLS"
+  echo ""
+
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "This script requires Homebrew. Please install from https://brew.sh"
+    echo "Then run this installer again."
+    return
+  fi
+
+  echo "Running brew update..."
+  brew update
+
+  if echo "$MISSING_TOOLS" | grep -q "docker"; then
+    echo "Installing Docker Desktop..."
+    brew install --cask docker
+    echo "⚠ Please start Docker Desktop from Applications folder"
+    echo "✓ Docker Desktop installed"
+  fi
+
+  if echo "$MISSING_TOOLS" | grep -q "mkcert"; then
+    echo "Installing mkcert..."
+    brew install mkcert
+    mkcert -install >/dev/null 2>&1 || true
+    echo "✓ mkcert installed"
+  fi
+
+  echo ""
+}
+
 
 ARCH_RAW="$(uname -m)"
 if [ "$ARCH_RAW" = "x86_64" ] || [ "$ARCH_RAW" = "amd64" ]; then
@@ -90,4 +230,8 @@ else
 fi
 
 echo "betty installed: $TARGET"
+
+# Install dependencies after betty
+install_dependencies
+
 echo "Run: betty --help"
