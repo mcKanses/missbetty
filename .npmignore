@@ -14,3 +14,5 @@ tsconfig.json
 tsconfig.eslint.json
 jest.config.js
 eslint.config.mjs
+!bin
+!bin/**
