@@ -37,41 +37,45 @@ jobs:
 
   build-and-upload:
     needs: resolve-release
-    if: needs.resolve-release.outputs.tag_name != ''
-    name: Build Binary (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    if: needs.resolve-release.outputs.tag_name != '' && (matrix.self_hosted != true || vars.BETTY_SELF_HOSTED_MACOS13_ENABLED == 'true')
+    name: Build Binary (${{ matrix.asset_name }})
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - runs_on: ubuntu-latest
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - os: ubuntu-24.04-arm
+          - runs_on: ubuntu-24.04-arm
             asset_name: betty-linux-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - os: macos-13
+          - runs_on:
+              - self-hosted
+              - macOS
+              - betty-macos13
+            self_hosted: true
             asset_name: betty-darwin-x64.tar.gz
             binary_name: betty
             archive_kind: tar
             target_node_dist: darwin-x64
             target_node_binary: bin/node
             smoke_test: false
-          - os: macos-latest
+          - runs_on: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - os: windows-latest
+          - runs_on: windows-latest
             asset_name: betty-windows-x64.zip
             binary_name: betty.exe
             archive_kind: zip
             smoke_test: true
-          - os: windows-latest
+          - runs_on: windows-latest
             asset_name: betty-windows-arm64.zip
             binary_name: betty.exe
             archive_kind: zip
