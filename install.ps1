@@ -23,7 +23,7 @@ function Install-DependenciesWindows {
   $hasChoco = $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
   $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
 
-  Install-PackageAuto() {
+  function Install-PackageAuto {
     param(
       [string]$Name,
       [string]$ChocoPackage,
@@ -45,13 +45,13 @@ function Install-DependenciesWindows {
     throw "Neither Chocolatey nor winget is available for automatic $Name installation."
   }
 
-  Refresh-ProcessPath() {
+  function Refresh-ProcessPath {
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $env:Path = (($machinePath, $userPath) -join ';')
   }
 
-  Ensure-DockerDesktopRunning() {
+  function Ensure-DockerDesktopRunning {
     if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
       Refresh-ProcessPath
     }
@@ -82,7 +82,7 @@ function Install-DependenciesWindows {
     throw 'Docker was installed but daemon did not become ready. A reboot or first-time Docker Desktop setup may be required.'
   }
 
-  Ensure-MkcertInstalled() {
+  function Ensure-MkcertInstalled {
     if ($null -eq (Get-Command mkcert -ErrorAction SilentlyContinue)) {
       throw 'mkcert was not found after installation.'
     }
