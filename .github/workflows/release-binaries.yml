@@ -98,6 +98,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Set binary version from release tag
+        shell: bash
+        run: |
+          RELEASE_VERSION="${{ needs.resolve-release.outputs.tag_name }}"
+          RELEASE_VERSION="${RELEASE_VERSION#v}"
+
+          node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version=process.argv[1]; fs.writeFileSync(path, JSON.stringify(pkg, null, 2)+'\\n');" "$RELEASE_VERSION"
+
       - name: Prepare target Node runtime (tar)
         if: matrix.target_node_dist != '' && matrix.archive_kind == 'tar'
         shell: bash
