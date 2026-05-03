@@ -58,13 +58,16 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 
 Betty publishes standalone binaries on GitHub Releases.
 The installer scripts verify SHA256 checksums before installation.
+Release assets are also signed with Sigstore Cosign (keyless certificates).
 
 Current prebuilt targets:
 
 - Linux x64
 - Linux arm64
+- macOS x64
 - macOS arm64
 - Windows x64
+- Windows arm64
 
 Linux/macOS:
 
@@ -95,6 +98,20 @@ The binary install path is:
 
 You still need runtime tools for Betty workflows (Docker and optionally mkcert),
 but Node.js and npm are no longer required for using Betty.
+
+### Uninstall standalone binary
+
+Linux/macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/uninstall.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/mcKanses/missbetty/main/uninstall.ps1 | iex
+```
 
 ### Install from source (Node.js + npm)
 
