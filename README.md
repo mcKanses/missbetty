@@ -1,4 +1,10 @@
+<div align="center">
+
+![Betty Logo](assets/logo/betty-logo.svg)
+
 # Betty
+
+</div>
 
 Betty is a lightweight CLI for local Docker development domains. It links
 running Docker containers to local domains through one global Traefik reverse
