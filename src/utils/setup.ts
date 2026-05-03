@@ -51,6 +51,8 @@ export const checkDockerRunning = (): boolean => {
 
 export const checkMkcertInstalled = (): boolean => runCheck('mkcert -help')
 
+const hasCommand = (command: string): boolean => runCheck(`command -v ${command} >/dev/null 2>&1`)
+
 export const checkMkcertCaInstalled = (): boolean => {
   if (!checkMkcertInstalled()) return false
   try {
@@ -140,6 +142,31 @@ export const runMkcertInstall = (): { ok: boolean; warning?: string } => {
   } catch {
     return { ok: false, warning: 'mkcert -install failed.' }
   }
+}
+
+export const installMkcertPackage = (): { ok: boolean; warning?: string } => {
+  if (checkMkcertInstalled()) return { ok: true }
+
+  const platform = getPlatformInfo()
+
+  try {
+    if (platform.isMac) {
+      if (!hasCommand('brew')) return { ok: false, warning: 'Homebrew is not installed. Install Homebrew first, then run betty setup again.' }
+      execSync('brew install mkcert', { stdio: 'inherit' })
+    } else if (platform.isWindows) {
+      if (!runCheck('winget --version')) return { ok: false, warning: 'winget is not available. Install mkcert manually and run betty setup again.' }
+      execSync('winget install --id FiloSottile.mkcert -e', { stdio: 'inherit' })
+    } else if (platform.isLinux) if (hasCommand('apt-get')) execSync('sudo apt-get install -y mkcert', { stdio: 'inherit' })
+      else if (hasCommand('apt')) execSync('sudo apt install -y mkcert', { stdio: 'inherit' })
+      else if (hasCommand('pacman')) execSync('sudo pacman -S --noconfirm mkcert', { stdio: 'inherit' })
+      else return { ok: false, warning: 'No supported package manager found for automatic mkcert installation.' }
+    else return { ok: false, warning: 'Automatic mkcert installation is not supported on this platform.' }
+  } catch {
+    return { ok: false, warning: 'Automatic mkcert installation failed.' }
+  }
+
+  if (checkMkcertInstalled()) return { ok: true }
+  return { ok: false, warning: 'mkcert still not found after installation attempt.' }
 }
 
 export const collectSetupStatus = (): SetupStatus => {
