@@ -271,4 +271,32 @@ describe('relink command', () => {
     errorSpy.mockRestore()
     exitSpy.mockRestore()
   })
+
+  test('hard fails when mkcert is missing for .dev domains', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      if (command.includes('mkcert -help')) throw new Error('mkcert missing')
+      return Buffer.from('')
+    })
+
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000' })).rejects.toThrow('process-exit-1')
+
+    exitSpy.mockRestore()
+  })
 })
