@@ -71,6 +71,7 @@
   "bugs": {
     "url": "https://github.com/mcKanses/getbetty.dev/issues"
   },
+  "icon": "assets/logo/favicon.png",
   "dependencies": {
     "commander": "^11.0.0",
     "inquirer": "^8.2.6",
