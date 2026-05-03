@@ -11,6 +11,7 @@ import {
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners'
 import { getDomainSuffix } from '../utils/config'
+import { checkMkcertInstalled, isHttpsRequestedDomain } from '../utils/setup'
 import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter } from '../types'
 
 const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
@@ -44,6 +45,7 @@ const desiredProxyCompose = `services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
     ports:
+      - "80:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -97,7 +99,7 @@ const printProxyStartError = (message: string): void => {
   printError("Betty's proxy could not be started.")
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
     printHint('Port 80 is already in use by another service.')
-    printHint('Betty no longer needs host port 80. Run this command again to use the updated proxy compose file.')
+    printHint('Stop the conflicting HTTP server or proxy, then run: betty link')
     return
   }
   if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
@@ -174,6 +176,17 @@ const ensureCertificate = (domain: string): { certFile: string; keyFile: string 
       certFile: `/certs/${baseName}.pem`,
       keyFile: `/certs/${baseName}-key.pem`,
     }
+
+  const httpsRequested = isHttpsRequestedDomain(domain)
+  if (!checkMkcertInstalled()) {
+    if (httpsRequested) {
+      printError('HTTPS requested but mkcert is not installed. Run `betty setup`.')
+      process.exit(1)
+    }
+
+    console.log(`\n⚠️  mkcert is not installed. Falling back to HTTP for ${domain}.`)
+    return null
+  }
   
 
   try {
@@ -184,9 +197,13 @@ const ensureCertificate = (domain: string): { certFile: string; keyFile: string 
       keyFile: `/certs/${baseName}-key.pem`,
     }
   } catch {
+    if (httpsRequested) {
+      printError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
+      process.exit(1)
+    }
+
     console.log(`\n⚠️  Could not create a local certificate for ${domain}.`)
-    console.log('   Install mkcert and run this command again to enable HTTPS for this domain.')
-    console.log('   Routing will still be written, but Betty publishes HTTPS on port 443.')
+    console.log('   Falling back to HTTP on port 80 for this domain.')
     return null
   }
 }
@@ -567,8 +584,8 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
     console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`)
     if (opts.open === true) openInBrowser(`https://${domainResolved}`)
   } else {
-    console.log(`\n⚠️  Routing was written, but no HTTPS certificate is available for ${domainResolved}.`)
-    console.log('   Install mkcert and run this command again. Betty publishes HTTPS on port 443.')
+    console.log(`\n⚠️  Routing was written without TLS certificate for ${domainResolved}.`)
+    console.log('   Using HTTP fallback on port 80.')
     if (opts.open === true) openInBrowser(`http://${domainResolved}`)
   }
 }

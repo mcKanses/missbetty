@@ -30,6 +30,9 @@ betty serve
 betty link
 betty relink
 betty status
+betty doctor
+betty setup
+betty setup --fix
 betty unlink
 betty stop
 betty rest
