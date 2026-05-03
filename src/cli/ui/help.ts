@@ -1,17 +1,20 @@
 const DIM = '\x1b[2m'
 const RESET = '\x1b[0m'
 
+import { AUTHOR_INFO } from './meta'
+
 const commandLine = (name: string, description: string): string => {
   const label = name.padEnd(9, ' ')
   return `  ${label}${DIM}${description}${RESET}`
 }
 
 export function printHelp(): void {
-  console.log('betty - local domains for docker')
+  console.log('betty - connects local domains to services')
   console.log('')
   console.log('Commands:')
   console.log(commandLine('serve', 'start local switchboard service'))
-  console.log(commandLine('rest', 'stop local switchboard service'))
+  console.log(commandLine('stop', 'stop local switchboard service'))
+  console.log(commandLine('rest', "alias for 'stop'"))
   console.log(commandLine('status', 'show switchboard status'))
   console.log(commandLine('link', 'connect a service to a domain'))
   console.log(commandLine('relink', 'update an existing domain link'))
@@ -20,6 +23,9 @@ export function printHelp(): void {
   console.log('')
   console.log('Examples:')
   console.log('  betty serve')
-  console.log('  betty link myapp --domain myapp.dev --port 3000')
+  console.log('  betty link myapp --domain myapp.localhost --port 3000')
+  console.log('  betty status --short')
   console.log('  betty config set domainSuffix .localhost')
+  console.log('')
+  console.log(AUTHOR_INFO)
 }

@@ -1,16 +1,28 @@
 {
   "name": "betty",
   "version": "0.1.0",
-  "description": "Cross-Platform CLI tool for local domains with Docker Compose & Traefik",
+  "description": "Local Docker development domains through one Traefik switchboard",
   "main": "bin/betty.js",
-  "bin": "bin/betty.js",
+  "bin": {
+    "betty": "bin/betty.js"
+  },
+  "files": [
+    "bin/**",
+    "assets/logo",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('bin',{recursive:true,force:true})\" && tsc",
     "binary": "node scripts/build-binary.mjs",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "start": "node bin/betty.js",
-    "test": "jest",
+    "test": "jest --runInBand",
+    "test:serial": "jest --runInBand",
     "test:coverage": "jest --coverage",
     "prepare": "husky"
   },

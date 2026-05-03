@@ -1,0 +1,16 @@
+src
+scripts
+dist
+coverage
+node_modules
+.devcontainer
+.github
+.husky
+.env
+.eslintcache
+.prettiercache
+.cache
+tsconfig.json
+tsconfig.eslint.json
+jest.config.js
+eslint.config.mjs

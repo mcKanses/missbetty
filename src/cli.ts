@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import linkCommand from './commands/link'
 
 import { Command } from 'commander'
@@ -10,6 +12,7 @@ import configCommand from './commands/config'
 
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
+import { AUTHOR_INFO } from './cli/ui/meta'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string }
@@ -39,65 +42,78 @@ interface UnlinkOptions {
   all?: boolean;
 }
 
-const program = new Command()
-const cmd = process.argv[2]
+export const createProgram = (): Command => {
+  const program = new Command()
 
-program
-  .name('betty')
-  .description('Betty CLI - switch local domains for Docker projects')
-  .version(version)
+  program
+    .name('betty')
+    .description('Betty CLI - connects local domains to services')
+    .version(`${version}\n${AUTHOR_INFO}`)
+    .addHelpText('after', `\n${AUTHOR_INFO}`)
 
-program
-  .command('serve')
-  .description("Start Betty's local switchboard service")
-  .action(serveCommand)
+  program
+    .command('serve')
+    .description("Start Betty's local switchboard service")
+    .action(serveCommand)
 
-program
-  .command('rest')
-  .description("Stop Betty's local switchboard service")
-  .action(restCommand)
+  program
+    .command('stop')
+    .description("Stop Betty's local switchboard service")
+    .action(restCommand)
 
-program
-  .command('status')
-  .description("Show Betty's local switchboard status")
-  .option('--long', 'Show detailed proxy container info')
-  .option('--json', 'Output status as JSON')
-  .option('--format <format>', 'Output format, e.g. json')
-  .action((opts: StatusOptions) => { statusCommand(opts) })
+  program
+    .command('rest')
+    .description("Alias for 'stop'")
+    .action(restCommand)
 
-program
-  .command('link [container]')
-  .description('Link a running container to a local domain')
-  .option('--domain <domain>', 'Target domain, e.g. testapp.dev')
-  .option('--port <port>', 'Internal container port')
-  .option('--dry-run', 'Preview planned changes without applying them')
-  .option('--open', 'Open the linked domain in the browser after linking')
-  .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
+  program
+    .command('status')
+    .description("Show Betty's local switchboard status")
+    .option('--long', 'Show detailed proxy container info')
+    .option('--short', 'Show a compact linked-domain table')
+    .option('--json', 'Output status as JSON')
+    .option('--format <format>', 'Output format, e.g. json')
+    .action((opts: StatusOptions) => { statusCommand(opts) })
 
-program
-  .command('relink [target]')
-  .description('Update an existing local domain link')
-  .option('--container <container>', 'New target container')
-  .option('--domain <domain>', 'New linked domain')
-  .option('--port <port>', 'New internal container port')
-  .action((target: string | undefined, opts: RelinkOptions) => { void relinkCommand(target, opts) })
+  program
+    .command('link [container]')
+    .description('Link a running container to a local domain')
+    .option('--domain <domain>', 'Target domain, e.g. my-app.localhost')
+    .option('--port <port>', 'Internal container port')
+    .option('--dry-run', 'Preview planned changes without applying them')
+    .option('--open', 'Open the linked domain in the browser after linking')
+    .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
 
-program
-  .command('unlink [target]')
-  .description('Remove a local domain link')
-  .option('--domain <domain>', 'Linked domain, e.g. testapp.dev')
-  .option('--all', 'Remove all links at once')
-  .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts) })
+  program
+    .command('relink [target]')
+    .description('Update an existing local domain link')
+    .option('--container <container>', 'New target container')
+    .option('--domain <domain>', 'New linked domain')
+    .option('--port <port>', 'New internal container port')
+    .action((target: string | undefined, opts: RelinkOptions) => { void relinkCommand(target, opts) })
 
-program
-  .command('config [action] [key] [value]')
-  .description('Read or update Betty configuration')
-  .action((action?: string, key?: string, value?: string) => { configCommand(action, key, value) })
+  program
+    .command('unlink [target]')
+    .description('Remove a local domain link')
+    .option('--domain <domain>', 'Linked domain, e.g. my-app.localhost')
+    .option('--all', 'Remove all links at once')
+    .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts) })
 
-const run = async (): Promise<void> => {
+  program
+    .command('config [action] [key] [value]')
+    .description('Read or update Betty configuration')
+    .action((action?: string, key?: string, value?: string) => { configCommand(action, key, value) })
+
+  return program
+}
+
+export const run = async (argv = process.argv): Promise<void> => {
+  const cmd = argv[2]
+
   if (!cmd) {
     await animateBettyLogo()
-    console.log('\nRun `betty help` to get started\n')
+    console.log(`\n${AUTHOR_INFO}`)
+    console.log('Run `betty help` to get started\n')
     process.exit(0)
   }
 
@@ -108,7 +124,8 @@ const run = async (): Promise<void> => {
     process.exit(0)
   }
 
-  program.parse(process.argv)
+  const program = createProgram()
+  program.parse(argv)
 }
 
-void run()
+if (require.main === module) void run()
