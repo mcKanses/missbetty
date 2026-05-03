@@ -57,6 +57,7 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 ### Install without Node.js or npm
 
 Betty publishes standalone binaries on GitHub Releases.
+The installer scripts verify SHA256 checksums before installation.
 
 Linux/macOS:
 
