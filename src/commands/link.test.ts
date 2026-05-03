@@ -151,6 +151,49 @@ describe('link command', () => {
     logSpy.mockRestore()
   })
 
+  test('hard fails when mkcert is missing for .dev domains', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('/myapp.dev.pem') || normalized.endsWith('/myapp.dev-key.pem')) return false
+      return true
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      if (c.includes('mkcert -help')) throw new Error('mkcert missing')
+      return Buffer.from('')
+    })
+
+    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('falls back to HTTP when mkcert is missing and HTTPS is not explicitly requested', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('/myapp.localhost.pem') || normalized.endsWith('/myapp.localhost-key.pem')) return false
+      return true
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      if (c.includes('mkcert -help')) throw new Error('mkcert missing')
+      return Buffer.from('')
+    })
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+
+    const calledMkcertInstall = (execSync as unknown as jest.Mock).mock.calls
+      .map((call) => String(call[0]))
+      .some((command) => command.includes('mkcert -install'))
+    expect(calledMkcertInstall).toBe(false)
+  })
+
   test('does not apply changes in dry-run mode', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
