@@ -234,6 +234,24 @@ npm run test:coverage
 The default test script runs Jest serially so it works in restricted
 environments that cannot spawn parallel Jest workers.
 
+## Release
+
+Before publishing, run the full local release check:
+
+```sh
+npm run release:check
+```
+
+Publish to npm:
+
+```sh
+npm publish
+```
+
+`prepack` builds the TypeScript output before npm creates the package. If npm
+requires two-factor authentication, complete the browser or OTP prompt shown by
+the npm CLI.
+
 ## Devcontainer
 
 This repository includes a devcontainer setup using Docker-outside-of-Docker.
