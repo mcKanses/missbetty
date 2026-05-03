@@ -29,6 +29,9 @@
     "test": "jest --runInBand",
     "test:serial": "jest --runInBand",
     "test:coverage": "jest --coverage",
+    "prepack": "npm run build",
+    "release:check": "npm run build && npm run lint && npm test && npm pack --dry-run --ignore-scripts",
+    "release:publish": "npm run release:check && npm publish",
     "prepare": "husky"
   },
   "lint-staged": {
