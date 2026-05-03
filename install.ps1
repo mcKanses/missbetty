@@ -20,55 +20,114 @@ function Install-Dependencies {
 }
 
 function Install-DependenciesWindows {
-  $missingTools = @()
+  $hasChoco = $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
+  $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
 
-  # Check for Docker
-  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    $missingTools += 'docker'
+  Install-PackageAuto() {
+    param(
+      [string]$Name,
+      [string]$ChocoPackage,
+      [string]$WingetId
+    )
+
+    if ($hasChoco) {
+      Write-Host "Installing $Name via Chocolatey..."
+      choco install $ChocoPackage -y --no-progress
+      return
+    }
+
+    if ($hasWinget) {
+      Write-Host "Installing $Name via winget..."
+      winget install --id $WingetId --exact --source winget --accept-package-agreements --accept-source-agreements --silent
+      return
+    }
+
+    throw "Neither Chocolatey nor winget is available for automatic $Name installation."
   }
 
-  # Check for mkcert
-  if (-not (Get-Command mkcert -ErrorAction SilentlyContinue)) {
+  Refresh-ProcessPath() {
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = (($machinePath, $userPath) -join ';')
+  }
+
+  Ensure-DockerDesktopRunning() {
+    if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
+      Refresh-ProcessPath
+    }
+
+    if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
+      throw 'Docker CLI is still not available after installation.'
+    }
+
+    if (docker info 1>$null 2>$null) {
+      Write-Host '✓ Docker daemon is running'
+      return
+    }
+
+    $dockerDesktopExe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+    if (Test-Path $dockerDesktopExe) {
+      Write-Host 'Starting Docker Desktop...'
+      Start-Process -FilePath $dockerDesktopExe | Out-Null
+    }
+
+    for ($i = 1; $i -le 60; $i++) {
+      if (docker info 1>$null 2>$null) {
+        Write-Host '✓ Docker daemon is running'
+        return
+      }
+      Start-Sleep -Seconds 2
+    }
+
+    throw 'Docker was installed but daemon did not become ready. A reboot or first-time Docker Desktop setup may be required.'
+  }
+
+  Ensure-MkcertInstalled() {
+    if ($null -eq (Get-Command mkcert -ErrorAction SilentlyContinue)) {
+      throw 'mkcert was not found after installation.'
+    }
+
+    try {
+      mkcert -install | Out-Null
+    }
+    catch {
+      Write-Host 'mkcert installed, but trust store setup may require elevated permissions.'
+    }
+  }
+
+  $missingTools = @()
+  if ($null -eq (Get-Command docker -ErrorAction SilentlyContinue)) {
+    $missingTools += 'docker'
+  }
+  if ($null -eq (Get-Command mkcert -ErrorAction SilentlyContinue)) {
     $missingTools += 'mkcert'
   }
 
   if ($missingTools.Count -eq 0) {
     Write-Host '✓ Docker and mkcert are already installed'
+    if (docker info 1>$null 2>$null) {
+      Write-Host '✓ Docker daemon is running'
+    } else {
+      Ensure-DockerDesktopRunning
+    }
     return
   }
 
   Write-Host "Missing tools: $($missingTools -join ', ')"
   Write-Host ''
 
-  # Check for Chocolatey
-  if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-    Write-Host 'This script requires Chocolatey or Docker Desktop to be installed manually.'
-    Write-Host 'Please install from:'
-    if ($missingTools -contains 'docker') {
-      Write-Host '  - Docker Desktop: https://www.docker.com/products/docker-desktop'
-    }
-    if ($missingTools -contains 'mkcert') {
-      Write-Host '  - mkcert: https://github.com/FiloSottile/mkcert'
-      Write-Host '    OR via Chocolatey: choco install mkcert'
-    }
-    return
-  }
-
-  Write-Host 'Installing dependencies via Chocolatey...'
-  Write-Host ''
-
   if ($missingTools -contains 'docker') {
-    Write-Host 'Installing Docker...'
-    choco install docker-desktop -y
-    Write-Host '✓ Docker Desktop installed (restart required)'
+    Install-PackageAuto -Name 'Docker Desktop' -ChocoPackage 'docker-desktop' -WingetId 'Docker.DockerDesktop'
   }
-
   if ($missingTools -contains 'mkcert') {
-    Write-Host 'Installing mkcert...'
-    choco install mkcert -y
-    Write-Host '✓ mkcert installed'
+    Install-PackageAuto -Name 'mkcert' -ChocoPackage 'mkcert' -WingetId 'FiloSottile.mkcert'
   }
 
+  Refresh-ProcessPath
+  Ensure-DockerDesktopRunning
+  Ensure-MkcertInstalled
+
+  Write-Host '✓ Dependencies installed (Docker + mkcert)'
   Write-Host ''
 }
 
