@@ -321,6 +321,7 @@ Release behavior:
 - `fix:` creates a patch release
 - `feat:` creates a minor release
 - `BREAKING CHANGE:` or `!` creates a major release
+- `ci:` and `chore:` do not trigger a release by default
 
 Before merging to `main`, run the full local release check:
 
