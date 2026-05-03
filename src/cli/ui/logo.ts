@@ -4,49 +4,67 @@ const DIM = '\x1b[2m'
 const RESET = '\x1b[0m'
 
 interface LogoFrame {
-  leftCable: boolean
-  rightCable: boolean
-  bottomCableLength: number
+  topLeftCable: boolean
+  middleHCable: boolean
+  bottomLeftCable: boolean
+  bottomRightCable: boolean
+  bottomHLength: number
 }
 
 const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-const renderFrame = ({ leftCable, rightCable, bottomCableLength }: LogoFrame): void => {
-  const left = leftCable ? `${YELLOW}│${RESET}` : ' '
-  const right = rightCable ? `${YELLOW}│${RESET}` : ' '
-  const bottom = `${GRAY}●${RESET}${YELLOW}${'─'.repeat(bottomCableLength)}${RESET}${' '.repeat(3 - bottomCableLength)}${GRAY}●${RESET}`
+const renderFrame = ({ topLeftCable, middleHCable, bottomLeftCable, bottomRightCable, bottomHLength }: LogoFrame): void => {
+  const tl = topLeftCable ? `${YELLOW}│${RESET}` : ' '
+  const bl = bottomLeftCable ? `${YELLOW}│${RESET}` : ' '
+  const br = bottomRightCable ? `${YELLOW}│${RESET}` : ' '
+  const mh = middleHCable ? `${YELLOW}───${RESET}` : '   '
+  const bh = `${GRAY}●${RESET}${YELLOW}${'─'.repeat(bottomHLength)}${RESET}${' '.repeat(3 - bottomHLength)}${GRAY}●${RESET}`
 
   console.log(`${GRAY}●   ●${RESET}`)
-  console.log(left)
-  console.log(`${GRAY}●${RESET}${YELLOW}───${RESET}${GRAY}●${RESET}   betty`)
-  console.log(`${left}   ${right}   ${DIM}connects local domains to services${RESET}`)
-  console.log(bottom)
+  console.log(tl)
+  console.log(`${GRAY}●${RESET}${mh}${GRAY}●${RESET}   betty`)
+  console.log(`${bl}   ${br}   ${DIM}connects local domains to services${RESET}`)
+  console.log(bh)
 }
 
-export function printBettyLogo(): void {
+const FULL_FRAME: LogoFrame = {
+  topLeftCable: true,
+  middleHCable: true,
+  bottomLeftCable: true,
+  bottomRightCable: true,
+  bottomHLength: 3,
+}
+
+const printBettyLogo = (): void => {
   console.log('')
-  renderFrame({ leftCable: true, rightCable: true, bottomCableLength: 3 })
+  renderFrame(FULL_FRAME)
 }
 
-export async function animateBettyLogo(): Promise<void> {
+const animateBettyLogo = async (): Promise<void> => {
   if (!process.stdout.isTTY) {
     printBettyLogo()
     return
   }
 
   const frames: LogoFrame[] = [
-    { leftCable: false, rightCable: false, bottomCableLength: 0 },
-    { leftCable: true, rightCable: false, bottomCableLength: 1 },
-    { leftCable: true, rightCable: true, bottomCableLength: 2 },
-    { leftCable: true, rightCable: true, bottomCableLength: 3 }
+    { topLeftCable: false, middleHCable: false, bottomLeftCable: false, bottomRightCable: false, bottomHLength: 0 },
+    { topLeftCable: true,  middleHCable: false, bottomLeftCable: false, bottomRightCable: false, bottomHLength: 0 },
+    { topLeftCable: true,  middleHCable: true,  bottomLeftCable: false, bottomRightCable: false, bottomHLength: 0 },
+    { topLeftCable: true,  middleHCable: true,  bottomLeftCable: true,  bottomRightCable: false, bottomHLength: 0 },
+    { topLeftCable: true,  middleHCable: true,  bottomLeftCable: true,  bottomRightCable: true,  bottomHLength: 0 },
+    { topLeftCable: true,  middleHCable: true,  bottomLeftCable: true,  bottomRightCable: true,  bottomHLength: 1 },
+    { topLeftCable: true,  middleHCable: true,  bottomLeftCable: true,  bottomRightCable: true,  bottomHLength: 2 },
+    { topLeftCable: true,  middleHCable: true,  bottomLeftCable: true,  bottomRightCable: true,  bottomHLength: 3 },
   ]
 
   for (const frame of frames) {
     process.stdout.write('\x1Bc')
     renderFrame(frame)
-    await sleep(120)
+    await sleep(100)
   }
 
   process.stdout.write('\x1Bc')
   printBettyLogo()
 }
+
+export { printBettyLogo, animateBettyLogo }
