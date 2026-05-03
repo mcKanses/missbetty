@@ -1,3 +1,20 @@
+# [1.1.0](https://github.com/mcKanses/missbetty/compare/v1.0.1...v1.1.0) (2026-05-03)
+
+
+### Bug Fixes
+
+* Use absolute GitHub URL for logo in README so it renders on npm ([38ac9b2](https://github.com/mcKanses/missbetty/commit/38ac9b2ee7605a90fee15bcd7a8fd88e3f1b718f))
+
+
+### Features
+
+* add doctor/setup commands and safe mkcert fallback ([7104d5d](https://github.com/mcKanses/missbetty/commit/7104d5d2dbcc2f3970ef0fd9544a34d116034490))
+* add linux arm64 prebuilt release support ([9680e83](https://github.com/mcKanses/missbetty/commit/9680e834c9569b8feedd7d148aca0ebf7a5ea750))
+* add no-node binary installation flow ([9181c2b](https://github.com/mcKanses/missbetty/commit/9181c2b48913ef506963a35098e293265015a71f))
+* Animate logo with 5 independent cable segments matching SVG structure ([e11e1d6](https://github.com/mcKanses/missbetty/commit/e11e1d667b6bc527c213578c76bf3db42acfc6e6))
+* auto-install mkcert in setup workflow ([f770d3d](https://github.com/mcKanses/missbetty/commit/f770d3d47c944b5cbd50b55ca1c0c2f673371394))
+* harden binary releases and add uninstall scripts ([a32a27f](https://github.com/mcKanses/missbetty/commit/a32a27ff01b038cfa1a2b90e9a3c354e45597c99))
+
 # 1.0.0 (2026-05-03)
 
 
