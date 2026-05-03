@@ -4,5 +4,52 @@
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
       "moby": false
     }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "EliverLara.andromeda",
+        "dcorrea.dcorrea",
+        "akamud.vscode-theme-onedark",
+        "akamud.vscode-theme-onelight",
+        "formulahendry.auto-close-tag",
+        "formulahendry.auto-rename-tag",
+        "openai.chatgpt",
+        "naumovs.color-highlight",
+        "ms-azuretools.vscode-containers",
+        "mikestead.dotenv",
+        "mathcale.theme-dracula-refined",
+        "dracula-theme.theme-dracula",
+        "dbaeumer.vscode-eslint",
+        "figma.figma-vscode-extension",
+        "lkytal.FlatUI",
+        "mhutchie.git-graph",
+        "donjayamanne.githistory",
+        "github.vscode-github-actions",
+        "GitHub.copilot-chat",
+        "ms-azuretools.vscode-azure-github-copilot",
+        "vscjava.migrate-java-to-azure",
+        "vscjava.vscode-java-upgrade",
+        "GitLab.gitlab-workflow",
+        "GrayJack.monokai-grayjack",
+        "ecmel.vscode-html-css",
+        "george-alisson.html-preview-vscode",
+        "oderwat.indent-rainbow",
+        "bierner.markdown-mermaid",
+        "DavidAnson.vscode-markdownlint",
+        "PKief.material-icon-theme",
+        "ms-vscode.Theme-MaterialKit",
+        "monokai.theme-monokai-pro-vscode",
+        "Cardinal90.multi-cursor-case-preserve",
+        "christian-kohler.npm-intellisense",
+        "zhuangtongfa.material-theme",
+        "arcticicestudio.nord-visual-studio-code",
+        "tinkertrain.theme-panda",
+        "christian-kohler.path-intellisense",
+        "mechatroner.rainbow-csv",
+        "jgclark.vscode-todo-highlight",
+        "vscode-icons-team.vscode-icons"
+      ]
+    }
   }
 }
