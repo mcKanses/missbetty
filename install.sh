@@ -112,6 +112,42 @@ install_dependencies_linux() {
     sudo usermod -aG docker "$USER_TO_ADD" 2>/dev/null || true
   }
 
+  ensure_docker_running_linux() {
+    if ! command -v docker >/dev/null 2>&1; then
+      echo "Docker CLI is not available."
+      exit 1
+    fi
+
+    if docker info >/dev/null 2>&1; then
+      echo "✓ Docker daemon is running"
+      return
+    fi
+
+    echo "Starting Docker daemon..."
+    if command -v systemctl >/dev/null 2>&1; then
+      sudo systemctl start docker || true
+    elif command -v service >/dev/null 2>&1; then
+      sudo service docker start || true
+    elif command -v dockerd >/dev/null 2>&1; then
+      sudo nohup dockerd >/tmp/betty-dockerd.log 2>&1 &
+    fi
+
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if docker info >/dev/null 2>&1; then
+        echo "✓ Docker daemon is running"
+        return
+      fi
+      sleep 1
+    done
+
+    echo "Docker was installed, but daemon is not running."
+    echo "Start it manually and rerun:"
+    echo "  sudo systemctl start docker"
+    echo "or"
+    echo "  sudo service docker start"
+    exit 1
+  }
+
   install_mkcert_linux() {
     if command -v mkcert >/dev/null 2>&1; then
       return
@@ -150,6 +186,7 @@ install_dependencies_linux() {
   }
 
   install_docker_linux
+  ensure_docker_running_linux
   install_mkcert_linux
 
   if ! command -v docker >/dev/null 2>&1; then
