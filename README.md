@@ -1,10 +1,6 @@
-<div align="center">
-
-![Betty Logo](https://raw.githubusercontent.com/mcKanses/getbetty.dev/main/assets/logo/betty-logo.svg)
-
 # Betty
 
-</div>
+![Betty Logo](https://raw.githubusercontent.com/mcKanses/getbetty.dev/main/assets/logo/betty-logo.svg)
 
 Betty is a lightweight CLI for local Docker development domains. It links
 running Docker containers to local domains through one global Traefik reverse
@@ -396,8 +392,8 @@ terms.
 
 If Betty saves you time, consider supporting development:
 
-- GitHub Sponsors: https://github.com/sponsors/mcKanses
-- Buy me a coffee: https://buymeacoffee.com/mckanses
+- GitHub Sponsors: [https://github.com/sponsors/mcKanses](https://github.com/sponsors/mcKanses)
+- Buy me a coffee: [https://buymeacoffee.com/mckanses](https://buymeacoffee.com/mckanses)
 
 Support helps me work on:
 
