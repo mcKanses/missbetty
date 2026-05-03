@@ -330,8 +330,8 @@ npm run release:check
 ```
 
 After a merge to `main`, GitHub Actions runs semantic-release. If releasable
-commits exist, it creates the version, Git tag, changelog, GitHub release, and
-npm publish automatically.
+commits exist, it creates the Git tag, GitHub release, and npm publish
+automatically without pushing a release commit back to `main`.
 
 Configure the repository secret `NPM_TOKEN` with an npm automation or granular
 access token that can publish `missbetty`.
