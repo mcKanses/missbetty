@@ -1,15 +1,43 @@
 name: Release Binaries
 
 on:
+  workflow_run:
+    workflows: [Publish]
+    types: [completed]
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
+  resolve-release:
+    name: Resolve Release
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    outputs:
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+    steps:
+      - name: Resolve tag name
+        id: resolve
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'release')
+              return core.setOutput('tag_name', context.payload.release.tag_name)
+
+            const { data: latestRelease } = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            })
+
+            core.setOutput('tag_name', latestRelease.tag_name)
+
   build-and-upload:
+    needs: resolve-release
+    if: needs.resolve-release.outputs.tag_name != ''
     name: Build Binary (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -144,6 +172,7 @@ jobs:
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.resolve-release.outputs.tag_name }}
           files: |
             ${{ matrix.asset_name }}
             ${{ matrix.asset_name }}.sha256
@@ -158,7 +187,7 @@ jobs:
         if: matrix.archive_kind == 'tar' && matrix.smoke_test == true
         shell: bash
         run: |
-          export BETTY_VERSION="${{ github.event.release.tag_name }}"
+          export BETTY_VERSION="${{ needs.resolve-release.outputs.tag_name }}"
           export BETTY_INSTALL_DIR="$RUNNER_TEMP/betty-bin"
           mkdir -p "$BETTY_INSTALL_DIR"
 
@@ -182,7 +211,7 @@ jobs:
         if: matrix.archive_kind == 'zip' && matrix.smoke_test == true
         shell: pwsh
         run: |
-          $env:BETTY_VERSION = '${{ github.event.release.tag_name }}'
+          $env:BETTY_VERSION = '${{ needs.resolve-release.outputs.tag_name }}'
           $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
           New-Item -ItemType Directory -Force -Path $env:BETTY_INSTALL_DIR | Out-Null
 
