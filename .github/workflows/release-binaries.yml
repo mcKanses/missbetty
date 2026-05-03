@@ -19,6 +19,10 @@ jobs:
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
+          - os: ubuntu-24.04-arm
+            asset_name: betty-linux-arm64.tar.gz
+            binary_name: betty
+            archive_kind: tar
           - os: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
