@@ -137,11 +137,22 @@ install_dependencies_linux() {
         echo "✓ Docker daemon is running"
         return
       fi
+      if sudo docker info >/dev/null 2>&1; then
+        echo "✓ Docker daemon is running (current shell lacks docker group access yet)"
+        echo "Re-login once to use docker without sudo."
+        return
+      fi
       sleep 1
     done
 
-    echo "Docker was installed, but daemon is not running."
-    echo "Start it manually and rerun:"
+    if sudo docker info >/dev/null 2>&1; then
+      echo "✓ Docker daemon is running (current shell lacks docker group access yet)"
+      echo "Re-login once to use docker without sudo."
+      return
+    fi
+
+    echo "Docker was installed, but daemon is not reachable yet."
+    echo "Try starting it manually and rerun:"
     echo "  sudo systemctl start docker"
     echo "or"
     echo "  sudo service docker start"
@@ -199,7 +210,7 @@ install_dependencies_linux() {
     exit 1
   fi
 
-  if ! docker compose version >/dev/null 2>&1; then
+  if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
     echo "Docker is installed, but Docker Compose plugin is not available yet."
     echo "Try: sudo apt-get install -y docker-compose-plugin (or your distro equivalent)."
   fi
