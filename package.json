@@ -50,11 +50,27 @@
     "cli",
     "docker",
     "traefik",
+    "reverse-proxy",
+    "local-dev",
+    "dev-tools",
+    "localhost",
+    "domains",
+    "development",
     "proxy",
-    "dev"
+    "https",
+    "mkcert",
+    "dev-environment"
   ],
-  "author": "",
+  "author": "Arda Cansiz <arda.cansiz@outlook.com>",
   "license": "MIT",
+  "homepage": "https://github.com/mcKanses/getbetty.dev#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcKanses/getbetty.dev.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mcKanses/getbetty.dev/issues"
+  },
   "dependencies": {
     "commander": "^11.0.0",
     "inquirer": "^8.2.6",
