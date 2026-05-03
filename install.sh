@@ -33,76 +33,142 @@ install_dependencies() {
 }
 
 install_dependencies_linux() {
-  MISSING_TOOLS=""
-
-  # Check for Docker
-  if ! command -v docker >/dev/null 2>&1; then
-    MISSING_TOOLS="$MISSING_TOOLS docker"
-  fi
-
-  # Check for mkcert
-  if ! command -v mkcert >/dev/null 2>&1; then
-    MISSING_TOOLS="$MISSING_TOOLS mkcert"
-  fi
-
-  if [ -z "$MISSING_TOOLS" ]; then
+  if command -v docker >/dev/null 2>&1 && command -v mkcert >/dev/null 2>&1; then
     echo "✓ Docker and mkcert are already installed"
     return
   fi
 
-  echo "Missing tools:$MISSING_TOOLS"
-  echo ""
-
-  if ! command -v apt >/dev/null 2>&1; then
-    echo "This script requires apt (Debian/Ubuntu). Please install manually:"
-    echo "  - Docker: https://docs.docker.com/engine/install/"
-    echo "  - mkcert: https://github.com/FiloSottile/mkcert"
-    return
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "sudo is required for automatic dependency installation."
+    echo "Install manually: Docker, Docker Compose, mkcert"
+    exit 1
   fi
 
-  echo "Running apt update..."
-  sudo apt update
+  install_with_pm() {
+    PKG="$1"
 
-  if echo "$MISSING_TOOLS" | grep -q "docker"; then
-    echo "Installing Docker..."
-    # Check if docker is available in apt
-    if apt-cache search --names-only "^docker.io$" 2>/dev/null | grep -q "docker"; then
-      sudo apt install -y docker.io docker-compose-plugin
-      sudo usermod -aG docker "$USER" 2>/dev/null || true
-      echo "✓ Docker installed (you may need to log out and back in for group changes)"
-    else
-      echo "⚠ Docker not found in apt. Please install from https://docs.docker.com/engine/install/"
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo DEBIAN_FRONTEND=noninteractive apt-get update
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG"
+      return 0
     fi
-  fi
 
-  if echo "$MISSING_TOOLS" | grep -q "mkcert"; then
-    echo "Installing mkcert..."
-    # Try to install from apt first, then from source
-    if apt-cache search --names-only "^mkcert$" 2>/dev/null | grep -q "mkcert"; then
-      sudo apt install -y mkcert
-      echo "✓ mkcert installed"
+    if command -v apt >/dev/null 2>&1; then
+      sudo DEBIAN_FRONTEND=noninteractive apt update
+      sudo DEBIAN_FRONTEND=noninteractive apt install -y "$PKG"
+      return 0
+    fi
+
+    if command -v dnf >/dev/null 2>&1; then
+      sudo dnf install -y "$PKG"
+      return 0
+    fi
+
+    if command -v yum >/dev/null 2>&1; then
+      sudo yum install -y "$PKG"
+      return 0
+    fi
+
+    if command -v pacman >/dev/null 2>&1; then
+      sudo pacman -Sy --noconfirm "$PKG"
+      return 0
+    fi
+
+    if command -v zypper >/dev/null 2>&1; then
+      sudo zypper --non-interactive install "$PKG"
+      return 0
+    fi
+
+    if command -v apk >/dev/null 2>&1; then
+      sudo apk add --no-cache "$PKG"
+      return 0
+    fi
+
+    return 1
+  }
+
+  install_docker_linux() {
+    if command -v docker >/dev/null 2>&1; then
+      return
+    fi
+
+    echo "Installing Docker Engine..."
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL https://get.docker.com | sudo sh
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO- https://get.docker.com | sudo sh
     else
-      echo "Installing mkcert from source..."
+      echo "Neither curl nor wget is available; cannot install Docker automatically."
+      exit 1
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+      sudo systemctl enable --now docker || true
+    elif command -v service >/dev/null 2>&1; then
+      sudo service docker start || true
+    fi
+
+    USER_TO_ADD="${SUDO_USER:-$USER}"
+    sudo usermod -aG docker "$USER_TO_ADD" 2>/dev/null || true
+  }
+
+  install_mkcert_linux() {
+    if command -v mkcert >/dev/null 2>&1; then
+      return
+    fi
+
+    echo "Installing mkcert..."
+
+    install_with_pm mkcert || true
+    install_with_pm libnss3-tools || true
+
+    if ! command -v mkcert >/dev/null 2>&1; then
       MKCERT_VERSION="v1.4.4"
-      MKCERT_ARCH="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+      case "$(uname -m)" in
+        x86_64|amd64) MKCERT_ARCH="amd64" ;;
+        aarch64|arm64) MKCERT_ARCH="arm64" ;;
+        *)
+          echo "Unsupported architecture for mkcert fallback: $(uname -m)"
+          exit 1
+          ;;
+      esac
+
       MKCERT_URL="https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-${MKCERT_ARCH}"
-      
+
       if command -v curl >/dev/null 2>&1; then
         sudo curl -fsSL "$MKCERT_URL" -o /usr/local/bin/mkcert
       elif command -v wget >/dev/null 2>&1; then
         sudo wget -qO /usr/local/bin/mkcert "$MKCERT_URL"
       else
-        echo "⚠ Neither curl nor wget available. Cannot install mkcert."
-        echo "Please install manually: https://github.com/FiloSottile/mkcert"
-        return
+        echo "Neither curl nor wget is available; cannot install mkcert automatically."
+        exit 1
       fi
-      
       sudo chmod +x /usr/local/bin/mkcert
-      echo "✓ mkcert installed"
     fi
+
+    mkcert -install >/dev/null 2>&1 || true
+  }
+
+  install_docker_linux
+  install_mkcert_linux
+
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker installation failed."
+    exit 1
   fi
 
-  echo ""
+  if ! command -v mkcert >/dev/null 2>&1; then
+    echo "mkcert installation failed."
+    exit 1
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "Docker is installed, but Docker Compose plugin is not available yet."
+    echo "Try: sudo apt-get install -y docker-compose-plugin (or your distro equivalent)."
+  fi
+
+  echo "✓ Dependencies installed (Docker + mkcert)"
+  echo "If docker commands fail due to permissions, re-login once to apply docker group changes."
 }
 
 install_dependencies_macos() {
