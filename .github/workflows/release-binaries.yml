@@ -81,3 +81,53 @@ jobs:
             ${{ matrix.asset_name }}.sha256
           fail_on_unmatched_files: true
           overwrite_files: true
+
+      - name: Smoke test installer (Linux/macOS)
+        if: matrix.archive_kind == 'tar'
+        shell: bash
+        run: |
+          export BETTY_VERSION="${{ github.event.release.tag_name }}"
+          export BETTY_INSTALL_DIR="$RUNNER_TEMP/betty-bin"
+          mkdir -p "$BETTY_INSTALL_DIR"
+
+          for attempt in 1 2 3 4 5; do
+            if sh ./install.sh; then
+              break
+            fi
+
+            if [ "$attempt" = "5" ]; then
+              echo "Installer smoke test failed after retries."
+              exit 1
+            fi
+
+            echo "Retrying installer smoke test ($attempt/5)..."
+            sleep 5
+          done
+
+          "$BETTY_INSTALL_DIR/betty" --help > /dev/null
+
+      - name: Smoke test installer (Windows)
+        if: matrix.archive_kind == 'zip'
+        shell: pwsh
+        run: |
+          $env:BETTY_VERSION = '${{ github.event.release.tag_name }}'
+          $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
+          New-Item -ItemType Directory -Force -Path $env:BETTY_INSTALL_DIR | Out-Null
+
+          $installed = $false
+          for ($i = 1; $i -le 5; $i++) {
+            try {
+              pwsh -NoProfile -ExecutionPolicy Bypass -File ./install.ps1
+              $installed = $true
+              break
+            }
+            catch {
+              if ($i -eq 5) { throw }
+              Write-Host "Retrying installer smoke test ($i/5)..."
+              Start-Sleep -Seconds 5
+            }
+          }
+
+          if (-not $installed) { throw 'Installer smoke test failed.' }
+
+          & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --help | Out-Null
