@@ -37,7 +37,7 @@ jobs:
 
   build-and-upload:
     needs: resolve-release
-    if: needs.resolve-release.outputs.tag_name != '' && (matrix.self_hosted != true || vars.BETTY_SELF_HOSTED_MACOS13_ENABLED == 'true')
+    if: needs.resolve-release.outputs.tag_name != ''
     name: Build Binary (${{ matrix.asset_name }})
     runs-on: ${{ matrix.runs_on }}
     strategy:
