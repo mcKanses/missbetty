@@ -1,17 +1,17 @@
-# [1.1.3](https://github.com/mcKanses/missbetty/compare/v1.1.2...v1.1.3) (2026-05-03)
+# Changelog
 
+## [1.1.3](https://github.com/mcKanses/missbetty/compare/v1.1.2...v1.1.3) (2026-05-03)
 
 ### Bug Fixes
 
 * synchronize package metadata version after v1.1.2 tag sequence
+* harden Windows installer Docker daemon readiness checks and avoid false install failures
 
-# [1.1.0](https://github.com/mcKanses/missbetty/compare/v1.0.1...v1.1.0) (2026-05-03)
-
+## [1.1.0](https://github.com/mcKanses/missbetty/compare/v1.0.1...v1.1.0) (2026-05-03)
 
 ### Bug Fixes
 
 * Use absolute GitHub URL for logo in README so it renders on npm ([38ac9b2](https://github.com/mcKanses/missbetty/commit/38ac9b2ee7605a90fee15bcd7a8fd88e3f1b718f))
-
 
 ### Features
 
@@ -22,8 +22,7 @@
 * auto-install mkcert in setup workflow ([f770d3d](https://github.com/mcKanses/missbetty/commit/f770d3d47c944b5cbd50b55ca1c0c2f673371394))
 * harden binary releases and add uninstall scripts ([a32a27f](https://github.com/mcKanses/missbetty/commit/a32a27ff01b038cfa1a2b90e9a3c354e45597c99))
 
-# 1.0.0 (2026-05-03)
-
+## 1.0.0 (2026-05-03)
 
 ### Bug Fixes
 
@@ -33,7 +32,6 @@
 * Replace destructive Set-Content rewrite with safe AppendAllText in hosts UAC script ([6026798](https://github.com/mcKanses/getbetty.dev/commit/6026798b9434cefbf989040094dc6a7a49f5b620))
 * Resolve all ESLint strict TypeScript errors across CLI source files ([03e46a4](https://github.com/mcKanses/getbetty.dev/commit/03e46a4d65ce4327c30a2c03745b874b0bdc1327))
 * Restore automatic hosts cleanup on unlink ([ec3fd3c](https://github.com/mcKanses/getbetty.dev/commit/ec3fd3c40ea58ab20aac0a575ad020885eab1893))
-
 
 ### Features
 
