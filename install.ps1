@@ -22,14 +22,6 @@ function Install-Dependencies {
 function Install-DependenciesWindows {
   $hasChoco = $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
   $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
-  $dockerWaitSeconds = if ($env:BETTY_DOCKER_WAIT_SECONDS) {
-    [int]$env:BETTY_DOCKER_WAIT_SECONDS
-  } else {
-    240
-  }
-  if ($dockerWaitSeconds -lt 30) {
-    $dockerWaitSeconds = 30
-  }
 
   function Install-PackageAuto {
     param(
@@ -68,50 +60,26 @@ function Install-DependenciesWindows {
       throw 'Docker CLI is still not available after installation.'
     }
 
-    docker info 1>$null 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    if (docker info 1>$null 2>$null) {
       Write-Host '✓ Docker daemon is running'
-      return $true
+      return
     }
 
     $dockerDesktopExe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
-    if (-not (Test-Path $dockerDesktopExe)) {
-      $dockerDesktopExe = Join-Path ${env:ProgramFiles(x86)} 'Docker\Docker\Docker Desktop.exe'
-    }
     if (Test-Path $dockerDesktopExe) {
-      if ($null -eq (Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue)) {
-        Write-Host 'Starting Docker Desktop...'
-        Start-Process -FilePath $dockerDesktopExe | Out-Null
-      }
+      Write-Host 'Starting Docker Desktop...'
+      Start-Process -FilePath $dockerDesktopExe | Out-Null
     }
 
-    $pollSeconds = 3
-    $maxAttempts = [Math]::Ceiling($dockerWaitSeconds / $pollSeconds)
-    for ($i = 1; $i -le $maxAttempts; $i++) {
-      docker info 1>$null 2>$null
-      if ($LASTEXITCODE -eq 0) {
+    for ($i = 1; $i -le 60; $i++) {
+      if (docker info 1>$null 2>$null) {
         Write-Host '✓ Docker daemon is running'
-        return $true
+        return
       }
-
-      if (($i % 10) -eq 0) {
-        $elapsed = $i * $pollSeconds
-        Write-Host "Waiting for Docker daemon... ${elapsed}s/${dockerWaitSeconds}s"
-      }
-
-      Start-Sleep -Seconds $pollSeconds
+      Start-Sleep -Seconds 2
     }
 
-    $dockerInfoOutput = (docker info 2>&1 | Out-String).Trim()
-    if ($dockerInfoOutput -ne '') {
-      $firstLine = ($dockerInfoOutput -split [Environment]::NewLine | Select-Object -First 1)
-      Write-Warning "Docker daemon is not ready yet: $firstLine"
-    } else {
-      Write-Warning 'Docker daemon is not ready yet.'
-    }
-
-    Write-Warning 'Continuing installation. Docker may still require first-time setup, sign-out/sign-in, or a reboot before betty serve can run.'
-    return $false
+    throw 'Docker was installed but daemon did not become ready. A reboot or first-time Docker Desktop setup may be required.'
   }
 
   function Ensure-MkcertInstalled {
@@ -137,11 +105,10 @@ function Install-DependenciesWindows {
 
   if ($missingTools.Count -eq 0) {
     Write-Host '✓ Docker and mkcert are already installed'
-    docker info 1>$null 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    if (docker info 1>$null 2>$null) {
       Write-Host '✓ Docker daemon is running'
     } else {
-      [void](Ensure-DockerDesktopRunning)
+      Ensure-DockerDesktopRunning
     }
     return
   }
@@ -157,7 +124,7 @@ function Install-DependenciesWindows {
   }
 
   Refresh-ProcessPath
-  [void](Ensure-DockerDesktopRunning)
+  Ensure-DockerDesktopRunning
   Ensure-MkcertInstalled
 
   Write-Host '✓ Dependencies installed (Docker + mkcert)'
