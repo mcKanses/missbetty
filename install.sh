@@ -1,6 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
+# Check for root privileges and re-execute with sudo if needed
+if [ "$EUID" -ne 0 ]; then
+  echo "This script requires root privileges. Re-running with sudo..."
+  exec sudo "$0" "$@"
+  exit
+fi
+
 REPO="mcKanses/missbetty"
 VERSION="${BETTY_VERSION:-latest}"
 SKIP_DEPS="${BETTY_SKIP_DEPS:-false}"

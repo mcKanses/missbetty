@@ -1,5 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
+# Check for Administrator privileges and re-run as admin if needed
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+  Write-Host "This script requires Administrator privileges. Re-running as Administrator..."
+  Start-Process powershell "-ExecutionPolicy Bypass -File `\"$PSCommandPath`\" $args" -Verb RunAs
+  exit
+}
+
 $repo = 'mcKanses/missbetty'
 $version = if ($env:BETTY_VERSION) { $env:BETTY_VERSION } else { 'latest' }
 $asset = 'betty-windows-x64.zip'
