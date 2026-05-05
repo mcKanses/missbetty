@@ -104,16 +104,23 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
         const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
         const domain = domainMatch?.[1] ?? 'n/a'
         const url = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
-        const target = url !== '' ? url : 'n/a'
         const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null
         const port = portMatch?.[1] ?? 'n/a'
+
+        let domainWithProtocol = domain
+        if (domain !== 'n/a') if (url.startsWith('https://')) domainWithProtocol = `https://${domain}`
+          else if (url.startsWith('http://')) domainWithProtocol = `http://${domain}`
+          else if (port === '443') domainWithProtocol = `https://${domain}`
+          else domainWithProtocol = `http://${domain}`
+        
+        const target = url !== '' ? url : 'n/a'
         const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)
         const ip = ipMatch?.[1] ?? ''
         const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
         return {
           name: firstRouterKey,
-          domain,
+          domain: domainWithProtocol,
           port,
           target,
           uptime: meta.uptime,
