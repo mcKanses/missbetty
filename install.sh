@@ -2,7 +2,7 @@
 set -eu
 
 # Check for root privileges and re-execute with sudo if needed
-if [ "$EUID" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
   echo "This script requires root privileges. Re-running with sudo..."
   exec sudo "$0" "$@"
   exit
