@@ -68,7 +68,7 @@ Current prebuilt targets:
 Linux/macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh
 ```
 
 Windows PowerShell:
@@ -80,7 +80,7 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.2.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+BETTY_VERSION=v1.2.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh
 ```
 
 ```powershell

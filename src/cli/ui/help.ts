@@ -9,7 +9,12 @@ const commandLine = (name: string, description: string): string => {
 }
 
 export function printHelp(): void {
-  console.log('betty - connects local domains to services')
+  // Name und Links rechtsbündig anzeigen
+  const title = 'betty - connects local domains to services'
+  const author = AUTHOR_INFO
+  const pad = Math.max(0, 60 - title.length - author.length)
+  const right = pad > 0 ? ' '.repeat(pad) : ' '
+  console.log(title + right + author)
   console.log('')
   console.log('Commands:')
   console.log(commandLine('serve', 'start local switchboard service'))
@@ -31,5 +36,4 @@ export function printHelp(): void {
   console.log('  betty setup --fix')
   console.log('  betty config set domainSuffix .localhost')
   console.log('')
-  console.log(AUTHOR_INFO)
 }
