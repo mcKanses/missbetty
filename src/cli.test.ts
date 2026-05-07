@@ -69,16 +69,16 @@ describe('cli command registration', () => {
     ]))
   })
 
-  test('prints copyright information in commander help', () => {
+  test('prints author information in commander help', () => {
     let output = ''
     createProgram()
       .configureOutput({ writeOut: (text: string) => { output += text } })
       .outputHelp()
 
-    expect(output).toContain('Copyright (c) 2026 Arda Cansiz')
+    expect(output).toContain('Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
   })
 
-  test('prints copyright information with version output', () => {
-    expect(createProgram().version()).toContain('Copyright (c) 2026 Arda Cansiz')
+  test('prints author information with version output', () => {
+    expect(createProgram().version()).toContain('Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
   })
 })
