@@ -8,7 +8,25 @@ on:
     paths:
       - 'install.sh'
 
+name: Test install.sh
+
+on:
+  pull_request:
+    paths:
+      - 'install.sh'
+  push:
+    paths:
+      - 'install.sh'
+
 jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Test install.sh (nur Syntax, kein echter Install)
+        run: |
+          chmod +x install.sh
+          BETTY_SKIP_DEPS=true ./install.sh
   ubuntu:
     runs-on: ubuntu-latest
     steps:
