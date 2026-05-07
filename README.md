@@ -81,9 +81,10 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
+
 BETTY_VERSION=v1.2.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh
 ```
-> **Hinweis:** Das Installationsskript benötigt Root-Rechte. Führe es immer mit `sudo` aus, wie oben gezeigt. Alternativ kannst du es herunterladen und mit `sudo sh install.sh` ausführen.
+> **Note:** The install script requires root privileges. Always run it with `sudo` as shown above. Alternatively, download it and run with `sudo sh install.sh`.
 
 ```powershell
 $env:BETTY_VERSION = 'v1.2.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
