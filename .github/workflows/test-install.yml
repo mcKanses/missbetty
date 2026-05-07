@@ -26,4 +26,4 @@ jobs:
       - name: Test install.sh (direct execution, syntax only)
         run: |
           chmod +x install.sh
-          BETTY_SKIP_DEPS=true ./install.sh
+          sudo BETTY_SKIP_DEPS=true ./install.sh
