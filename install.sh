@@ -1,11 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
-# Check for root privileges and re-execute with sudo if needed
+# Check for root privileges
 if [ "$(id -u)" -ne 0 ]; then
-  echo "This script requires root privileges. Re-running with sudo..."
-  exec sudo "$0" "$@"
-  exit
+  echo "This script must be run as root."
+  echo "Please run:"
+  echo "  curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh"
+  echo "or download the script and run it with sudo."
+  exit 1
 fi
 
 REPO="mcKanses/missbetty"

@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Test install.sh (nur Syntax, kein echter Install)
+      - name: Test install.sh (Root-Check und Syntax)
         run: |
           chmod +x install.sh
-          BETTY_SKIP_DEPS=true ./install.sh
+          sudo BETTY_SKIP_DEPS=true ./install.sh

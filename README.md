@@ -68,7 +68,7 @@ Current prebuilt targets:
 Linux/macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh
 ```
 
 Windows PowerShell:
@@ -77,11 +77,13 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
+
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.2.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+BETTY_VERSION=v1.2.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh
 ```
+> **Hinweis:** Das Installationsskript benötigt Root-Rechte. Führe es immer mit `sudo` aus, wie oben gezeigt. Alternativ kannst du es herunterladen und mit `sudo sh install.sh` ausführen.
 
 ```powershell
 $env:BETTY_VERSION = 'v1.2.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
