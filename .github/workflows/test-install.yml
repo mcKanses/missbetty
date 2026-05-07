@@ -13,7 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Test install.sh (nur Syntax, kein echter Install)
+      - name: Test install.sh (pipe-kompatibel, wie README)
         run: |
-          chmod +x install.sh
-          BETTY_SKIP_DEPS=true ./install.sh
+          curl -fsSL file://$PWD/install.sh | sudo sh
+          # Test mit Version Pinning
+          BETTY_SKIP_DEPS=true curl -fsSL file://$PWD/install.sh | sudo sh
