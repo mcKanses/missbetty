@@ -53,10 +53,16 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Disable hooks for release metadata commit
+        run: git config core.hooksPath /dev/null
+
       - name: Create release metadata PR
         uses: peter-evans/create-pull-request@v6
+        env:
+          HUSKY: 0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          base: development
           branch: chore/release-metadata
           delete-branch: true
           title: "chore: Sync release metadata"
