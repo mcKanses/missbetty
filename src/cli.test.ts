@@ -15,6 +15,7 @@ describe('cli command registration', () => {
     const program = createProgram()
 
     expect(program.commands.map((cmd) => cmd.name())).toEqual([
+      'dev',
       'serve',
       'stop',
       'rest',
@@ -43,6 +44,15 @@ describe('cli command registration', () => {
       '--short',
       '--json',
       '--format <format>',
+    ]))
+  })
+
+  test('registers dev project options', () => {
+    const flags = optionFlags(command(createProgram(), 'dev'))
+
+    expect(flags).toEqual(expect.arrayContaining([
+      '--config <path>',
+      '--dry-run',
     ]))
   })
 

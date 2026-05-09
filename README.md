@@ -22,6 +22,7 @@ Betty currently orchestrates:
 Betty is an early prototype. The current goal is a small, Valet-like workflow:
 
 ```sh
+betty dev
 betty serve
 betty link
 betty relink
@@ -36,7 +37,8 @@ betty rest
 
 The core workflow does not require a project configuration file. Start your
 containers with Docker or Docker Compose, then let Betty link them to local
-domains.
+domains. Projects that want a single command can add `missbetty.yml` and run
+`betty dev`.
 
 ## Requirements
 
@@ -80,11 +82,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.2.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh
+BETTY_VERSION=v1.3.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.2.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.3.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Windows installer options:
@@ -141,31 +143,111 @@ betty --help
 
 ## Quick Start
 
-Start Betty's global proxy once:
+For project-level orchestration, add `missbetty.yml` to the project root:
+
+```yaml
+project: my-app
+
+up:
+  command: docker compose up --build -d
+
+down:
+  command: docker compose down
+
+domains:
+  - host: my-app.dev
+    target: http://127.0.0.1:3000
+
+https:
+  enabled: true
+  certificateAuthority: missbetty
+
+permissions:
+  hosts: prompt
+  trustStore: prompt
+  docker: allowed
+```
+
+Then start the project:
+
+```sh
+betty dev
+```
+
+Betty prepares the local route and prints the available URLs:
+
+```txt
+https://my-app.dev
+```
+
+For the lower-level workflow, start the global proxy once, start your
+containers yourself, then link a running container:
 
 ```sh
 betty serve
-```
-
-Start your application container with Docker or Docker Compose, then link it:
-
-```sh
 betty link my-app --domain my-app.localhost --port 3000
 ```
 
-Open the linked domain in your browser:
+## Commands
 
-```txt
-https://my-app.localhost
-```
+### `betty dev`
 
-When you no longer need the global proxy:
+Starts a project from `missbetty.yml`.
 
 ```sh
-betty stop
+betty dev
+betty dev --config ./missbetty.yml
+betty dev --dry-run
 ```
 
-## Commands
+Example:
+
+```yaml
+project: mckanses-auth
+
+up:
+  command: docker compose --env-file .env -f compose.yml -f compose.override.yml up --build -d
+
+down:
+  command: docker compose -f compose.yml -f compose.override.yml down
+
+domains:
+  - host: ory-ui.mckansescloud.dev
+    target: http://127.0.0.1:5173
+
+  - host: api.mckansescloud.dev
+    target: http://127.0.0.1:8080
+
+https:
+  enabled: true
+  certificateAuthority: missbetty
+
+permissions:
+  hosts: prompt
+  trustStore: prompt
+  docker: allowed
+```
+
+`betty dev` reads the project config, prepares hosts entries and mkcert
+certificates, starts Betty's global proxy, writes project routes, runs the
+configured `up.command`, then prints the available URLs. Loopback targets such
+as `127.0.0.1` and `localhost` are routed through `host.docker.internal` inside
+the Traefik container.
+
+Config fields:
+
+| Field | Description |
+| --- | --- |
+| `project` | Stable project name used for Betty route file names |
+| `up.command` | Shell command run after hosts, certificates, and proxy routes are ready |
+| `down.command` | Reserved project shutdown command for tools and future workflow support |
+| `domains[].host` | Local domain Betty should expose |
+| `domains[].target` | Local HTTP(S) target for the domain, for example `http://127.0.0.1:5173` |
+| `https.enabled` | Enables HTTPS routes and mkcert certificates |
+| `https.certificateAuthority` | Currently supports `missbetty` |
+| `permissions.hosts` | `prompt`, `allowed`, `manual`, or `denied` for hosts-file changes |
+| `permissions.trustStore` | `prompt`, `allowed`, `manual`, or `denied` for mkcert CA setup |
+| `permissions.docker` | `prompt`, `allowed`, `manual`, or `denied` for Docker commands |
 
 ### `betty serve`
 
@@ -311,7 +393,8 @@ npm run test:coverage
 ```
 
 The default test script runs Jest serially so it works in restricted
-environments that cannot spawn parallel Jest workers.
+environments that cannot spawn parallel Jest workers. Coverage also runs
+serially for the same reason.
 
 ## Release
 
@@ -321,9 +404,9 @@ GitHub Actions with semantic-release.
 Use Conventional Commits so semantic-release can determine the next version:
 
 ```txt
-fix: repair npm package contents
-feat: add a new link option
-feat!: change the link command contract
+fix: Repair npm package contents
+feat: Add a new link option
+feat!: Change the link command contract
 ```
 
 Release behavior:

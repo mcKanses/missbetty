@@ -47,6 +47,8 @@ const desiredProxyCompose = `services:
     ports:
       - "80:80"
       - "443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./dynamic:/dynamic:ro
