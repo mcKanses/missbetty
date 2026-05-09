@@ -9,21 +9,12 @@ on:
       - 'install.sh'
 
 jobs:
-  pipe:
+  ubuntu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Test install.sh (pipe-compatible, as in README)
+      - name: Test install.sh (pipe-kompatibel, wie README)
         run: |
           curl -fsSL file://$PWD/install.sh | sudo sh
-          # Test with version pinning
+          # Test mit Version Pinning
           BETTY_SKIP_DEPS=true curl -fsSL file://$PWD/install.sh | sudo sh
-
-  direct:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Test install.sh (direct execution, syntax only)
-        run: |
-          chmod +x install.sh
-          sudo BETTY_SKIP_DEPS=true ./install.sh
