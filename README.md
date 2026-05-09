@@ -143,28 +143,49 @@ betty --help
 
 ## Quick Start
 
-Start Betty's global proxy once:
+For project-level orchestration, add `missbetty.yml` to the project root:
+
+```yaml
+project: my-app
+
+up:
+  command: docker compose up --build -d
+
+down:
+  command: docker compose down
+
+domains:
+  - host: my-app.dev
+    target: http://127.0.0.1:3000
+
+https:
+  enabled: true
+  certificateAuthority: missbetty
+
+permissions:
+  hosts: prompt
+  trustStore: prompt
+  docker: allowed
+```
+
+Then start the project:
+
+```sh
+betty dev
+```
+
+Betty prepares the local route and prints the available URLs:
+
+```txt
+https://my-app.dev
+```
+
+For the lower-level workflow, start the global proxy once, start your
+containers yourself, then link a running container:
 
 ```sh
 betty serve
-```
-
-Start your application container with Docker or Docker Compose, then link it:
-
-```sh
 betty link my-app --domain my-app.localhost --port 3000
-```
-
-Open the linked domain in your browser:
-
-```txt
-https://my-app.localhost
-```
-
-When you no longer need the global proxy:
-
-```sh
-betty stop
 ```
 
 ## Commands
@@ -212,6 +233,21 @@ certificates, starts Betty's global proxy, writes project routes, runs the
 configured `up.command`, then prints the available URLs. Loopback targets such
 as `127.0.0.1` and `localhost` are routed through `host.docker.internal` inside
 the Traefik container.
+
+Config fields:
+
+| Field | Description |
+| --- | --- |
+| `project` | Stable project name used for Betty route file names |
+| `up.command` | Shell command run after hosts, certificates, and proxy routes are ready |
+| `down.command` | Reserved project shutdown command for tools and future workflow support |
+| `domains[].host` | Local domain Betty should expose |
+| `domains[].target` | Local HTTP(S) target for the domain, for example `http://127.0.0.1:5173` |
+| `https.enabled` | Enables HTTPS routes and mkcert certificates |
+| `https.certificateAuthority` | Currently supports `missbetty` |
+| `permissions.hosts` | `prompt`, `allowed`, `manual`, or `denied` for hosts-file changes |
+| `permissions.trustStore` | `prompt`, `allowed`, `manual`, or `denied` for mkcert CA setup |
+| `permissions.docker` | `prompt`, `allowed`, `manual`, or `denied` for Docker commands |
 
 ### `betty serve`
 
@@ -357,7 +393,8 @@ npm run test:coverage
 ```
 
 The default test script runs Jest serially so it works in restricted
-environments that cannot spawn parallel Jest workers.
+environments that cannot spawn parallel Jest workers. Coverage also runs
+serially for the same reason.
 
 ## Release
 
@@ -367,9 +404,9 @@ GitHub Actions with semantic-release.
 Use Conventional Commits so semantic-release can determine the next version:
 
 ```txt
-fix: repair npm package contents
-feat: add a new link option
-feat!: change the link command contract
+fix: Repair npm package contents
+feat: Add a new link option
+feat!: Change the link command contract
 ```
 
 Release behavior:

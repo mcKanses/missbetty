@@ -30,7 +30,7 @@
     "start": "node bin/betty.js",
     "test": "jest --runInBand",
     "test:serial": "jest --runInBand",
-    "test:coverage": "jest --coverage",
+    "test:coverage": "jest --coverage --runInBand",
     "prepack": "npm run build",
     "release:check": "npm run build && npm run lint && npm test && npm pack --dry-run --ignore-scripts",
     "release:guard": "node scripts/assert-main-branch.mjs",
