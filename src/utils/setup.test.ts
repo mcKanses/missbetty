@@ -76,7 +76,9 @@ describe('setup utils', () => {
       if (String(cmd) === 'mkcert -CAROOT') return Buffer.from('/tmp/caroot')
       return Buffer.from('')
     })
-    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p).endsWith('/tmp/caroot/rootCA.pem'))
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      String(p).replace(/\\/g, '/').endsWith('/tmp/caroot/rootCA.pem')
+    )
 
     expect(checkMkcertCaInstalled()).toBe(true)
   })
