@@ -48,6 +48,12 @@ backward compatibility.
 - Keep comments for non-obvious logic only.
 - Add focused tests for behavior changes.
 
+## Commit Rules
+
+- Use Conventional Commit prefixes such as `feat:`, `fix:`, `chore:`,
+  `docs:`, `test:`, or `refactor:`.
+- Start the commit subject after the colon with an uppercase letter.
+
 ## Safety Rules
 
 - Do not rewrite hosts files destructively.
