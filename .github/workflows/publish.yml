@@ -55,8 +55,11 @@ jobs:
 
       - name: Create release metadata PR
         uses: peter-evans/create-pull-request@v6
+        env:
+          HUSKY: 0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          base: development
           branch: chore/release-metadata
           delete-branch: true
           title: "chore: Sync release metadata"
