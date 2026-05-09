@@ -11,6 +11,7 @@ import unlinkCommand from './commands/unlink'
 import configCommand from './commands/config'
 import doctorCommand from './commands/doctor'
 import setupCommand from './commands/setup'
+import devCommand from './commands/dev'
 
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
@@ -48,6 +49,11 @@ interface SetupOptions {
   fix?: boolean;
 }
 
+interface DevOptions {
+  config?: string;
+  dryRun?: boolean;
+}
+
 export const createProgram = (): Command => {
   const program = new Command()
 
@@ -56,6 +62,13 @@ export const createProgram = (): Command => {
     .description('Betty CLI - connects local domains to services')
     .version(`${version}\n${AUTHOR_INFO}`)
     .addHelpText('after', `\n${AUTHOR_INFO}`)
+
+  program
+    .command('dev')
+    .description('Start a project from missbetty.yml')
+    .option('--config <path>', 'Path to missbetty.yml')
+    .option('--dry-run', 'Preview project configuration without applying changes')
+    .action((opts: DevOptions) => { void devCommand(opts) })
 
   program
     .command('serve')
