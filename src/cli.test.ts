@@ -85,10 +85,12 @@ describe('cli command registration', () => {
       .configureOutput({ writeOut: (text: string) => { output += text } })
       .outputHelp()
 
-    expect(output).toContain('Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
+    expect(output).toContain('Copyright (c) 2026\nby Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
+    expect(output).toContain('Support Betty ❤️ https://github.com/sponsors/mcKanses | https://buymeacoffee.com/mckanses')
   })
 
   test('prints author information with version output', () => {
-    expect(createProgram().version()).toContain('Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
+    expect(createProgram().version()).toContain('Copyright (c) 2026\nby Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
+    expect(createProgram().version()).toContain('Support Betty ❤️ https://github.com/sponsors/mcKanses | https://buymeacoffee.com/mckanses')
   })
 })
