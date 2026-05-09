@@ -22,6 +22,7 @@ Betty currently orchestrates:
 Betty is an early prototype. The current goal is a small, Valet-like workflow:
 
 ```sh
+betty dev
 betty serve
 betty link
 betty relink
@@ -36,7 +37,8 @@ betty rest
 
 The core workflow does not require a project configuration file. Start your
 containers with Docker or Docker Compose, then let Betty link them to local
-domains.
+domains. Projects that want a single command can add `missbetty.yml` and run
+`betty dev`.
 
 ## Requirements
 
@@ -166,6 +168,50 @@ betty stop
 ```
 
 ## Commands
+
+### `betty dev`
+
+Starts a project from `missbetty.yml`.
+
+```sh
+betty dev
+betty dev --config ./missbetty.yml
+betty dev --dry-run
+```
+
+Example:
+
+```yaml
+project: mckanses-auth
+
+up:
+  command: docker compose --env-file .env -f compose.yml -f compose.override.yml up --build -d
+
+down:
+  command: docker compose -f compose.yml -f compose.override.yml down
+
+domains:
+  - host: ory-ui.mckansescloud.dev
+    target: http://127.0.0.1:5173
+
+  - host: api.mckansescloud.dev
+    target: http://127.0.0.1:8080
+
+https:
+  enabled: true
+  certificateAuthority: missbetty
+
+permissions:
+  hosts: prompt
+  trustStore: prompt
+  docker: allowed
+```
+
+`betty dev` reads the project config, prepares hosts entries and mkcert
+certificates, starts Betty's global proxy, writes project routes, runs the
+configured `up.command`, then prints the available URLs. Loopback targets such
+as `127.0.0.1` and `localhost` are routed through `host.docker.internal` inside
+the Traefik container.
 
 ### `betty serve`
 
