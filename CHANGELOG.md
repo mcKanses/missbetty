@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0](https://github.com/mcKanses/missbetty/compare/v1.4.0...v1.5.0) (2026-05-09)
+
+### Bug Fixes
+
+* align fix/euid-install-sh with development (pipe-compatible root check, CI test) ([441ecb0](https://github.com/mcKanses/missbetty/commit/441ecb007b9f0161b74181a36c28c598958d94ae))
+* **ci:** resolve merge conflict and test both install.sh variants ([cc5bbb1](https://github.com/mcKanses/missbetty/commit/cc5bbb14863cce3c93d7d53d3367b87718a38376))
+* **ci:** run install.sh with sudo in direct test job ([ea33b6a](https://github.com/mcKanses/missbetty/commit/ea33b6a765a98592f081d01f56436d27b317b9bb))
+* Create release metadata pull request ([4821802](https://github.com/mcKanses/missbetty/commit/4821802dd1c541c1513be409527c8ffbe5908739))
+* Disable Husky during release commit ([f269df5](https://github.com/mcKanses/missbetty/commit/f269df546228cc9e9638d09afd2c1ced430cf277))
+
+### Features
+
+* Add project dev orchestrator ([a753002](https://github.com/mcKanses/missbetty/commit/a75300230fe9acf681dbc677ba496fa4c047933c))
+
 ## [1.1.3](https://github.com/mcKanses/missbetty/compare/v1.1.2...v1.1.3) (2026-05-03)
 
 ### Bug Fixes
