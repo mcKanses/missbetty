@@ -37,7 +37,7 @@ betty rest
 
 The core workflow does not require a project configuration file. Start your
 containers with Docker or Docker Compose, then let Betty link them to local
-domains. Projects that want a single command can add `missbetty.yml` and run
+domains. Projects that want a single command can add `.betty.yml` and run
 `betty dev`.
 
 ## Requirements
@@ -143,7 +143,7 @@ betty --help
 
 ## Quick Start
 
-For project-level orchestration, add `missbetty.yml` to the project root:
+For project-level orchestration, add `.betty.yml` to the project root:
 
 ```yaml
 project: my-app
@@ -192,11 +192,11 @@ betty link my-app --domain my-app.localhost --port 3000
 
 ### `betty dev`
 
-Starts a project from `missbetty.yml`.
+Starts a project from `.betty.yml`.
 
 ```sh
 betty dev
-betty dev --config ./missbetty.yml
+betty dev --config ./.betty.yml
 betty dev --dry-run
 ```
 
