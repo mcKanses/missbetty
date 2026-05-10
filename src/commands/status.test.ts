@@ -1,87 +1,3 @@
-  const normalizePath = (value: string) => value.replace(/\\/g, '/')
-  test('zeigt Domain mit http:// in Tabelle', () => {
-    (fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      return inputPath.endsWith('/.betty/docker-compose.yml') || inputPath.endsWith('/.betty/dynamic')
-    });
-
-    (fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml']);
-    (fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      if (inputPath.endsWith('/.betty/dynamic/app.yml')) return [
-          'http:',
-          '  routers:',
-          '    app:',
-          '      rule: \'Host("app.localhost")\'',
-          '  services:',
-          '    app:',
-          '      loadBalancer:',
-          '        servers:',
-          '          - url: http://172.18.0.2:5173',
-          '',
-        ].join('\n')
-      return ''
-    });
-
-    (execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const command = String(args[0])
-      if (command === 'docker inspect betty-traefik') return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
-      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
-      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
-      throw new Error(`Unexpected command: ${command}`)
-    })
-
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
-
-    statusCommand({ short: true })
-
-    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
-    expect(output).toContain('http://app.localhost')
-
-    logSpy.mockRestore()
-  })
-
-  test('zeigt Domain mit https:// in Tabelle', () => {
-    (fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      return inputPath.endsWith('/.betty/docker-compose.yml') || inputPath.endsWith('/.betty/dynamic')
-    });
-
-    (fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml']);
-    (fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      if (inputPath.endsWith('/.betty/dynamic/app.yml')) return [
-          'http:',
-          '  routers:',
-          '    app:',
-          '      rule: \'Host("app.localhost")\'',
-          '  services:',
-          '    app:',
-          '      loadBalancer:',
-          '        servers:',
-          '          - url: https://172.18.0.2:443',
-          '',
-        ].join('\n')
-      return ''
-    });
-
-    (execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const command = String(args[0])
-      if (command === 'docker inspect betty-traefik') return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
-      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
-      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
-      throw new Error(`Unexpected command: ${command}`)
-    })
-
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
-
-    statusCommand({ short: true })
-
-    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
-    expect(output).toContain('https://app.localhost')
-
-    logSpy.mockRestore()
-  })
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execSync } from 'child_process'
 import fs from 'fs'
@@ -110,37 +26,27 @@ jest.mock('fs', () => ({
 }))
 
 describe('status command', () => {
-  const normalizePath = (value: string) => value.replace(/\\/g, '/')
+  const normalizePath = (value: string): string => value.replace(/\\/g, '/')
 
-  beforeEach(() => {
-    jest.clearAllMocks()
-  })
+  const mockRunningProxy = (): void => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
+      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
+      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
+      throw new Error(`Unexpected command: ${command}`)
+    })
+  }
 
-  test('prints JSON fallback when proxy is not set up', () => {
-    (fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
-
-    statusCommand({ json: true })
-
-    expect(logSpy).toHaveBeenCalledTimes(1)
-    const payload = JSON.parse((logSpy.mock.calls[0][0] as string))
-    expect(payload.proxy.running).toBe(false)
-    expect(payload.proxy.info).toBe('Could not determine proxy status.')
-    expect(payload.projects).toEqual([])
-
-    logSpy.mockRestore()
-  })
-
-  test('prints JSON with proxy and project details', () => {
-    (fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      return inputPath.endsWith('/.betty/docker-compose.yml') || inputPath.endsWith('/.betty/dynamic')
-    });
-
-    (fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml']);
-    (fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      if (inputPath.endsWith('/.betty/dynamic/app.yml')) return [
+  const mockRouteFile = (url: string): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      return p.endsWith('/.betty/docker-compose.yml') || p.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      if (p.endsWith('/.betty/dynamic/app.yml')) return [
           'http:',
           '  routers:',
           '    app:',
@@ -149,30 +55,45 @@ describe('status command', () => {
           '    app:',
           '      loadBalancer:',
           '        servers:',
-          '          - url: http://172.18.0.2:5173',
+          `          - url: ${url}`,
           '',
         ].join('\n')
-      
       return ''
-    });
-
-    (execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const command = String(args[0])
-      if (command === 'docker inspect betty-traefik') return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
-      
-      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
-      
-      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
-      
-      throw new Error(`Unexpected command: ${command}`)
     })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('returns empty project list and proxy-down state when Betty is not set up', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    expect(logSpy).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { proxy: { running: boolean; info: string }; projects: unknown[] }
+    expect(payload.proxy.running).toBe(false)
+    expect(payload.proxy.info).toBe('Could not determine proxy status.')
+    expect(payload.projects).toEqual([])
+
+    logSpy.mockRestore()
+  })
+
+  test('returns proxy details and project list as JSON', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    mockRunningProxy()
 
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-05-02T01:00:00.000Z').getTime())
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     statusCommand({ json: true })
 
-    const payload = JSON.parse((logSpy.mock.calls[0][0] as string))
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as {
+      proxy: { running: boolean };
+      projects: { domain: string; port: string; health: string; restarts: string }[];
+    }
     expect(payload.proxy.running).toBe(true)
     expect(payload.projects).toHaveLength(1)
     expect(payload.projects[0].domain).toBe('http://app.localhost')
@@ -184,41 +105,9 @@ describe('status command', () => {
     logSpy.mockRestore()
   })
 
-  test('prints short table when projects exist', () => {
-    (fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      return inputPath.endsWith('/.betty/docker-compose.yml') || inputPath.endsWith('/.betty/dynamic')
-    });
-
-    (fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml']);
-    (fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const inputPath = normalizePath(String(args[0]))
-      if (inputPath.endsWith('/.betty/dynamic/app.yml')) return [
-          'http:',
-          '  routers:',
-          '    app:',
-          '      rule: \'Host("app.localhost")\'',
-          '  services:',
-          '    app:',
-          '      loadBalancer:',
-          '        servers:',
-          '          - url: http://172.18.0.2:5173',
-          '',
-        ].join('\n')
-      
-      return ''
-    });
-
-    (execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
-      const command = String(args[0])
-      if (command === 'docker inspect betty-traefik') return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
-      
-      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
-      
-      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
-      
-      throw new Error(`Unexpected command: ${command}`)
-    })
+  test('renders short table with domain, target, and project name columns', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    mockRunningProxy()
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
@@ -229,6 +118,34 @@ describe('status command', () => {
     expect(output).toContain('domain')
     expect(output).toContain('target')
     expect(output).toContain('app.localhost')
+
+    logSpy.mockRestore()
+  })
+
+  test('renders http:// prefix for non-HTTPS routes in short table', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    mockRunningProxy()
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ short: true })
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('http://app.localhost')
+
+    logSpy.mockRestore()
+  })
+
+  test('renders https:// prefix for HTTPS routes in short table', () => {
+    mockRouteFile('https://172.18.0.2:443')
+    mockRunningProxy()
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ short: true })
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('https://app.localhost')
 
     logSpy.mockRestore()
   })
