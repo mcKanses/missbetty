@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.1](https://github.com/mcKanses/missbetty/compare/v1.5.0...v1.5.1) (2026-05-09)
+
+### Bug Fixes
+
+* Disable release metadata commit hooks ([#57](https://github.com/mcKanses/missbetty/issues/57)) ([f9036e0](https://github.com/mcKanses/missbetty/commit/f9036e07a9b7ae781f175dc30bb3f243ec89f01e))
+
 ## [1.5.0](https://github.com/mcKanses/missbetty/compare/v1.4.0...v1.5.0) (2026-05-09)
 
 ### Bug Fixes
