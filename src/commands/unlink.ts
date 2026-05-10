@@ -6,6 +6,7 @@ import os from 'os'
 import yaml from 'yaml'
 import inquirer from 'inquirer'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import { BETTY_PROXY_COMPOSE, BETTY_DYNAMIC_DIR } from '../utils/constants'
 
 interface RouteEntry {
   filePath: string;
@@ -14,10 +15,6 @@ interface RouteEntry {
   domain: string;
   target: string;
 }
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
 
 const resolveTraefikComposePath = (): string => {
   if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE

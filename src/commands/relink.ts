@@ -1,12 +1,14 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
+import os from 'os'
 import inquirer from 'inquirer'
 import { printError } from '../cli/ui/output'
-import os from 'os'
 import path from 'path'
 import yaml from 'yaml'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from '../utils/setup'
 import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import { BETTY_PROXY_COMPOSE, BETTY_DYNAMIC_DIR, BETTY_CERTS_DIR, BETTY_PROXY_NETWORK } from '../utils/constants'
+import { sanitizeName } from '../utils/names'
 
 interface RouteEntry {
   filePath: string;
@@ -23,19 +25,12 @@ interface RelinkOptions {
   port?: string;
 }
 
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
-const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs')
-const TRAEFIK_NETWORK = 'betty_proxy'
 
 const resolveTraefikComposePath = (): string => {
   if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE
   printError("Betty's proxy is not set up yet. Run: betty serve")
   process.exit(1)
 }
-
-const sanitizeFileName = (value: string): string => value.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase()
 
 const readRoutes = (): RouteEntry[] => {
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return []
@@ -91,22 +86,22 @@ const connectContainerToNetwork = (containerName: string): void => {
   try {
     const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[]
     const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
-    if (networkKeys.includes(TRAEFIK_NETWORK)) return
+    if (networkKeys.includes(BETTY_PROXY_NETWORK)) return
   } catch {
     printError(`Container '${containerName}' not found.`)
     process.exit(1)
   }
 
-  execSync(`docker network connect ${TRAEFIK_NETWORK} ${containerName}`, { stdio: 'inherit' })
-  console.log(`Connected container '${containerName}' to network '${TRAEFIK_NETWORK}'.`)
+  execSync(`docker network connect ${BETTY_PROXY_NETWORK} ${containerName}`, { stdio: 'inherit' })
+  console.log(`Connected container '${containerName}' to network '${BETTY_PROXY_NETWORK}'.`)
 }
 
 const getContainerIp = (containerName: string): string => {
   const info = JSON.parse(execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[]
   const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
-  const ip = networks[TRAEFIK_NETWORK]?.IPAddress ?? ''
+  const ip = networks[BETTY_PROXY_NETWORK]?.IPAddress ?? ''
   if (ip === '') {
-    printError(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`)
+    printError(`Could not determine IP for '${containerName}' in network '${BETTY_PROXY_NETWORK}'.`)
     process.exit(1)
   }
   return ip
@@ -115,7 +110,7 @@ const getContainerIp = (containerName: string): string => {
 const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
-  const baseName = sanitizeFileName(domain)
+  const baseName = sanitizeName(domain)
   const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`)
   const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`)
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) return { certFile: `/certs/${baseName}.pem`, keyFile: `/certs/${baseName}-key.pem` }
