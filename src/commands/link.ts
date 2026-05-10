@@ -1,7 +1,6 @@
 import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import os from 'os'
 import yaml from 'yaml'
 import inquirer from 'inquirer'
 import { printError, printHint } from '../cli/ui/output'
@@ -11,33 +10,30 @@ import {
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners'
 import { getDomainSuffix } from '../utils/config'
-import { checkMkcertInstalled, isHttpsRequestedDomain } from '../utils/setup'
-import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter } from '../types'
+import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter } from '../types'
 import {
   BETTY_HOME_DIR,
   BETTY_PROXY_COMPOSE,
   BETTY_DYNAMIC_DIR,
-  BETTY_CERTS_DIR,
   BETTY_PROXY_NETWORK,
   BETTY_TRAEFIK_CONTAINER,
   TRAEFIK_COMPOSE,
 } from '../utils/constants'
-import { sanitizeName } from '../utils/names'
-
-const resolveTraefikComposePath = (): string => {
-  if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE
-  
-
-  printError("Betty's proxy is not set up yet. Run: betty serve")
-  process.exit(1)
-}
+import {
+  resolveTraefikComposePath,
+  connectContainerToNetwork,
+  getContainerIp,
+  getRunningContainers,
+  restartTraefik,
+  ensureCertificate,
+} from '../utils/docker'
+import { ensureHostsEntry } from '../utils/hosts'
 
 const resolveDynamicDir = (): string => BETTY_DYNAMIC_DIR
 
 const ensureProxyComposeFile = (): void => {
   if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
-  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
   if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== TRAEFIK_COMPOSE) {
     fs.writeFileSync(BETTY_PROXY_COMPOSE, TRAEFIK_COMPOSE, 'utf8')
@@ -106,80 +102,6 @@ const ensureTraefikNetwork = (): void => {
   }
 }
 
-const connectContainerToNetwork = (containerName: string): void => {
-  try {
-    const info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
-    ) as DockerInspectEntry[]
-    const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
-    if (networkKeys.includes(BETTY_PROXY_NETWORK)) return // already connected
-    
-  } catch {
-    printError(`Container '${containerName}' not found.`)
-    process.exit(1)
-  }
-
-  execSync(`docker network connect ${BETTY_PROXY_NETWORK} ${containerName}`, { stdio: 'inherit' })
-  console.log(`Connected container '${containerName}' to network '${BETTY_PROXY_NETWORK}'.`)
-}
-
-const getContainerIp = (containerName: string): string => {
-  const info = JSON.parse(
-    execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
-  ) as DockerInspectEntry[]
-  const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
-  const ip = networks[BETTY_PROXY_NETWORK]?.IPAddress ?? ''
-  if (ip === '') {
-    printError(`Could not determine IP for '${containerName}' in network '${BETTY_PROXY_NETWORK}'.`)
-    process.exit(1)
-  }
-  return ip
-}
-
-const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
-  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
-  
-
-  const baseName = sanitizeName(domain)
-  const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`)
-  const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`)
-
-  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) return {
-      certFile: `/certs/${baseName}.pem`,
-      keyFile: `/certs/${baseName}-key.pem`,
-    }
-
-  const httpsRequested = isHttpsRequestedDomain(domain)
-  if (!checkMkcertInstalled()) {
-    if (httpsRequested) {
-      printError('HTTPS requested but mkcert is not installed. Run `betty setup`.')
-      process.exit(1)
-    }
-
-    console.log(`\n⚠️  mkcert is not installed. Falling back to HTTP for ${domain}.`)
-    return null
-  }
-  
-
-  try {
-    execSync('mkcert -install', { stdio: 'inherit' })
-    execSync(`mkcert -cert-file "${certPath}" -key-file "${keyPath}" "${domain}"`, { stdio: 'inherit' })
-    return {
-      certFile: `/certs/${baseName}.pem`,
-      keyFile: `/certs/${baseName}-key.pem`,
-    }
-  } catch {
-    if (httpsRequested) {
-      printError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
-      process.exit(1)
-    }
-
-    console.log(`\n⚠️  Could not create a local certificate for ${domain}.`)
-    console.log('   Falling back to HTTP on port 80 for this domain.')
-    return null
-  }
-}
-
 const writeDynamicConfig = (
   name: string,
   domain: string,
@@ -197,12 +119,11 @@ const writeDynamicConfig = (
   }
 
   if (certificate) routers[`${name}-secure`] = {
-      rule: `Host("${domain}")`,
-      entryPoints: ['websecure'],
-      service: name,
-      tls: {},
-    }
-  
+    rule: `Host("${domain}")`,
+    entryPoints: ['websecure'],
+    service: name,
+    tls: {},
+  }
 
   const config: TraefikDynamicConfig = {
     http: {
@@ -218,106 +139,23 @@ const writeDynamicConfig = (
   }
 
   if (certificate) config.tls = {
-      certificates: [
-        {
-          certFile: certificate.certFile,
-          keyFile: certificate.keyFile,
-        },
-      ],
-    }
-  
+    certificates: [
+      {
+        certFile: certificate.certFile,
+        keyFile: certificate.keyFile,
+      },
+    ],
+  }
 
   const configYaml = yaml.stringify(config)
   const dynamicDir = resolveDynamicDir()
 
   if (!fs.existsSync(dynamicDir)) fs.mkdirSync(dynamicDir, { recursive: true })
-  
+
   fs.writeFileSync(path.join(dynamicDir, `${name}.yml`), configYaml, 'utf8')
   console.log(`Wrote routing configuration: ${name}.yml`)
 
-  // Restart Traefik so it picks up the config.
-  // Windows bind mounts do not trigger inotify events in the container.
-  execSync(`docker compose -f "${traefikComposePath}" restart traefik`, {
-    cwd: path.dirname(traefikComposePath),
-    stdio: 'inherit',
-  })
-  console.log('Restarted Traefik.')
-}
-
-const ensureHostsEntry = (domain: string): boolean => {
-  if (domain.toLowerCase().endsWith('.localhost')) return true
-  
-
-  const hostsPath = process.platform === 'win32'
-    ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
-    : '/etc/hosts'
-  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const entry = `127.0.0.1 ${domain} # added by betty`
-  const hasEntry = (): boolean => {
-    const content = fs.readFileSync(hostsPath, 'utf8')
-    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)
-  }
-
-  try {
-    if (hasEntry()) return true
-  } catch {
-    // continue to append attempt or manual hint
-  }
-
-  try {
-    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
-    console.log(`Added hosts entry: ${entry}`)
-    return true
-  } catch {
-    if (process.platform === 'win32') {
-      const scriptPath = path.join(os.tmpdir(), `betty-hosts-append-${String(Date.now())}.ps1`)
-      const scriptDomain = domain.replace(/'/g, "''")
-      const scriptEntry = entry.replace(/'/g, "''")
-      const script = [
-        "$ErrorActionPreference = 'Stop'",
-        `$domain = '${scriptDomain}'`,
-        `$entry = '${scriptEntry}'`,
-        "$hostsPath = Join-Path $env:SystemRoot 'System32\\drivers\\etc\\hosts'",
-        "$content = [System.IO.File]::ReadAllText($hostsPath)",
-        "if ($content -match ('(?m)(^|\\s)' + [regex]::Escape($domain) + '(\\s|$)')) { exit 0 }",
-        "[System.IO.File]::AppendAllText($hostsPath, \"`r`n$entry`r`n\", [System.Text.Encoding]::UTF8)",
-      ].join('\n')
-
-      fs.writeFileSync(scriptPath, script, 'utf8')
-      try {
-        execSync(
-          `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}' -Wait"`,
-          { stdio: 'inherit' }
-        )
-        return hasEntry()
-      } catch {
-        // manual hint below
-      } finally {
-        try {
-          fs.unlinkSync(scriptPath)
-        } catch {
-          // ignore cleanup errors
-        }
-      }
-    }
-  }
-
-  console.log(`\n⚠️  Could not add hosts entry automatically.`)
-  console.log(`   Add this line manually to ${hostsPath}:`)
-  console.log(`   ${entry}`)
-  return false
-}
-
-const getRunningContainers = (): string[] => {
-  try {
-    return execSync('docker ps --format {{.Names}}', { stdio: 'pipe' })
-      .toString()
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-  } catch {
-    return []
-  }
+  restartTraefik(traefikComposePath)
 }
 
 const validateLocalDomain = (domain: string): true | string => {
@@ -469,7 +307,6 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
         }]) as { port: string }
         resolvedPort = customAnswer.port
       } else resolvedPort = portAnswer.port
-      
     } else {
       const portAnswer = await inquirer.prompt([{
         type: 'input',
@@ -533,7 +370,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
 
   ensureHttpsPortAvailable()
   ensureProxyRunning(traefikComposePath)
-  ensureTraefikNetwork()      // ensure it exists if compose did not create the network
+  ensureTraefikNetwork()
   connectContainerToNetwork(containerNameResolved)
   const ip = getContainerIp(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
