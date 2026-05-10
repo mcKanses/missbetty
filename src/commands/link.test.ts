@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, jest, test } from '@jest/globals'
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
@@ -262,6 +262,158 @@ describe('suggestDomain', () => {
     expect(suggestDomain('myapp')).toBe('myapp.localhost')
 
     process.env.BETTY_DOMAIN_SUFFIX = previous
+  })
+})
+
+describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
+  const originalPlatform = process.platform
+
+  const setPlatform = (platform: NodeJS.Platform): void => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+  }
+
+  afterEach(() => {
+    setPlatform(originalPlatform)
+  })
+
+  const mockSetupForHostsEntry = (): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('/myapp.test.pem') || normalized.endsWith('/myapp.test-key.pem')) return false
+      return true
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps --filter')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[{}]')
+      if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
+      return Buffer.from('')
+    })
+  }
+
+  test('returns true when hosts entry already exists on Linux', async () => {
+    setPlatform('linux')
+    mockSetupForHostsEntry()
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('/etc/hosts')) return '127.0.0.1 myapp.test # added by betty\n'
+      return ''
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).not.toContain('Could not add hosts entry')
+    expect(output).not.toContain('only reachable after the hosts entry')
+
+    logSpy.mockRestore()
+  })
+
+  test('adds hosts entry via appendFileSync when entry is missing on Linux', async () => {
+    setPlatform('linux')
+    mockSetupForHostsEntry()
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('/etc/hosts')) return '127.0.0.1 localhost\n'
+      return ''
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Added hosts entry')
+    expect(output).not.toContain('only reachable after the hosts entry')
+
+    logSpy.mockRestore()
+  })
+
+  test('prints manual hint when appendFileSync fails on Linux', async () => {
+    setPlatform('linux')
+    mockSetupForHostsEntry()
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('/etc/hosts')) return '127.0.0.1 localhost\n'
+      return ''
+    })
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Could not add hosts entry automatically')
+    expect(output).toContain('myapp.test')
+
+    logSpy.mockRestore()
+  })
+
+  test('writes PS1 script and returns true when PowerShell elevation succeeds on Windows', async () => {
+    setPlatform('win32')
+    mockSetupForHostsEntry()
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    let hostsReadCount = 0
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = String(p).replace(/\\/g, '/')
+      if (np.includes('drivers/etc/hosts')) {
+        hostsReadCount++
+        return hostsReadCount === 1
+          ? '127.0.0.1 localhost\n'
+          : '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n'
+      }
+      return ''
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.ps1'),
+      expect.stringContaining('myapp.test'),
+      'utf8'
+    )
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('Start-Process PowerShell -Verb RunAs'),
+      expect.objectContaining({ stdio: 'inherit' })
+    )
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).not.toContain('only reachable after the hosts entry')
+
+    logSpy.mockRestore()
+  })
+
+  test('cleans up PS1 script and prints manual hint when PowerShell elevation fails on Windows', async () => {
+    setPlatform('win32')
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('/myapp.test.pem') || normalized.endsWith('/myapp.test-key.pem')) return false
+      return true
+    })
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps --filter')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[{}]')
+      if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
+      if (c.includes('Start-Process PowerShell -Verb RunAs')) throw new Error('elevation failed')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Could not add hosts entry automatically')
+
+    logSpy.mockRestore()
   })
 })
 
