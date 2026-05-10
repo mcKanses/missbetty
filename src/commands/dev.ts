@@ -1,6 +1,5 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
@@ -12,13 +11,16 @@ import {
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
-const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs')
-const TRAEFIK_NETWORK = 'betty_proxy'
-const TRAEFIK_CONTAINER = 'betty-traefik'
+import {
+  BETTY_HOME_DIR,
+  BETTY_PROXY_COMPOSE,
+  BETTY_DYNAMIC_DIR,
+  BETTY_CERTS_DIR,
+  BETTY_PROXY_NETWORK,
+  BETTY_TRAEFIK_CONTAINER,
+  TRAEFIK_COMPOSE,
+} from '../utils/constants'
+import { sanitizeName, certificatePaths } from '../utils/names'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -48,37 +50,6 @@ interface DevCommandOptions {
   dryRun?: boolean;
 }
 
-const desiredProxyCompose = `services:
-  traefik:
-    image: traefik:v2.10
-    container_name: ${TRAEFIK_CONTAINER}
-    restart: unless-stopped
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=${TRAEFIK_NETWORK}
-      - --providers.file.directory=/dynamic
-      - --providers.file.watch=true
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-    ports:
-      - "80:80"
-      - "443:443"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./dynamic:/dynamic:ro
-      - ./certs:/certs:ro
-    networks:
-      - ${TRAEFIK_NETWORK}
-
-networks:
-  ${TRAEFIK_NETWORK}:
-    external: true
-    name: ${TRAEFIK_NETWORK}
-`
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -93,11 +64,6 @@ const parsePermission = (value: unknown): PermissionMode | undefined => {
     : 'non-scalar value'
   throw new Error(`Invalid permission mode '${label}'. Use prompt, allowed, manual, or denied.`)
 }
-
-const sanitizeName = (value: string): string => value
-  .toLowerCase()
-  .replace(/[^a-z0-9.-]/g, '-')
-  .replace(/^-+|-+$/g, '')
 
 const resolveConfigPath = (configPath?: string): string => {
   if (configPath !== undefined) return path.resolve(process.cwd(), configPath)
@@ -170,13 +136,13 @@ const ensureProxyFiles = (): void => {
   if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
-  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== desiredProxyCompose) fs.writeFileSync(BETTY_PROXY_COMPOSE, desiredProxyCompose, 'utf8')
+  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== TRAEFIK_COMPOSE) fs.writeFileSync(BETTY_PROXY_COMPOSE, TRAEFIK_COMPOSE, 'utf8')
 }
 
 const ensureHttpsPortAvailable = (): void => {
   const allDockerOwners = getDockerPortOwners(443)
-  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(TRAEFIK_CONTAINER))
-  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(TRAEFIK_CONTAINER))
+  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(BETTY_TRAEFIK_CONTAINER))
+  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(BETTY_TRAEFIK_CONTAINER))
   if (bettyOwnsPort && dockerOwners.length === 0) return
 
   const systemOwners = filterSystemOwnersForBettyPort(getSystemPortOwners(443), bettyOwnsPort)
@@ -189,7 +155,7 @@ const ensureHttpsPortAvailable = (): void => {
 }
 
 const ensureProxyRunning = (): void => {
-  execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' })
+  execSync(`docker network inspect ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' })
   execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, {
     cwd: BETTY_HOME_DIR,
     stdio: 'inherit',
@@ -198,9 +164,9 @@ const ensureProxyRunning = (): void => {
 
 const createProxyNetworkIfNeeded = (): void => {
   try {
-    execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' })
+    execSync(`docker network inspect ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' })
   } catch {
-    execSync(`docker network create ${TRAEFIK_NETWORK}`, { stdio: 'inherit' })
+    execSync(`docker network create ${BETTY_PROXY_NETWORK}`, { stdio: 'inherit' })
   }
 }
 
@@ -208,16 +174,6 @@ const targetForTraefik = (target: string): string => {
   const url = new URL(target)
   if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '::1') url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
-}
-
-const certificatePaths = (host: string): { hostPath: string; keyPath: string; certFile: string; keyFile: string } => {
-  const baseName = sanitizeName(host)
-  return {
-    hostPath: path.join(BETTY_CERTS_DIR, `${baseName}.pem`),
-    keyPath: path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`),
-    certFile: `/certs/${baseName}.pem`,
-    keyFile: `/certs/${baseName}-key.pem`,
-  }
 }
 
 const ensureCertificate = (host: string): { certFile: string; keyFile: string } => {

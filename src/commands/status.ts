@@ -2,9 +2,9 @@
 import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import os from 'os'
 import yaml from 'yaml'
 import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 
 interface ProjectStatus {
   name: string;
@@ -23,10 +23,8 @@ interface StatusOptions {
   short?: boolean;
 }
 
-const resolveTraefikComposePath = (): string | null => {
-  const composePath = path.join(os.homedir(), '.betty', 'docker-compose.yml')
-  return fs.existsSync(composePath) ? composePath : null
-}
+const resolveTraefikComposePath = (): string | null =>
+  fs.existsSync(BETTY_PROXY_COMPOSE) ? BETTY_PROXY_COMPOSE : null
 
 const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolean; proxyInfo: string; proxyUptime: string; traefikContainer: DockerInspectEntry | null } => {
   let proxyRunning = false
@@ -35,7 +33,7 @@ const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolea
   let traefikContainer: DockerInspectEntry | null = null
 
   try {
-    const output = execSync('docker inspect betty-traefik', { stdio: 'pipe' })
+    const output = execSync(`docker inspect ${BETTY_TRAEFIK_CONTAINER}`, { stdio: 'pipe' })
     const containers = JSON.parse(output.toString()) as DockerInspectEntry[]
     traefikContainer = containers.length > 0 ? containers[0] : null
     proxyRunning = traefikContainer?.State.Running === true

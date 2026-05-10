@@ -13,13 +13,16 @@ import {
 import { getDomainSuffix } from '../utils/config'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from '../utils/setup'
 import type { DockerInspectEntry, DockerNetworkEntry, TraefikDynamicConfig, TraefikRouter } from '../types'
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
-const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs')
-const TRAEFIK_NETWORK = 'betty_proxy'
-const TRAEFIK_CONTAINER = 'betty-traefik'
+import {
+  BETTY_HOME_DIR,
+  BETTY_PROXY_COMPOSE,
+  BETTY_DYNAMIC_DIR,
+  BETTY_CERTS_DIR,
+  BETTY_PROXY_NETWORK,
+  BETTY_TRAEFIK_CONTAINER,
+  TRAEFIK_COMPOSE,
+} from '../utils/constants'
+import { sanitizeName } from '../utils/names'
 
 const resolveTraefikComposePath = (): string => {
   if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE
@@ -31,52 +34,21 @@ const resolveTraefikComposePath = (): string => {
 
 const resolveDynamicDir = (): string => BETTY_DYNAMIC_DIR
 
-const desiredProxyCompose = `services:
-  traefik:
-    image: traefik:v2.10
-    container_name: ${TRAEFIK_CONTAINER}
-    restart: unless-stopped
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=${TRAEFIK_NETWORK}
-      - --providers.file.directory=/dynamic
-      - --providers.file.watch=true
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-    ports:
-      - "80:80"
-      - "443:443"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./dynamic:/dynamic:ro
-      - ./certs:/certs:ro
-    networks:
-      - ${TRAEFIK_NETWORK}
-
-networks:
-  ${TRAEFIK_NETWORK}:
-    external: true
-    name: ${TRAEFIK_NETWORK}
-`
-
 const ensureProxyComposeFile = (): void => {
   if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
-  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== desiredProxyCompose) {
-    fs.writeFileSync(BETTY_PROXY_COMPOSE, desiredProxyCompose, 'utf8')
+  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== TRAEFIK_COMPOSE) {
+    fs.writeFileSync(BETTY_PROXY_COMPOSE, TRAEFIK_COMPOSE, 'utf8')
     console.log(`Updated Docker Compose file: ${BETTY_PROXY_COMPOSE}`)
   }
 }
 
 const ensureHttpsPortAvailable = (): void => {
   const allDockerOwners = getDockerPortOwners(443)
-  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(TRAEFIK_CONTAINER))
-  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(TRAEFIK_CONTAINER))
+  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(BETTY_TRAEFIK_CONTAINER))
+  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(BETTY_TRAEFIK_CONTAINER))
   if (bettyOwnsPort && dockerOwners.length === 0) return
 
   const systemOwners = filterSystemOwnersForBettyPort(getSystemPortOwners(443), bettyOwnsPort)
@@ -127,10 +99,10 @@ const ensureProxyRunning = (traefikComposePath: string): void => {
 
 const ensureTraefikNetwork = (): void => {
   try {
-    execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' })
+    execSync(`docker network inspect ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' })
   } catch {
-    execSync(`docker network create ${TRAEFIK_NETWORK}`, { stdio: 'inherit' })
-    console.log(`Created Docker network '${TRAEFIK_NETWORK}'.`)
+    execSync(`docker network create ${BETTY_PROXY_NETWORK}`, { stdio: 'inherit' })
+    console.log(`Created Docker network '${BETTY_PROXY_NETWORK}'.`)
   }
 }
 
@@ -140,15 +112,15 @@ const connectContainerToNetwork = (containerName: string): void => {
       execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
     ) as DockerInspectEntry[]
     const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
-    if (networkKeys.includes(TRAEFIK_NETWORK)) return // already connected
+    if (networkKeys.includes(BETTY_PROXY_NETWORK)) return // already connected
     
   } catch {
     printError(`Container '${containerName}' not found.`)
     process.exit(1)
   }
 
-  execSync(`docker network connect ${TRAEFIK_NETWORK} ${containerName}`, { stdio: 'inherit' })
-  console.log(`Connected container '${containerName}' to network '${TRAEFIK_NETWORK}'.`)
+  execSync(`docker network connect ${BETTY_PROXY_NETWORK} ${containerName}`, { stdio: 'inherit' })
+  console.log(`Connected container '${containerName}' to network '${BETTY_PROXY_NETWORK}'.`)
 }
 
 const getContainerIp = (containerName: string): string => {
@@ -156,21 +128,19 @@ const getContainerIp = (containerName: string): string => {
     execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
   ) as DockerInspectEntry[]
   const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
-  const ip = networks[TRAEFIK_NETWORK]?.IPAddress ?? ''
+  const ip = networks[BETTY_PROXY_NETWORK]?.IPAddress ?? ''
   if (ip === '') {
-    printError(`Could not determine IP for '${containerName}' in network '${TRAEFIK_NETWORK}'.`)
+    printError(`Could not determine IP for '${containerName}' in network '${BETTY_PROXY_NETWORK}'.`)
     process.exit(1)
   }
   return ip
 }
 
-const sanitizeFileName = (value: string): string => value.replace(/[^a-zA-Z0-9.-]/g, '-').toLowerCase()
-
 const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
   
 
-  const baseName = sanitizeFileName(domain)
+  const baseName = sanitizeName(domain)
   const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`)
   const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`)
 
