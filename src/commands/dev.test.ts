@@ -58,10 +58,10 @@ beforeEach(() => {
 })
 
 describe('readDevProjectConfig', () => {
-  test('parses a valid missbetty.yml', () => {
+  test('parses a valid .betty.yml', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG)
 
-    const config = readDevProjectConfig('/project/missbetty.yml')
+    const config = readDevProjectConfig('/project/.betty.yml')
 
     expect(config.project).toBe('mckanses-auth')
     expect(config.domains).toEqual([
@@ -78,7 +78,7 @@ describe('readDevProjectConfig', () => {
       '    target: tcp://127.0.0.1:1234',
     ].join('\n'))
 
-    expect(() => readDevProjectConfig('/project/missbetty.yml')).toThrow('target must be an http(s) URL')
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('target must be an http(s) URL')
   })
 })
 
@@ -87,7 +87,7 @@ describe('dev command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG)
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await devCommand({ config: 'missbetty.yml', dryRun: true })
+    await devCommand({ config: '.betty.yml', dryRun: true })
 
     expect(logSpy).toHaveBeenCalledWith('Project: mckanses-auth')
     expect(execSync).not.toHaveBeenCalled()
@@ -98,7 +98,7 @@ describe('dev command', () => {
   test('writes project route with host.docker.internal target for loopback services', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
-      return normalized.endsWith('missbetty.yml') ||
+      return normalized.endsWith('.betty.yml') ||
         normalized.endsWith('/.betty/docker-compose.yml') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
@@ -106,7 +106,7 @@ describe('dev command', () => {
     })
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
-      if (normalized.endsWith('missbetty.yml')) return SAMPLE_CONFIG
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
       return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
     })
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
@@ -117,7 +117,7 @@ describe('dev command', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await devCommand({ config: 'missbetty.yml' })
+    await devCommand({ config: '.betty.yml' })
 
     const routeWrite = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find((call) =>
       String(call[0]).replace(/\\/g, '/').endsWith('/.betty/dynamic/mckanses-auth.yml')
@@ -136,6 +136,6 @@ describe('dev command', () => {
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(devCommand({ config: 'missbetty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
   })
 })

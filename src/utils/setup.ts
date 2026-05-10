@@ -1,8 +1,8 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
 import { getDomainSuffix } from './config'
+import { BETTY_DYNAMIC_DIR } from './constants'
 
 export interface SetupStatus {
   dockerInstalled: boolean;
@@ -19,9 +19,6 @@ export interface PlatformInfo {
   isMac: boolean;
   isLinux: boolean;
 }
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
 
 export const getPlatformInfo = (): PlatformInfo => {
   const isWsl = process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
