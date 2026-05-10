@@ -5,7 +5,11 @@ import {
   addHostsEntry,
   checkDockerRunning,
   checkMkcertCaInstalled,
+  collectSetupStatus,
+  getHostsPath,
   installMkcertPackage,
+  printDockerInstallInstructions,
+  printMkcertInstallInstructions,
   resolveSetupDomain,
   runMkcertInstall,
 } from './setup'
@@ -134,6 +138,39 @@ describe('setup utils', () => {
     expect(result.warning).toContain('not installed')
   })
 
+  test('getHostsPath returns the Linux hosts file path on Linux', () => {
+    setPlatform('linux')
+    expect(getHostsPath()).toBe('/etc/hosts')
+  })
+
+  test('getHostsPath returns the Windows hosts file path on Windows', () => {
+    setPlatform('win32')
+    expect(getHostsPath()).toBe('C:\\Windows\\System32\\drivers\\etc\\hosts')
+  })
+
+  test('addHostsEntry returns warning on Windows instead of writing directly', () => {
+    setPlatform('win32')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+
+    const result = addHostsEntry('myapp.dev')
+
+    expect(result.changed).toBe(false)
+    expect(result.warning).toContain('Windows detected')
+    expect(execSync).not.toHaveBeenCalled()
+  })
+
+  test('installMkcertPackage returns ok immediately when mkcert is already installed', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd) === 'mkcert -help') return Buffer.from('ok')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result).toEqual({ ok: true })
+    expect(execSync).toHaveBeenCalledTimes(1)
+  })
+
   test('installMkcertPackage installs mkcert via apt-get on Linux', () => {
     let installed = false
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
@@ -155,5 +192,172 @@ describe('setup utils', () => {
 
     expect(result).toEqual({ ok: true })
     expect(execSync).toHaveBeenCalledWith('sudo apt-get install -y mkcert', { stdio: 'inherit' })
+  })
+
+  test('installMkcertPackage installs mkcert via brew on macOS', () => {
+    setPlatform('darwin')
+    let installed = false
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') {
+        if (!installed) throw new Error('missing')
+        return Buffer.from('ok')
+      }
+      if (command.includes('command -v brew')) return Buffer.from('/usr/local/bin/brew')
+      if (command === 'brew install mkcert') {
+        installed = true
+        return Buffer.from('installed')
+      }
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result).toEqual({ ok: true })
+    expect(execSync).toHaveBeenCalledWith('brew install mkcert', { stdio: 'inherit' })
+  })
+
+  test('installMkcertPackage returns warning when brew is not available on macOS', () => {
+    setPlatform('darwin')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') throw new Error('missing')
+      if (command.includes('command -v brew')) throw new Error('not found')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toContain('Homebrew')
+  })
+
+  test('installMkcertPackage installs mkcert via winget on Windows', () => {
+    setPlatform('win32')
+    let installed = false
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') {
+        if (!installed) throw new Error('missing')
+        return Buffer.from('ok')
+      }
+      if (command === 'winget --version') return Buffer.from('v1.0')
+      if (command.includes('winget install')) {
+        installed = true
+        return Buffer.from('installed')
+      }
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result).toEqual({ ok: true })
+    expect(execSync).toHaveBeenCalledWith('winget install --id FiloSottile.mkcert -e', { stdio: 'inherit' })
+  })
+
+  test('installMkcertPackage returns warning when winget is not available on Windows', () => {
+    setPlatform('win32')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') throw new Error('missing')
+      if (command === 'winget --version') throw new Error('not found')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toContain('winget')
+  })
+
+  test('printMkcertInstallInstructions mentions brew on macOS', () => {
+    setPlatform('darwin')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    printMkcertInstallInstructions()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('brew install mkcert')
+
+    logSpy.mockRestore()
+  })
+
+  test('printMkcertInstallInstructions mentions winget on Windows', () => {
+    setPlatform('win32')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    printMkcertInstallInstructions()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('winget')
+
+    logSpy.mockRestore()
+  })
+
+  test('printMkcertInstallInstructions mentions apt on Linux', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    printMkcertInstallInstructions()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('apt')
+
+    logSpy.mockRestore()
+  })
+
+  test('printDockerInstallInstructions mentions Docker Desktop on macOS', () => {
+    setPlatform('darwin')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    printDockerInstallInstructions()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Docker')
+
+    logSpy.mockRestore()
+  })
+
+  test('printDockerInstallInstructions mentions Docker Desktop on Windows', () => {
+    setPlatform('win32')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    printDockerInstallInstructions()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Docker Desktop')
+
+    logSpy.mockRestore()
+  })
+
+  test('printDockerInstallInstructions mentions docs link on Linux', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    printDockerInstallInstructions()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('docker.com')
+
+    logSpy.mockRestore()
+  })
+
+  test('collectSetupStatus returns a complete status object', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'docker --version') return Buffer.from('Docker version 24')
+      if (command === 'docker info') return Buffer.from('ok')
+      if (command === 'mkcert -help') return Buffer.from('ok')
+      if (command === 'mkcert -CAROOT') return Buffer.from('/tmp/caroot')
+      return Buffer.from('')
+    })
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+
+    const status = collectSetupStatus()
+
+    expect(status).toMatchObject({
+      dockerInstalled: true,
+      dockerRunning: true,
+      mkcertInstalled: true,
+      domain: expect.any(String),
+    })
   })
 })
