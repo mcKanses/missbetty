@@ -68,21 +68,21 @@ const parsePermission = (value: unknown): PermissionMode | undefined => {
 const resolveConfigPath = (configPath?: string): string => {
   if (configPath !== undefined) return path.resolve(process.cwd(), configPath)
 
-  const candidates = ['missbetty.yml', 'missbetty.yaml']
+  const candidates = ['.betty.yml', '.betty.yaml', '..betty.yml', '.missbetty.yaml']
   const match = candidates.find((candidate) => fs.existsSync(path.resolve(process.cwd(), candidate)))
   if (match !== undefined) return path.resolve(process.cwd(), match)
-  throw new Error('No missbetty.yml found in the current directory.')
+  throw new Error('No .betty.yml found in the current directory.')
 }
 
 export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
   const parsed = yaml.parse(fs.readFileSync(configPath, 'utf8')) as unknown
-  if (!isRecord(parsed)) throw new Error('missbetty.yml must contain a YAML object.')
+  if (!isRecord(parsed)) throw new Error('.betty.yml must contain a YAML object.')
 
   const project = asString(parsed.project)
-  if (project === null) throw new Error('missbetty.yml requires a non-empty project name.')
+  if (project === null) throw new Error('.betty.yml requires a non-empty project name.')
 
   const domainsRaw = parsed.domains
-  if (!Array.isArray(domainsRaw) || domainsRaw.length === 0) throw new Error('missbetty.yml requires at least one domain.')
+  if (!Array.isArray(domainsRaw) || domainsRaw.length === 0) throw new Error('.betty.yml requires at least one domain.')
 
   const domains = domainsRaw.map((domainRaw, index) => {
     if (!isRecord(domainRaw)) throw new Error(`domains[${String(index)}] must be an object.`)
