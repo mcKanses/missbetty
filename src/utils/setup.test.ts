@@ -30,10 +30,12 @@ jest.mock('fs', () => ({
     existsSync: jest.fn(),
     readdirSync: jest.fn(),
     readFileSync: jest.fn(),
+    appendFileSync: jest.fn(),
   },
   existsSync: jest.fn(),
   readdirSync: jest.fn(),
   readFileSync: jest.fn(),
+  appendFileSync: jest.fn(),
 }))
 
 jest.mock('./config', () => ({
@@ -111,7 +113,8 @@ describe('setup utils', () => {
     expect(result.warning).toContain('WSL detected')
   })
 
-  test('addHostsEntry appends hosts entry with sudo on Linux', () => {
+  test('addHostsEntry appends hosts entry with sudo on Linux when direct write fails', () => {
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     ;(fs.readFileSync as unknown as jest.Mock)
       .mockReturnValueOnce('127.0.0.1 localhost\n')
       .mockReturnValueOnce('127.0.0.1 localhost\n127.0.0.1 myapp.dev # added by betty\n')
@@ -148,14 +151,16 @@ describe('setup utils', () => {
     expect(getHostsPath()).toBe('C:\\Windows\\System32\\drivers\\etc\\hosts')
   })
 
-  test('addHostsEntry returns warning on Windows instead of writing directly', () => {
+  test('addHostsEntry tries direct write on Windows and returns warning when it fails', () => {
     setPlatform('win32')
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
 
     const result = addHostsEntry('myapp.dev')
 
     expect(result.changed).toBe(false)
-    expect(result.warning).toContain('Windows detected')
+    expect(result.warning).toContain('Re-run the betty installer')
+    expect(fs.appendFileSync).toHaveBeenCalled()
     expect(execSync).not.toHaveBeenCalled()
   })
 

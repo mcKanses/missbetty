@@ -534,8 +534,12 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true })
   }
 
+  const originalEnv = { USERDOMAIN: process.env.USERDOMAIN, USERNAME: process.env.USERNAME }
+
   afterEach(() => {
     setPlatform(originalPlatform)
+    process.env.USERDOMAIN = originalEnv.USERDOMAIN
+    process.env.USERNAME = originalEnv.USERNAME
   })
 
   const mockSetupForHostsEntry = (): void => {
@@ -611,43 +615,38 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     logSpy.mockRestore()
   })
 
-  test('writes PS1 script and returns true when PowerShell elevation succeeds on Windows', async () => {
+  test('uses EncodedCommand elevation and returns true when PowerShell elevation succeeds on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     mockSetupForHostsEntry()
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    let hostsReadCount = 0
+    ;(fs.appendFileSync as unknown as jest.Mock)
+      .mockImplementationOnce(() => { throw new Error('EACCES') })
+      .mockImplementationOnce(() => undefined)
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      const np = String(p).replace(/\\/g, '/')
-      if (np.includes('drivers/etc/hosts')) {
-        hostsReadCount++
-        return hostsReadCount === 1
-          ? '127.0.0.1 localhost\n'
-          : '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n'
-      }
+      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
       return ''
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.ps1'),
-      expect.stringContaining('myapp.test'),
-      'utf8'
-    )
     expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('Start-Process PowerShell -Verb RunAs'),
+      expect.stringContaining('EncodedCommand'),
       expect.objectContaining({ stdio: 'inherit' })
     )
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Added hosts entry')
     expect(output).not.toContain('only reachable after the hosts entry')
 
     logSpy.mockRestore()
   })
 
-  test('cleans up PS1 script and prints manual hint when PowerShell elevation fails on Windows', async () => {
+  test('prints manual hint when PowerShell elevation fails on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
       if (normalized.endsWith('/myapp.test.pem') || normalized.endsWith('/myapp.test-key.pem')) return false
@@ -664,14 +663,14 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
       if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
       if (c.includes('docker network inspect')) return Buffer.from('[{}]')
       if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
-      if (c.includes('Start-Process PowerShell -Verb RunAs')) throw new Error('elevation failed')
+      if (c.includes('EncodedCommand')) throw new Error('elevation failed')
       return Buffer.from('')
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
 
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
 

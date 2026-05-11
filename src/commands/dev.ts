@@ -4,7 +4,8 @@ import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printError, printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, checkMkcertInstalled, addHostsEntry, hasHostsEntry, runMkcertInstall } from '../utils/setup'
+import { checkDockerRunning, checkMkcertInstalled, hasHostsEntry, runMkcertInstall } from '../utils/setup'
+import { ensureHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import {
   BETTY_HOME_DIR,
@@ -193,8 +194,7 @@ const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
       printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
       continue
     }
-    const result = addHostsEntry(domain.host)
-    if (result.warning !== undefined) printWarn(result.warning)
+    ensureHostsEntry(domain.host)
   }
 }
 
