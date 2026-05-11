@@ -477,6 +477,7 @@ describe('relink command', () => {
 
 describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () => {
   const originalPlatform = process.platform
+  const originalEnv = { USERDOMAIN: process.env.USERDOMAIN, USERNAME: process.env.USERNAME }
 
   const setPlatform = (platform: NodeJS.Platform): void => {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true })
@@ -488,6 +489,8 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
   afterEach(() => {
     setPlatform(originalPlatform)
+    process.env.USERDOMAIN = originalEnv.USERDOMAIN
+    process.env.USERNAME = originalEnv.USERNAME
   })
 
   const mockBaseSetup = (): void => {
@@ -566,43 +569,38 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     logSpy.mockRestore()
   })
 
-  test('writes PS1 script and returns true when PowerShell elevation succeeds on Windows', async () => {
+  test('uses EncodedCommand elevation and returns true when PowerShell elevation succeeds on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     mockBaseSetup()
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    let hostsReadCount = 0
+    ;(fs.appendFileSync as unknown as jest.Mock)
+      .mockImplementationOnce(() => { throw new Error('EACCES') })
+      .mockImplementationOnce(() => undefined)
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      const np = normalizePath(String(p))
-      if (np.includes('drivers/etc/hosts')) {
-        hostsReadCount++
-        return hostsReadCount === 1
-          ? '127.0.0.1 localhost\n'
-          : '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n'
-      }
+      if (normalizePath(String(p)).includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
       return YAML_APP_ROUTE
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.ps1'),
-      expect.stringContaining('myapp.test'),
-      'utf8'
-    )
     expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('Start-Process PowerShell -Verb RunAs'),
+      expect.stringContaining('EncodedCommand'),
       expect.objectContaining({ stdio: 'inherit' })
     )
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('.ps1'))
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Added hosts entry')
     expect(output).not.toContain('only reachable after the hosts entry')
 
     logSpy.mockRestore()
   })
 
-  test('cleans up PS1 script and prints manual hint when PowerShell elevation fails on Windows', async () => {
+  test('prints manual hint when PowerShell elevation fails on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     mockBaseSetup()
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
@@ -613,14 +611,14 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
       const command = String(cmd)
       if (command.startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
       if (command.includes('mkcert -help')) throw new Error('mkcert not installed')
-      if (command.includes('Start-Process PowerShell -Verb RunAs')) throw new Error('elevation failed')
+      if (command.includes('EncodedCommand')) throw new Error('elevation failed')
       return Buffer.from('')
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
 
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('.ps1'))
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
 

@@ -1,30 +1,54 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
-import os from 'os'
-import path from 'path'
 
 const getHostsPath = (): string => process.platform === 'win32'
   ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
   : '/etc/hosts'
 
-const elevateWithPowerShell = (script: string, prefix: string): boolean => {
-  const scriptPath = path.join(os.tmpdir(), `betty-hosts-${prefix}-${String(Date.now())}.ps1`)
-  fs.writeFileSync(scriptPath, script, 'utf8')
+const elevateWithPowerShell = (script: string): boolean => {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64')
   try {
     execSync(
-      `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${scriptPath}' -Wait"`,
+      `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-EncodedCommand','${encoded}' -Wait"`,
       { stdio: 'inherit' }
     )
     return true
   } catch {
     return false
-  } finally {
-    try { fs.unlinkSync(scriptPath) } catch { /* ignore cleanup errors */ }
   }
+}
+
+const grantHostsWritePermission = (hostsPath: string): boolean => {
+  const domain = process.env.USERDOMAIN ?? ''
+  const user = process.env.USERNAME ?? ''
+  if (domain === '' || user === '') return false
+  const username = `${domain}\\${user}`
+
+  const escapedUser = username.replace(/'/g, "''")
+  const escapedPath = hostsPath.replace(/'/g, "''")
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `$hostsPath = '${escapedPath}'`,
+    "$acl = Get-Acl $hostsPath",
+    `$rule = New-Object System.Security.AccessControl.FileSystemAccessRule('${escapedUser}', 'Write', 'Allow')`,
+    '$acl.AddAccessRule($rule)',
+    'Set-Acl -Path $hostsPath -AclObject $acl',
+  ].join('\n')
+
+  return elevateWithPowerShell(script)
 }
 
 export const ensureHostsEntry = (domain: string): boolean => {
   if (domain.toLowerCase().endsWith('.localhost')) return true
+
+  const isWsl = process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
+  if (isWsl) {
+    const entry = `127.0.0.1 ${domain} # added by betty`
+    console.log(`\n⚠️  WSL detected. Add this line to your Windows hosts file manually:`)
+    console.log(`   C:\\Windows\\System32\\drivers\\etc\\hosts`)
+    console.log(`   ${entry}`)
+    return false
+  }
 
   const hostsPath = getHostsPath()
   const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -40,27 +64,26 @@ export const ensureHostsEntry = (domain: string): boolean => {
     // continue to append attempt or manual hint
   }
 
-  try {
-    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
-    console.log(`Added hosts entry: ${entry}`)
-    return true
-  } catch {
-    if (process.platform === 'win32') {
-      const scriptDomain = domain.replace(/'/g, "''")
-      const scriptEntry = entry.replace(/'/g, "''")
-      const script = [
-        "$ErrorActionPreference = 'Stop'",
-        `$domain = '${scriptDomain}'`,
-        `$entry = '${scriptEntry}'`,
-        "$hostsPath = Join-Path $env:SystemRoot 'System32\\drivers\\etc\\hosts'",
-        "$content = [System.IO.File]::ReadAllText($hostsPath)",
-        "if ($content -match ('(?m)(^|\\s)' + [regex]::Escape($domain) + '(\\s|$)')) { exit 0 }",
-        "[System.IO.File]::AppendAllText($hostsPath, \"`r`n$entry`r`n\", [System.Text.Encoding]::UTF8)",
-      ].join('\n')
-
-      const elevated = elevateWithPowerShell(script, 'append')
-      if (elevated) return hasEntry()
+  const tryAppend = (): boolean => {
+    try {
+      fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
+      console.log(`Added hosts entry: ${entry}`)
+      return true
+    } catch {
+      return false
     }
+  }
+
+  if (tryAppend()) return true
+
+  if (process.platform === 'win32') {
+    if (grantHostsWritePermission(hostsPath) && tryAppend()) return true
+  } else try {
+    const escapedEntry = entry.replace(/"/g, '\\"')
+    execSync(`sudo sh -c 'echo "${escapedEntry}" >> /etc/hosts'`, { stdio: 'inherit' })
+    if (hasEntry()) return true
+  } catch {
+    // fall through to manual hint
   }
 
   console.log(`\n⚠️  Could not add hosts entry automatically.`)
@@ -85,31 +108,22 @@ export const removeHostsEntry = (domain: string): boolean => {
     }
   }
 
-  try {
-    const content = fs.readFileSync(hostsPath, 'utf8')
-    const { nextContent, removed } = removeLines(content)
-    if (!removed) return true
-    fs.writeFileSync(hostsPath, nextContent, 'utf8')
-    console.log(`Removed hosts entry for: ${domain}`)
-    return true
-  } catch {
-    if (process.platform === 'win32') {
-      const scriptDomain = domain.replace(/'/g, "''")
-      const script = [
-        "$ErrorActionPreference = 'Stop'",
-        `$domain = '${scriptDomain}'`,
-        "$hostsPath = Join-Path $env:SystemRoot 'System32\\drivers\\etc\\hosts'",
-        "$pattern = '(^|\\s)' + [regex]::Escape($domain) + '(\\s|$)'",
-        "$lines = [System.IO.File]::ReadAllLines($hostsPath)",
-        "$kept = $lines | Where-Object { $_ -notmatch $pattern }",
-        "if ($kept.Count -eq $lines.Count) { exit 0 }",
-        "[System.IO.File]::WriteAllLines($hostsPath, $kept, [System.Text.Encoding]::UTF8)",
-      ].join('\n')
-
-      const elevated = elevateWithPowerShell(script, 'remove')
-      if (elevated) return true
+  const tryRemove = (): boolean => {
+    try {
+      const content = fs.readFileSync(hostsPath, 'utf8')
+      const { nextContent, removed } = removeLines(content)
+      if (!removed) return true
+      fs.writeFileSync(hostsPath, nextContent, 'utf8')
+      console.log(`Removed hosts entry for: ${domain}`)
+      return true
+    } catch {
+      return false
     }
   }
+
+  if (tryRemove()) return true
+
+  if (process.platform === 'win32' && grantHostsWritePermission(hostsPath) && tryRemove()) return true
 
   console.log(`\n⚠️  Could not remove hosts entry automatically.`)
   console.log(`   Remove this domain manually from ${hostsPath}: ${domain}`)

@@ -8,12 +8,10 @@ jest.mock('fs', () => ({
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
     appendFileSync: jest.fn(),
-    unlinkSync: jest.fn(),
   },
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
   appendFileSync: jest.fn(),
-  unlinkSync: jest.fn(),
 }))
 
 import fs from 'fs'
@@ -21,6 +19,7 @@ import { execSync } from 'child_process'
 import { ensureHostsEntry, removeHostsEntry } from './hosts'
 
 const originalPlatform = process.platform
+const originalEnv = { ...process.env }
 
 beforeEach(() => {
   jest.resetAllMocks()
@@ -28,6 +27,9 @@ beforeEach(() => {
 
 afterEach(() => {
   Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+  process.env.USERDOMAIN = originalEnv.USERDOMAIN
+  process.env.USERNAME = originalEnv.USERNAME
+  process.env.WSL_DISTRO_NAME = originalEnv.WSL_DISTRO_NAME
 })
 
 const setPlatform = (platform: string): void => {
@@ -65,16 +67,18 @@ describe('ensureHostsEntry', () => {
     expect(fs.appendFileSync).toHaveBeenCalled()
   })
 
-  it('returns false when append fails on linux', () => {
+  it('returns false and warns when running in WSL', () => {
     setPlatform('linux')
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    process.env.WSL_DISTRO_NAME = 'Ubuntu'
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+    expect(execSync).not.toHaveBeenCalled()
   })
 
-  it('uses PowerShell elevation when append fails on win32 and returns true', () => {
-    setPlatform('win32')
+  it('uses sudo fallback when append fails on linux and returns true', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
     ;(fs.readFileSync as unknown as jest.Mock)
       .mockReturnValueOnce('127.0.0.1 other.dev\n')
       .mockReturnValueOnce('127.0.0.1 myapp.dev # added by betty\n')
@@ -82,18 +86,57 @@ describe('ensureHostsEntry', () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.ps1'),
-      expect.stringContaining('myapp.dev'),
-      'utf8'
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('sudo sh -c'),
+      expect.anything()
+    )
+  })
+
+  it('returns false when append fails on linux and sudo also fails', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(false)
+  })
+
+  it('uses PowerShell elevation when append fails on win32 and returns true', () => {
+    setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
+    ;(fs.appendFileSync as unknown as jest.Mock)
+      .mockImplementationOnce(() => { throw new Error('EACCES') })
+      .mockImplementationOnce(() => undefined)
+    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('EncodedCommand'),
+      expect.anything()
     )
   })
 
   it('returns false when elevation fails on win32', () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('elevation failed') })
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(false)
+  })
+
+  it('returns false when elevation succeeds but append still fails on win32', () => {
+    setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
@@ -138,21 +181,29 @@ describe('removeHostsEntry', () => {
     expect(removeHostsEntry('myapp.dev')).toBe(false)
   })
 
-  it('uses PowerShell elevation when readFileSync fails on win32 and returns true', () => {
+  it('uses PowerShell elevation when write fails on win32 and returns true', () => {
     setPlatform('win32')
-    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      '127.0.0.1 myapp.dev # added by betty\n'
+    )
+    ;(fs.writeFileSync as unknown as jest.Mock)
+      .mockImplementationOnce(() => { throw new Error('EACCES') })
+      .mockImplementationOnce(() => undefined)
     ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     expect(removeHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.ps1'),
-      expect.stringContaining('myapp.dev'),
-      'utf8'
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('EncodedCommand'),
+      expect.anything()
     )
   })
 
   it('returns false when elevation fails on win32', () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('elevation failed') })
 
