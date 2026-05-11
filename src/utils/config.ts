@@ -1,13 +1,9 @@
 import fs from 'fs'
-import os from 'os'
-import path from 'path'
+import { BETTY_HOME_DIR, BETTY_CONFIG_PATH } from './constants'
 
 interface BettyConfig {
   domainSuffix?: string;
 }
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_CONFIG_PATH = path.join(BETTY_HOME_DIR, 'config.json')
 const DEFAULT_DOMAIN_SUFFIX = '.dev'
 
 const normalizeDomainSuffix = (value: string): string | null => {

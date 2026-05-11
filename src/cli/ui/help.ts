@@ -17,7 +17,7 @@ export function printHelp(): void {
   console.log(title + right + author)
   console.log('')
   console.log('Commands:')
-  console.log(commandLine('dev', 'start a project from missbetty.yml'))
+  console.log(commandLine('dev', 'start a project from .betty.yml'))
   console.log(commandLine('serve', 'start local switchboard service'))
   console.log(commandLine('stop', 'stop local switchboard service'))
   console.log(commandLine('rest', "alias for 'stop'"))

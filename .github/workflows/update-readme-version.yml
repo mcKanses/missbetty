@@ -14,15 +14,15 @@ jobs:
           fetch-depth: 0
       - name: Get latest tag
         id: get_tag
-        run: |
-          echo "::set-output name=tag::${GITHUB_REF#refs/tags/}"
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
       - name: Update README version
         run: |
           sed -i "s/BETTY_VERSION=v[0-9]\+\.[0-9]\+\.[0-9]\+/BETTY_VERSION=${{ steps.get_tag.outputs.tag }}/g" README.md
+          sed -i "s/\$env:BETTY_VERSION = 'v[0-9]\+\.[0-9]\+\.[0-9]\+'/\$env:BETTY_VERSION = '${{ steps.get_tag.outputs.tag }}'/g" README.md
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git commit -m "docs: update install version to ${{ steps.get_tag.outputs.tag }} [skip ci]" || echo "No changes to commit"
+          git commit -m "docs: Update install version to ${{ steps.get_tag.outputs.tag }} [skip ci]" || echo "No changes to commit"
           git push
