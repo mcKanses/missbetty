@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals'
-import { sanitizeName, certificatePaths } from './names'
+import { sanitizeName, certificatePaths, normalizeDomainLabel, normalizeServiceName } from './names'
 
 jest.mock('./constants', () => ({
   BETTY_CERTS_DIR: '/home/test-user/.betty/certs',
@@ -67,5 +67,53 @@ describe('certificatePaths', () => {
 
     expect(result.certFile).toMatch(/^\/certs\//)
     expect(result.keyFile).toMatch(/^\/certs\//)
+  })
+})
+
+describe('normalizeDomainLabel', () => {
+  test('lowercases the value', () => {
+    expect(normalizeDomainLabel('MyApp')).toBe('myapp')
+  })
+
+  test('converts underscores to hyphens', () => {
+    expect(normalizeDomainLabel('my_project')).toBe('my-project')
+  })
+
+  test('removes dots', () => {
+    expect(normalizeDomainLabel('my.project')).toBe('myproject')
+  })
+
+  test('strips leading and trailing hyphens', () => {
+    expect(normalizeDomainLabel('--app--')).toBe('app')
+  })
+
+  test('removes all non-alphanumeric-hyphen characters', () => {
+    expect(normalizeDomainLabel('app@v2!')).toBe('appv2')
+  })
+
+  test('returns empty string for blank input', () => {
+    expect(normalizeDomainLabel('')).toBe('')
+  })
+})
+
+describe('normalizeServiceName', () => {
+  test('leaves alphanumeric-hyphen names unchanged', () => {
+    expect(normalizeServiceName('my-app')).toBe('my-app')
+  })
+
+  test('replaces underscores with hyphens', () => {
+    expect(normalizeServiceName('my_app')).toBe('my-app')
+  })
+
+  test('replaces dots with hyphens', () => {
+    expect(normalizeServiceName('my.app')).toBe('my-app')
+  })
+
+  test('preserves original casing', () => {
+    expect(normalizeServiceName('MyApp')).toBe('MyApp')
+  })
+
+  test('replaces special characters with hyphens', () => {
+    expect(normalizeServiceName('app@v2!')).toBe('app-v2-')
   })
 })

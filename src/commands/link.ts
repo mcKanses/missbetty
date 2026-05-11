@@ -1,24 +1,9 @@
 import { execSync } from 'child_process'
 import path from 'path'
-import fs from 'fs'
-import yaml from 'yaml'
 import inquirer from 'inquirer'
 import { printError, printHint } from '../cli/ui/output'
-import {
-  getDockerPortOwners,
-  getSystemPortOwners,
-  filterSystemOwnersForBettyPort,
-} from '../utils/portOwners'
 import { getDomainSuffix } from '../utils/config'
-import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter } from '../types'
-import {
-  BETTY_HOME_DIR,
-  BETTY_PROXY_COMPOSE,
-  BETTY_DYNAMIC_DIR,
-  BETTY_PROXY_NETWORK,
-  BETTY_TRAEFIK_CONTAINER,
-  TRAEFIK_COMPOSE,
-} from '../utils/constants'
+import type { DockerInspectEntry } from '../types'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
@@ -28,57 +13,9 @@ import {
   ensureCertificate,
 } from '../utils/docker'
 import { ensureHostsEntry } from '../utils/hosts'
-
-const resolveDynamicDir = (): string => BETTY_DYNAMIC_DIR
-
-const ensureProxyComposeFile = (): void => {
-  if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
-  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
-
-  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== TRAEFIK_COMPOSE) {
-    fs.writeFileSync(BETTY_PROXY_COMPOSE, TRAEFIK_COMPOSE, 'utf8')
-    console.log(`Updated Docker Compose file: ${BETTY_PROXY_COMPOSE}`)
-  }
-}
-
-const ensureHttpsPortAvailable = (): void => {
-  const allDockerOwners = getDockerPortOwners(443)
-  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(BETTY_TRAEFIK_CONTAINER))
-  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(BETTY_TRAEFIK_CONTAINER))
-  if (bettyOwnsPort && dockerOwners.length === 0) return
-
-  const systemOwners = filterSystemOwnersForBettyPort(getSystemPortOwners(443), bettyOwnsPort)
-
-  if (dockerOwners.length === 0 && systemOwners.length === 0) return
-
-  printError('Port 443 is already in use.')
-  printHint('Betty needs host port 443 for HTTPS domains such as .dev.')
-  if (dockerOwners.length > 0) {
-    printHint('\nDocker containers publishing 443:')
-    dockerOwners.forEach((owner) => { printHint(` - ${owner}`) })
-  }
-  if (systemOwners.length > 0) {
-    printHint('\nProcesses listening on 443:')
-    systemOwners.forEach((owner) => { printHint(` - ${owner}`) })
-  }
-  printHint('\nStop the conflicting HTTPS server or proxy, then run: betty link')
-  process.exit(1)
-}
-
-const printProxyStartError = (message: string): void => {
-  printError("Betty's proxy could not be started.")
-  if (message.includes('Bind for 0.0.0.0:80 failed')) {
-    printHint('Port 80 is already in use by another service.')
-    printHint('Stop the conflicting HTTP server or proxy, then run: betty link')
-    return
-  }
-  if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
-    printHint('Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve')
-    printHint('Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"')
-    return
-  }
-  printHint(message)
-}
+import { findDomainConflict, writeRouteConfig } from '../utils/routes'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from '../utils/proxy'
+import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
 
 const ensureProxyRunning = (traefikComposePath: string): void => {
   try {
@@ -88,103 +25,15 @@ const ensureProxyRunning = (traefikComposePath: string): void => {
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    printProxyStartError(message)
+    printProxyStartError(message, 'link')
     process.exit(1)
   }
-}
-
-const ensureTraefikNetwork = (): void => {
-  try {
-    execSync(`docker network inspect ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' })
-  } catch {
-    execSync(`docker network create ${BETTY_PROXY_NETWORK}`, { stdio: 'inherit' })
-    console.log(`Created Docker network '${BETTY_PROXY_NETWORK}'.`)
-  }
-}
-
-const writeDynamicConfig = (
-  name: string,
-  domain: string,
-  ip: string,
-  port: number,
-  traefikComposePath: string,
-  certificate: { certFile: string; keyFile: string } | null
-): void => {
-  const routers: Record<string, TraefikRouter> = {
-    [name]: {
-      rule: `Host("${domain}")`,
-      entryPoints: ['web'],
-      service: name,
-    },
-  }
-
-  if (certificate) routers[`${name}-secure`] = {
-    rule: `Host("${domain}")`,
-    entryPoints: ['websecure'],
-    service: name,
-    tls: {},
-  }
-
-  const config: TraefikDynamicConfig = {
-    http: {
-      routers,
-      services: {
-        [name]: {
-          loadBalancer: {
-            servers: [{ url: `http://${ip}:${String(port)}` }],
-          },
-        },
-      },
-    },
-  }
-
-  if (certificate) config.tls = {
-    certificates: [
-      {
-        certFile: certificate.certFile,
-        keyFile: certificate.keyFile,
-      },
-    ],
-  }
-
-  const configYaml = yaml.stringify(config)
-  const dynamicDir = resolveDynamicDir()
-
-  if (!fs.existsSync(dynamicDir)) fs.mkdirSync(dynamicDir, { recursive: true })
-
-  fs.writeFileSync(path.join(dynamicDir, `${name}.yml`), configYaml, 'utf8')
-  console.log(`Wrote routing configuration: ${name}.yml`)
-
-  restartTraefik(traefikComposePath)
 }
 
 const validateLocalDomain = (domain: string): true | string => {
   const normalized = domain.trim()
   if (!normalized) return 'Domain cannot be empty'
   return true
-}
-
-const findDomainConflict = (domain: string, ignoreFilePath?: string): { fileName: string; routerName: string } | null => {
-  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return null
-
-  const files = fs.readdirSync(BETTY_DYNAMIC_DIR).filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
-  for (const file of files) {
-    const filePath = path.join(BETTY_DYNAMIC_DIR, file)
-    if (ignoreFilePath !== undefined && filePath === ignoreFilePath) continue
-
-    try {
-      const doc = yaml.parse(fs.readFileSync(filePath, 'utf8')) as TraefikDynamicConfig
-      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-      for (const [routerName, router] of Object.entries(routers)) {
-        const existingDomain = /Host\("([^"]+)"\)/.exec(router.rule ?? '')?.[1] ?? ''
-        if (existingDomain.toLowerCase() === domain.toLowerCase()) return { fileName: file, routerName }
-      }
-    } catch {
-      // ignore malformed route files
-    }
-  }
-
-  return null
 }
 
 interface LinkPromptAnswers {
@@ -199,12 +48,6 @@ interface LinkCommandOptions {
   dryRun?: boolean;
   open?: boolean;
 }
-
-const normalizeDomainLabel = (value: string): string => value
-  .toLowerCase()
-  .replace(/_/g, '-')
-  .replace(/[^a-z0-9-]/g, '')
-  .replace(/^-+|-+$/g, '')
 
 const stripReplicaSuffix = (value: string): string => value.replace(/-\d+$/, '')
 
@@ -343,7 +186,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()
-  const routeFileName = `${containerNameResolved.replace(/[^a-zA-Z0-9-]/g, '-')}.yml`
+  const routeFileName = `${normalizeServiceName(containerNameResolved)}.yml`
   const conflict = findDomainConflict(domainResolved)
   if (conflict !== null) {
     printError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
@@ -363,18 +206,19 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
     return
   }
 
-  ensureProxyComposeFile()
+  ensureProxySetup()
   const traefikComposePath = resolveTraefikComposePath()
 
   console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${String(port)}...`)
 
   ensureHttpsPortAvailable()
   ensureProxyRunning(traefikComposePath)
-  ensureTraefikNetwork()
+  ensureProxyNetwork()
   connectContainerToNetwork(containerNameResolved)
   const ip = getContainerIp(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
-  writeDynamicConfig(containerNameResolved.replace(/[^a-zA-Z0-9-]/g, '-'), domainResolved, ip, port, traefikComposePath, certificate)
+  writeRouteConfig(normalizeServiceName(containerNameResolved), domainResolved, ip, port, certificate)
+  restartTraefik(traefikComposePath)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)
 
