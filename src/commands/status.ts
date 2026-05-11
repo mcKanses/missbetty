@@ -99,6 +99,8 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
         : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
         : [path.basename(file, path.extname(file))]
 
+      const projectName = path.basename(file, path.extname(file))
+
       for (const routerKey of routerKeys) {
         const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
         const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
@@ -108,11 +110,13 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
         const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null
         const port = portMatch?.[1] ?? 'n/a'
 
-        let domainWithProtocol = domain
-        if (domain !== 'n/a') if (url.startsWith('https://')) domainWithProtocol = `https://${domain}`
-          else if (url.startsWith('http://')) domainWithProtocol = `http://${domain}`
-          else if (port === '443') domainWithProtocol = `https://${domain}`
-          else domainWithProtocol = `http://${domain}`
+        const isHttps = `${routerKey}-secure` in routers
+          || routerKey.endsWith('-secure')
+          || url.startsWith('https://')
+          || port === '443'
+        const domainWithProtocol = domain !== 'n/a'
+          ? `${isHttps ? 'https' : 'http'}://${domain}`
+          : domain
 
         const target = url !== '' ? url : 'n/a'
         const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)
@@ -120,7 +124,7 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
         const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
         projects.push({
-          name: routerKey,
+          name: projectName,
           domain: domainWithProtocol,
           port,
           target,

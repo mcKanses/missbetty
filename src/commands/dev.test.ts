@@ -210,6 +210,40 @@ describe('dev command', () => {
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
   })
 
+  test('shows checkbox for multiple missing hosts entries and adds only selected domains', async () => {
+    const MULTI_DOMAIN_CONFIG = [
+      'project: test',
+      'domains:',
+      '  - host: ui.dev',
+      '    target: http://127.0.0.1:5173',
+      '  - host: api.dev',
+      '    target: http://127.0.0.1:8080',
+      'permissions:',
+      '  hosts: prompt',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return MULTI_DOMAIN_CONFIG
+      return ''
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ hosts: ['ui.dev'] } as never)
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+
+    const checkboxCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
+      (call) => (call[0] as { type: string }[])[0]?.type === 'checkbox'
+    )
+    expect(checkboxCall).toBeDefined()
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.any(String), expect.stringContaining('ui.dev'), 'utf8'
+    )
+    expect(fs.appendFileSync).not.toHaveBeenCalledWith(
+      expect.any(String), expect.stringContaining('api.dev'), 'utf8'
+    )
+  })
+
   test('prompts user for docker permission and exits when denied interactively', async () => {
     const CONFIG_NO_HTTPS_PROMPT = [
       'project: test',
