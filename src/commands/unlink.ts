@@ -1,14 +1,44 @@
 import fs from 'fs'
 import path from 'path'
+import yaml from 'yaml'
 import { printError } from '../cli/ui/output'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
 import { readRoutes, type RouteEntry } from '../utils/routes'
+import type { TraefikDynamicConfig } from '../types'
 
 interface FindRouteAnswer { selection: string; }
 interface ConfirmAnswer { confirm: boolean; }
 interface ConfirmAllAnswer { confirmAll: boolean; }
+
+const removeSingleRoute = (route: RouteEntry): boolean => {
+  const doc = yaml.parse(fs.readFileSync(route.filePath, 'utf8')) as TraefikDynamicConfig
+
+  if (doc.http?.routers !== undefined) {
+    const secureKey = `${route.routerName}-secure`
+    doc.http.routers = Object.fromEntries(
+      Object.entries(doc.http.routers).filter(([k]) => k !== route.routerName && k !== secureKey)
+    )
+  }
+  if (doc.http?.services !== undefined) doc.http.services = Object.fromEntries(
+    Object.entries(doc.http.services).filter(([k]) => k !== route.routerName)
+  )
+
+  if (doc.tls?.certificates !== undefined) {
+    doc.tls.certificates = doc.tls.certificates.filter((c) => !c.certFile.includes(route.domain))
+    if (doc.tls.certificates.length === 0) delete doc.tls
+  }
+
+  const hasRouters = doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0
+  if (!hasRouters) {
+    fs.unlinkSync(route.filePath)
+    return true
+  }
+
+  fs.writeFileSync(route.filePath, yaml.stringify(doc), 'utf8')
+  return false
+}
 
 const findRoute = async (routes: RouteEntry[], target?: string, domain?: string): Promise<RouteEntry> => {
   let matches = routes
@@ -21,13 +51,13 @@ const findRoute = async (routes: RouteEntry[], target?: string, domain?: string)
         type: 'list',
         name: 'selection',
         message: 'Which link should be removed?',
-        choices: routes.map((r) => ({
-          name: `${r.routerName} -> ${r.domain} (${r.target !== '' ? r.target : 'n/a'})`,
-          value: r.filePath,
+        choices: routes.map((r, i) => ({
+          name: `${r.domain} (${r.target !== '' ? r.target : 'n/a'})`,
+          value: String(i),
         })),
       },
     ]) as FindRouteAnswer
-    const selected = routes.find((r) => r.filePath === answer.selection)
+    const selected = routes[parseInt(answer.selection, 10)] as RouteEntry | undefined
     if (selected !== undefined) return selected
   }
 
@@ -52,13 +82,13 @@ const findRoute = async (routes: RouteEntry[], target?: string, domain?: string)
         type: 'list',
         name: 'selection',
         message: 'Multiple matches found. Which link should be removed?',
-        choices: matches.map((r) => ({
-          name: `${r.routerName} -> ${r.domain} (${r.target !== '' ? r.target : 'n/a'})`,
-          value: r.filePath,
+        choices: matches.map((r, i) => ({
+          name: `${r.domain} (${r.target !== '' ? r.target : 'n/a'})`,
+          value: String(i),
         })),
       },
     ]) as FindRouteAnswer
-    const selected = matches.find((r) => r.filePath === answer.selection)
+    const selected = matches[parseInt(answer.selection, 10)] as RouteEntry | undefined
     if (selected !== undefined) return selected
   }
 
@@ -88,14 +118,21 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
 
   const removedDomains: string[] = []
   const failedDomains: string[] = []
+  const deletedFiles = new Set<string>()
 
   for (const route of routes) {
+    if (deletedFiles.has(route.filePath)) {
+      removeHostsEntry(route.domain)
+      removedDomains.push(route.domain)
+      continue
+    }
     if (!fs.existsSync(route.filePath)) {
       printError(`Routing file not found: ${route.fileName}`)
       failedDomains.push(route.domain)
       continue
     }
     fs.unlinkSync(route.filePath)
+    deletedFiles.add(route.filePath)
     removeHostsEntry(route.domain)
     removedDomains.push(route.domain)
   }
@@ -128,7 +165,7 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
     {
       type: 'confirm',
       name: 'confirm',
-      message: `Remove link: ${route.routerName} -> ${route.domain}?`,
+      message: `Remove link for ${route.domain}?`,
       default: false,
     },
   ]) as ConfirmAnswer
@@ -143,8 +180,7 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
     process.exit(1)
   }
 
-  fs.unlinkSync(route.filePath)
-  console.log(`Removed routing configuration: ${route.fileName}`)
+  const fileDeleted = removeSingleRoute(route)
 
   const remainingRoutes = readRoutes()
   const domainStillUsed = remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)
@@ -163,11 +199,12 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
 
   console.log('\nSummary:')
   console.log(`- removed domain: ${route.domain}`)
-  console.log(`- removed route: ${route.fileName}`)
+  if (fileDeleted) console.log(`- removed route file: ${route.fileName}`)
+  else console.log(`- updated route file: ${route.fileName}`)
   console.log(`- hosts: ${hostsStatus}`)
   console.log('- traefik: restarted')
 
-  console.log(`\n✅ Removed link: ${route.routerName} (${route.domain})`)
+  console.log(`\n✅ Removed link: ${route.domain}`)
 }
 
 export default unlinkCommand

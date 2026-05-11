@@ -50,6 +50,28 @@ const YAML_APP_ROUTE = [
   '          - url: http://172.18.0.2:5173',
 ].join('\n')
 
+const YAML_MULTI_DOMAIN = [
+  'http:',
+  '  routers:',
+  '    mckanses-auth-1:',
+  '      rule: \'Host("ory-ui.mckansescloud.dev")\'',
+  '      entryPoints: [web]',
+  '      service: mckanses-auth-1',
+  '    mckanses-auth-2:',
+  '      rule: \'Host("api.mckansescloud.dev")\'',
+  '      entryPoints: [web]',
+  '      service: mckanses-auth-2',
+  '  services:',
+  '    mckanses-auth-1:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://host.docker.internal:5173',
+  '    mckanses-auth-2:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://host.docker.internal:8080',
+].join('\n')
+
 const YAML_DEV_ROUTE = [
   'http:',
   '  routers:',
@@ -460,6 +482,42 @@ describe('unlink command', () => {
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()
+  })
+
+  test('removes only one router from a multi-domain file without deleting the file', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: string }[] }[])[0]
+      if (q.type === 'list' && q.choices !== undefined) return Promise.resolve({ selection: q.choices[0].value })
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('mckanses-auth.yml'),
+      expect.not.stringContaining('mckanses-auth-1'),
+      'utf8'
+    )
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('mckanses-auth.yml'),
+      expect.stringContaining('mckanses-auth-2'),
+      'utf8'
+    )
+
+    logSpy.mockRestore()
   })
 
   test('removes hosts entry automatically for .dev domains', async () => {
