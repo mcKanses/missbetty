@@ -95,6 +95,13 @@ describe('link command', () => {
     )
   })
 
+  test('exits early when no containers are currently running', async () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand(undefined, {})).rejects.toThrow('process-exit-1')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
   test('exits with 1 when invalid port is given', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')

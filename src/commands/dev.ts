@@ -14,6 +14,7 @@ import {
 } from '../utils/constants'
 import { sanitizeName, certificatePaths } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { findDomainConflict } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -253,6 +254,13 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
     ensureHttpsPortAvailable()
     ensureProxyNetwork()
     execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+
+    const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
+    for (const domain of config.domains) {
+      const conflict = findDomainConflict(domain.host, ownRouteFile)
+      if (conflict !== null) throw new Error(`Domain '${domain.host}' is already linked by ${conflict.routerName} (${conflict.fileName}). Run \`betty unlink\` first.`)
+    }
+
     writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
     execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, {
       cwd: BETTY_HOME_DIR,

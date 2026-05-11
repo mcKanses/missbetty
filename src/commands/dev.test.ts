@@ -23,6 +23,7 @@ jest.mock('fs', () => ({
     writeFileSync: jest.fn(),
     appendFileSync: jest.fn(),
     unlinkSync: jest.fn(),
+    readdirSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
@@ -30,6 +31,7 @@ jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
   appendFileSync: jest.fn(),
   unlinkSync: jest.fn(),
+  readdirSync: jest.fn(),
 }))
 
 jest.mock('inquirer', () => ({
@@ -253,5 +255,39 @@ describe('dev command', () => {
     )
 
     logSpy.mockRestore()
+  })
+
+  test('exits when a domain is already linked by another project', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem') ||
+        normalized.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['other-project.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
+      if (normalized.endsWith('other-project.yml')) return [
+        'http:',
+        '  routers:',
+        '    other-project-1:',
+        '      rule: \'Host("ory-ui.mckansescloud.dev")\'',
+        '      entryPoints: [web]',
+        '      service: other-project-1',
+      ].join('\n')
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
   })
 })
