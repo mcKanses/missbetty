@@ -273,6 +273,179 @@ describe('relink command', () => {
     exitSpy.mockRestore()
   })
 
+  test('shows route selection prompt when multiple routes exist and no target is given', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/dynamic/other.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/myapp.pem') ||
+        np.endsWith('/myapp-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'route')) return Promise.resolve({ route: '/home/test-user/.betty/dynamic/app.yml' })
+      return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand()
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'route' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('myapp.yml'),
+      expect.any(String),
+      'utf8'
+    )
+
+    logSpy.mockRestore()
+  })
+
+  test('resolves route by domain name without showing selection prompt', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/dynamic/other.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/myapp.pem') ||
+        np.endsWith('/myapp-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app.localhost', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+
+    expect(inquirer.prompt).not.toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'route' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('exits when domain resolves to empty string', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(
+      relinkCommand('app', { container: 'myapp', domain: '', port: '3000' })
+    ).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No domain provided.'))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('logs HTTPS confirmation when certificate exists for the domain', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/newapp.localhost.pem') ||
+        np.endsWith('/newapp.localhost-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('HTTPS is available at https://newapp.localhost')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompt validate functions reject empty domain and non-numeric port', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      if (String(cmd).includes('mkcert -help')) throw new Error('mkcert not installed')
+      return Buffer.from('')
+    })
+
+    interface PromptQuestion { name: string; validate?: (v: string) => boolean | string }
+    let capturedQuestions: PromptQuestion[] = []
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      capturedQuestions = questions as PromptQuestion[]
+      return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand()
+
+    const domainQ = capturedQuestions.find((q) => q.name === 'domain')
+    const portQ = capturedQuestions.find((q) => q.name === 'port')
+
+    expect(domainQ?.validate?.('')).toBe('Domain cannot be empty')
+    expect(domainQ?.validate?.('app.localhost')).toBe(true)
+    expect(portQ?.validate?.('abc')).toBe('Please provide a valid port')
+    expect(portQ?.validate?.('0')).toBe('Please provide a valid port')
+    expect(portQ?.validate?.('3000')).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
   test('hard fails when mkcert is missing for .dev domains', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
