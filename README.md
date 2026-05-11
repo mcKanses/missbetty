@@ -212,10 +212,10 @@ down:
   command: docker compose -f compose.yml -f compose.override.yml down
 
 domains:
-  - host: ory-ui.mckansescloud.dev
+  - host: my-app.dev
     target: http://127.0.0.1:5173
 
-  - host: api.mckansescloud.dev
+  - host: api.my-app.dev
     target: http://127.0.0.1:8080
 
 https:

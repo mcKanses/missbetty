@@ -118,6 +118,31 @@ describe('readRoutes', () => {
     expect(routes).toHaveLength(1)
     expect(routes[0].domain).toBe('good.dev')
   })
+
+  it('returns one entry per non-secure router for multi-domain files', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['project.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({
+      http: {
+        routers: {
+          'project-1': { rule: 'Host("ui.dev")', entryPoints: ['web'], service: 'project-1' },
+          'project-1-secure': { rule: 'Host("ui.dev")', entryPoints: ['websecure'], service: 'project-1', tls: {} },
+          'project-2': { rule: 'Host("api.dev")', entryPoints: ['web'], service: 'project-2' },
+          'project-2-secure': { rule: 'Host("api.dev")', entryPoints: ['websecure'], service: 'project-2', tls: {} },
+        },
+        services: {
+          'project-1': { loadBalancer: { servers: [{ url: 'http://host.docker.internal:5173' }] } },
+          'project-2': { loadBalancer: { servers: [{ url: 'http://host.docker.internal:8080' }] } },
+        },
+      },
+    })
+
+    const routes = readRoutes()
+    expect(routes).toHaveLength(2)
+    expect(routes[0]).toMatchObject({ routerName: 'project-1', domain: 'ui.dev', target: 'http://host.docker.internal:5173', port: '5173' })
+    expect(routes[1]).toMatchObject({ routerName: 'project-2', domain: 'api.dev', target: 'http://host.docker.internal:8080', port: '8080' })
+  })
 })
 
 describe('findDomainConflict', () => {
