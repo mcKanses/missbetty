@@ -438,6 +438,30 @@ describe('unlink command', () => {
     errorSpy.mockRestore()
   })
 
+  test('prints "No link found." when prompt selection matches no route', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('dev.yml')) return YAML_DEV_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ selection: '/no/match.yml' }))
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(unlinkCommand()).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No link found'))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
   test('removes hosts entry automatically for .dev domains', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
