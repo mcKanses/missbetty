@@ -106,6 +106,12 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   if (resolvedContainer === undefined || resolvedDomain === undefined) {
     const runningContainers = getRunningContainers()
 
+    if (resolvedContainer === undefined && runningContainers.length === 0) {
+      printError('No containers are currently running.')
+      printHint('Start a container first, then run: betty link')
+      process.exit(1)
+    }
+
     const answers = await inquirer.prompt([
       ...(resolvedContainer === undefined ? [{
         type: runningContainers.length > 0 ? 'list' : 'input',
