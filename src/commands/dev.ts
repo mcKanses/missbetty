@@ -189,16 +189,40 @@ const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
   const missing = config.domains.filter((domain) => !hasHostsEntry(domain.host))
   if (missing.length === 0) return
 
-  const names = missing.map((d) => d.host).join(', ')
-  const allowed = await confirmPermission(`Add hosts entries for ${names}?`, config.permissions?.hosts)
-  if (!allowed) {
+  const mode = config.permissions?.hosts ?? 'prompt'
+
+  if (mode === 'allowed') {
+    for (const domain of missing) ensureHostsEntry(domain.host)
+    return
+  }
+
+  if (mode === 'manual' || mode === 'denied') {
     for (const domain of missing) {
       printWarn(`Hosts entry was not changed for ${domain.host}.`)
       printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
     }
     return
   }
-  for (const domain of missing) ensureHostsEntry(domain.host)
+
+  let selected: string[]
+  if (missing.length === 1) {
+    const ok = await confirmPermission(`Add hosts entry for ${missing[0].host}?`, 'prompt')
+    selected = ok ? [missing[0].host] : []
+  } else {
+    const answer = await inquirer.prompt([{
+      type: 'checkbox',
+      name: 'hosts',
+      message: 'Add hosts entries for (a = all/none):',
+      choices: missing.map((d) => ({ name: d.host, value: d.host, checked: true })),
+    }]) as { hosts: string[] }
+    selected = answer.hosts
+  }
+
+  for (const domain of missing) if (selected.includes(domain.host)) ensureHostsEntry(domain.host)
+    else {
+      printWarn(`Hosts entry was not changed for ${domain.host}.`)
+      printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
+    }
 }
 
 const prepareCertificates = async (config: DevProjectConfig): Promise<Record<string, { certFile: string; keyFile: string }>> => {
