@@ -16,29 +16,34 @@ export interface RouteEntry {
 export const readRoutes = (): RouteEntry[] => {
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return []
 
-  return fs.readdirSync(BETTY_DYNAMIC_DIR)
-    .filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
-    .map((file) => {
-      const filePath = path.join(BETTY_DYNAMIC_DIR, file)
-      try {
-        const doc = yaml.parse(fs.readFileSync(filePath, 'utf8')) as TraefikDynamicConfig
-        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-        const services: Record<string, TraefikService> = doc.http?.services ?? {}
-        const routerKeys = Object.keys(routers)
-        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure'))
-          ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)))
-        const serviceKeys = Object.keys(services)
-        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey
-        const rule = (routers[firstRouterKey] as TraefikRouter | undefined)?.rule ?? ''
+  const entries: RouteEntry[] = []
+
+  for (const file of fs.readdirSync(BETTY_DYNAMIC_DIR).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))) {
+    const filePath = path.join(BETTY_DYNAMIC_DIR, file)
+    try {
+      const doc = yaml.parse(fs.readFileSync(filePath, 'utf8')) as TraefikDynamicConfig
+      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
+      const services: Record<string, TraefikService> = doc.http?.services ?? {}
+
+      const nonSecureKeys = Object.keys(routers).filter((key) => !key.endsWith('-secure'))
+      const routerKeys = nonSecureKeys.length > 0 ? nonSecureKeys
+        : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
+        : [path.basename(file, path.extname(file))]
+
+      for (const routerKey of routerKeys) {
+        const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
         const domain = /Host\("([^"]+)"\)/.exec(rule)?.[1] ?? ''
-        const target = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
+        const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
+        const target = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
         const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? ''
-        return { filePath, fileName: file, routerName: firstRouterKey, domain, target, port }
-      } catch {
-        return null
+        entries.push({ filePath, fileName: file, routerName: routerKey, domain, target, port })
       }
-    })
-    .filter((entry): entry is RouteEntry => entry !== null)
+    } catch {
+      // Ignore malformed route files.
+    }
+  }
+
+  return entries
 }
 
 export const findDomainConflict = (domain: string, ignoreFilePath?: string): { fileName: string; routerName: string } | null => {
