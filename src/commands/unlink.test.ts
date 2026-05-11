@@ -484,6 +484,64 @@ describe('unlink command', () => {
     exitSpy.mockRestore()
   })
 
+  test('asks scope for multi-domain project and removes entire project when user picks all', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: string }[] }[])[0]
+      if (q.type === 'list' && q.choices !== undefined) {
+        const allChoice = q.choices.find((c) => c.value === 'all')
+        return Promise.resolve({ selection: allChoice !== undefined ? 'all' : q.choices[0].value })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith(
+      expect.stringContaining('mckanses-auth.yml'),
+      expect.any(String),
+      'utf8'
+    )
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed project:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('removes entire project without asking when --all is passed with a target', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand('mckanses-auth', { all: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed project:'))
+
+    logSpy.mockRestore()
+  })
+
   test('removes only one router from a multi-domain file without deleting the file', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

@@ -40,7 +40,7 @@ const removeSingleRoute = (route: RouteEntry): boolean => {
   return false
 }
 
-const findRoute = async (routes: RouteEntry[], target?: string, domain?: string): Promise<RouteEntry> => {
+const findRoute = async (routes: RouteEntry[], target?: string, domain?: string, autoSelect = false): Promise<RouteEntry> => {
   let matches = routes
 
   if (target === undefined && domain === undefined) {
@@ -77,6 +77,7 @@ const findRoute = async (routes: RouteEntry[], target?: string, domain?: string)
   if (matches.length === 1) return matches[0]
 
   if (matches.length > 1) {
+    if (autoSelect) return matches[0]
     const answer = await inquirer.prompt([
       {
         type: 'list',
@@ -145,6 +146,26 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
   console.log('- traefik: restarted')
 }
 
+const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], composePath: string): void => {
+  fs.unlinkSync(route.filePath)
+  const remainingRoutes = readRoutes()
+  const removedDomains: string[] = []
+  for (const r of projectRoutes) {
+    const stillUsed = remainingRoutes.some((rem) => rem.domain === r.domain)
+    if (!stillUsed) {
+      removeHostsEntry(r.domain)
+      removedDomains.push(r.domain)
+    }
+  }
+  restartTraefik(composePath)
+  const projectName = path.basename(route.filePath, path.extname(route.filePath))
+  console.log('\nSummary:')
+  for (const d of removedDomains) console.log(`- removed domain: ${d}`)
+  console.log(`- removed route file: ${route.fileName}`)
+  console.log('- traefik: restarted')
+  console.log(`\n✅ Removed project: ${projectName} (${String(removedDomains.length)} domain(s))`)
+}
+
 const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: boolean }): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
@@ -154,12 +175,47 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
     return
   }
 
-  if (opts?.all === true) {
+  if (opts?.all === true && target === undefined && opts.domain === undefined) {
     await unlinkAll(composePath, routes)
     return
   }
 
-  const route = await findRoute(routes, target, opts?.domain)
+  const autoSelect = opts?.all === true
+  const route = await findRoute(routes, target, opts?.domain, autoSelect)
+  const projectRoutes = routes.filter((r) => r.filePath === route.filePath)
+  const isMultiDomain = projectRoutes.length > 1
+
+  if (!fs.existsSync(route.filePath)) {
+    printError(`Routing file not found: ${route.fileName}`)
+    process.exit(1)
+  }
+
+  if (isMultiDomain && opts?.all === true) {
+    removeProjectFile(route, projectRoutes, composePath)
+    return
+  }
+
+  let removeEntireProject = false
+  if (isMultiDomain) {
+    const projectName = path.basename(route.filePath, path.extname(route.filePath))
+    const answer = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'selection',
+        message: `Project '${projectName}' has ${String(projectRoutes.length)} domains. What should be removed?`,
+        choices: [
+          { name: `Only ${route.domain}`, value: 'one' },
+          { name: `All ${String(projectRoutes.length)} domains (entire project)`, value: 'all' },
+        ],
+      },
+    ]) as FindRouteAnswer
+    removeEntireProject = answer.selection === 'all'
+  }
+
+  if (removeEntireProject) {
+    removeProjectFile(route, projectRoutes, composePath)
+    return
+  }
 
   const confirmation = await inquirer.prompt([
     {
@@ -173,11 +229,6 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
   if (!confirmation.confirm) {
     console.log('Cancelled.')
     return
-  }
-
-  if (!fs.existsSync(route.filePath)) {
-    printError(`Routing file not found: ${route.fileName}`)
-    process.exit(1)
   }
 
   const fileDeleted = removeSingleRoute(route)
