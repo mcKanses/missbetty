@@ -1,11 +1,7 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
-import os from 'os'
 import { printError } from '../cli/ui/output'
-import path from 'path'
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
+import { BETTY_HOME_DIR, BETTY_PROXY_COMPOSE } from '../utils/constants'
 
 const restCommand = (): void => {
   if (!fs.existsSync(BETTY_PROXY_COMPOSE)) {

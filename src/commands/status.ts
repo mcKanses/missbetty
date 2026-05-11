@@ -2,9 +2,9 @@
 import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
-import os from 'os'
 import yaml from 'yaml'
 import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 
 interface ProjectStatus {
   name: string;
@@ -23,10 +23,8 @@ interface StatusOptions {
   short?: boolean;
 }
 
-const resolveTraefikComposePath = (): string | null => {
-  const composePath = path.join(os.homedir(), '.betty', 'docker-compose.yml')
-  return fs.existsSync(composePath) ? composePath : null
-}
+const resolveTraefikComposePath = (): string | null =>
+  fs.existsSync(BETTY_PROXY_COMPOSE) ? BETTY_PROXY_COMPOSE : null
 
 const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolean; proxyInfo: string; proxyUptime: string; traefikContainer: DockerInspectEntry | null } => {
   let proxyRunning = false
@@ -35,7 +33,7 @@ const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolea
   let traefikContainer: DockerInspectEntry | null = null
 
   try {
-    const output = execSync('docker inspect betty-traefik', { stdio: 'pipe' })
+    const output = execSync(`docker inspect ${BETTY_TRAEFIK_CONTAINER}`, { stdio: 'pipe' })
     const containers = JSON.parse(output.toString()) as DockerInspectEntry[]
     traefikContainer = containers.length > 0 ? containers[0] : null
     proxyRunning = traefikContainer?.State.Running === true
@@ -89,21 +87,24 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
   if (!fs.existsSync(dynamicDir)) return []
 
   const files = fs.readdirSync(dynamicDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+  const projects: ProjectStatus[] = []
 
-  return files
-    .map((file) => {
-      try {
-        const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
-        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-        const services: Record<string, TraefikService> = doc.http?.services ?? {}
-        const routerKeys = Object.keys(routers)
-        const serviceKeys = Object.keys(services)
-        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure')) ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)))
-        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey
-        const rule = (routers[firstRouterKey] as TraefikRouter | undefined)?.rule ?? ''
+  for (const file of files) try {
+      const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
+      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
+      const services: Record<string, TraefikService> = doc.http?.services ?? {}
+
+      const nonSecureKeys = Object.keys(routers).filter((key) => !key.endsWith('-secure'))
+      const routerKeys = nonSecureKeys.length > 0 ? nonSecureKeys
+        : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
+        : [path.basename(file, path.extname(file))]
+
+      for (const routerKey of routerKeys) {
+        const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
         const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
         const domain = domainMatch?.[1] ?? 'n/a'
-        const url = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
+        const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
+        const url = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
         const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null
         const port = portMatch?.[1] ?? 'n/a'
 
@@ -112,26 +113,27 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
           else if (url.startsWith('http://')) domainWithProtocol = `http://${domain}`
           else if (port === '443') domainWithProtocol = `https://${domain}`
           else domainWithProtocol = `http://${domain}`
-        
+
         const target = url !== '' ? url : 'n/a'
         const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)
         const ip = ipMatch?.[1] ?? ''
         const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
-        return {
-          name: firstRouterKey,
+        projects.push({
+          name: routerKey,
           domain: domainWithProtocol,
           port,
           target,
           uptime: meta.uptime,
           health: meta.health,
           restarts: meta.restarts,
-        } satisfies ProjectStatus
-      } catch {
-        return null
+        } satisfies ProjectStatus)
       }
-    })
-    .filter((entry): entry is ProjectStatus => entry !== null)
+    } catch {
+      // ignore
+    }
+
+  return projects
 }
 
 const statusCommand = (opts?: StatusOptions): void => {

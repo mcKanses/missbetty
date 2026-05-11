@@ -1,6 +1,6 @@
 import { collectSetupStatus } from '../utils/setup'
 
-const statusLine = (label: string, ok: boolean, detail?: string): void => {
+export const statusLine = (label: string, ok: boolean, detail?: string): void => {
   const icon = ok ? '✓' : '✗'
   if (detail !== undefined && detail !== '') {
     console.log(`${icon} ${label} (${detail})`)
