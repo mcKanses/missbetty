@@ -25,21 +25,8 @@ const validateHttpTarget = (value: string): true | string => {
   }
 }
 
-const writeBettyYml = (
-  configPath: string,
-  projectName: string,
-  domains: { host: string; target: string }[],
-  upCmd: string,
-  downCmd: string,
-  httpsEnabled: boolean
-): void => {
-  const lines: string[] = [`project: ${projectName}`]
-  if (upCmd) lines.push('', 'up:', `  command: ${upCmd}`)
-  if (downCmd) lines.push('', 'down:', `  command: ${downCmd}`)
-  lines.push('', 'domains:')
-  for (const d of domains) lines.push(`  - host: ${d.host}`, `    target: ${d.target}`)
-  if (httpsEnabled) lines.push('', 'https:', '  enabled: true', '  certificateAuthority: missbetty')
-  fs.writeFileSync(configPath, lines.join('\n') + '\n', 'utf8')
+const writeBettyYml = (configPath: string, config: Record<string, unknown>): void => {
+  fs.writeFileSync(configPath, yaml.stringify(config), 'utf8')
 }
 
 export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<void> => {
@@ -92,7 +79,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     addingDomains = another
   }
 
-  const { httpsEnabled, upCommand, downCommand } = await inquirer.prompt([
+  const { httpsEnabled, upCommand, downCommand, autoApprove } = await inquirer.prompt([
     {
       type: 'confirm',
       name: 'httpsEnabled',
@@ -109,16 +96,22 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
       name: 'downCommand',
       message: 'Stop command (optional, e.g. docker compose down):',
     },
-  ]) as { httpsEnabled: boolean; upCommand: string; downCommand: string }
+    {
+      type: 'confirm',
+      name: 'autoApprove',
+      message: 'Auto-approve all system prompts (hosts, Docker, mkcert)?',
+      default: true,
+    },
+  ]) as { httpsEnabled: boolean; upCommand: string; downCommand: string; autoApprove: boolean }
 
-  writeBettyYml(
-    configPath,
-    projectName.trim(),
-    domains,
-    upCommand.trim(),
-    downCommand.trim(),
-    httpsEnabled
-  )
+  const config: Record<string, unknown> = { project: projectName.trim() }
+  if (upCommand.trim()) config.up = { command: upCommand.trim() }
+  if (downCommand.trim()) config.down = { command: downCommand.trim() }
+  config.domains = domains
+  if (httpsEnabled) config.https = { enabled: true, certificateAuthority: 'missbetty' }
+  if (autoApprove) config.permissions = { hosts: 'allowed', trustStore: 'allowed', docker: 'allowed' }
+
+  writeBettyYml(configPath, config)
   console.log('\n✅ Created .betty.yml')
 
   const { startNow } = await inquirer.prompt([{
@@ -127,7 +120,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     message: 'Start the project now?',
     default: true,
   }]) as { startNow: boolean }
-  if (startNow) await devCommand({ config: configPath })
+  if (startNow) await devCommand({ config: configPath, yes: true })
 }
 
 export const projectLoadCommand = async (opts: ProjectLoadOptions): Promise<void> => {
@@ -146,15 +139,23 @@ const projectCommand = async (): Promise<void> => {
     if (found !== undefined) {
       const configPath = path.resolve(process.cwd(), found)
       let projectName = path.basename(found, path.extname(found))
+      let previewDomains: { host: string; target?: string }[] = []
       try {
-        const parsed = yaml.parse(fs.readFileSync(configPath, 'utf8')) as { project?: string }
+        const parsed = yaml.parse(fs.readFileSync(configPath, 'utf8')) as { project?: string; domains?: unknown[] }
         if (typeof parsed.project === 'string' && parsed.project.trim() !== '') projectName = parsed.project
+        if (Array.isArray(parsed.domains)) previewDomains = parsed.domains.filter(
+          (d): d is { host: string; target?: string } =>
+            typeof (d as Record<string, unknown>).host === 'string'
+        )
       } catch { /* ignore */ }
+
+      console.log(`\nProject: ${projectName} (${found})`)
+      for (const d of previewDomains) console.log(`  ${d.host}${d.target !== undefined ? ` → ${d.target}` : ''}`)
 
       const { load } = await inquirer.prompt([{
         type: 'confirm',
         name: 'load',
-        message: `Found project '${projectName}' (${found}). Start it?`,
+        message: 'Start this project?',
         default: true,
       }]) as { load: boolean }
       if (load) await devCommand({ config: configPath })

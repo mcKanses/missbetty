@@ -57,17 +57,28 @@ describe('projectLoadCommand', () => {
 })
 
 describe('projectCommand (no subcommand)', () => {
-  test('asks to load when .betty.yml exists and starts on confirm', async () => {
+  test('displays domain list and asks to load when .betty.yml exists', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('project: my-app\ndomains: []\n')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      'project: my-app',
+      'domains:',
+      '  - host: my-app.localhost',
+      '    target: http://127.0.0.1:3000',
+    ].join('\n'))
     mockPromptSequence({ load: true })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await projectCommand()
 
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('my-app'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('my-app.localhost'))
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: 'load' })])
     )
     expect(devCommand).toHaveBeenCalled()
+
+    logSpy.mockRestore()
   })
 
   test('does not start when user declines load', async () => {
@@ -99,7 +110,7 @@ describe('projectCommand (no subcommand)', () => {
       { projectName: 'my-app' },
       { host: 'my-app.localhost', target: 'http://127.0.0.1:3000' },
       { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '' },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
       { startNow: false }
     )
 
@@ -120,7 +131,7 @@ describe('projectCreateCommand', () => {
       { projectName: 'test-project' },
       { host: 'api.localhost', target: 'http://127.0.0.1:8080' },
       { another: false },
-      { httpsEnabled: false, upCommand: 'docker compose up', downCommand: 'docker compose down' },
+      { httpsEnabled: false, upCommand: 'docker compose up', downCommand: 'docker compose down', autoApprove: false },
       { startNow: false }
     )
 
@@ -129,11 +140,11 @@ describe('projectCreateCommand', () => {
     const written = (fs.writeFileSync as unknown as jest.Mock).mock.calls[0]
     expect(written[0]).toContain('.betty.yml')
     const content = String(written[1])
-    expect(content).toContain('project: test-project')
-    expect(content).toContain('host: api.localhost')
-    expect(content).toContain('target: http://127.0.0.1:8080')
-    expect(content).toContain('command: docker compose up')
-    expect(content).toContain('command: docker compose down')
+    expect(content).toContain('test-project')
+    expect(content).toContain('api.localhost')
+    expect(content).toContain('http://127.0.0.1:8080')
+    expect(content).toContain('docker compose up')
+    expect(content).toContain('docker compose down')
   })
 
   test('includes https block when enabled', async () => {
@@ -142,7 +153,7 @@ describe('projectCreateCommand', () => {
       { projectName: 'secure-app' },
       { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
       { another: false },
-      { httpsEnabled: true, upCommand: '', downCommand: '' },
+      { httpsEnabled: true, upCommand: '', downCommand: '', autoApprove: false },
       { startNow: false }
     )
 
@@ -153,13 +164,69 @@ describe('projectCreateCommand', () => {
     expect(content).toContain('certificateAuthority: missbetty')
   })
 
+  test('writes permissions block when autoApprove is true', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'app' },
+      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
+      { another: false },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: true },
+      { startNow: false }
+    )
+
+    await projectCreateCommand({})
+
+    const content = String((fs.writeFileSync as unknown as jest.Mock).mock.calls[0][1])
+    expect(content).toContain('hosts: allowed')
+    expect(content).toContain('docker: allowed')
+    expect(content).toContain('trustStore: allowed')
+  })
+
+  test('omits permissions block when autoApprove is false', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'app' },
+      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
+      { another: false },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
+      { startNow: false }
+    )
+
+    await projectCreateCommand({})
+
+    const content = String((fs.writeFileSync as unknown as jest.Mock).mock.calls[0][1])
+    expect(content).not.toContain('permissions')
+  })
+
+  test('handles project name with YAML special characters safely', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'my: tricky & project' },
+      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
+      { another: false },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
+      { startNow: false }
+    )
+
+    await projectCreateCommand({})
+
+    const content = String((fs.writeFileSync as unknown as jest.Mock).mock.calls[0][1])
+    // yaml.stringify should quote the value so the file is valid YAML
+    expect(content).toContain('my: tricky & project')
+    // Verify it can be re-parsed without error
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const parsedYaml = require('yaml') as { parse: (s: string) => { project?: string } }
+    expect(() => parsedYaml.parse(content)).not.toThrow()
+    expect(parsedYaml.parse(content).project).toBe('my: tricky & project')
+  })
+
   test('uses --name option as default for project name prompt', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
     mockPromptSequence(
       { projectName: 'preset-name' },
       { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
       { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '' },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
       { startNow: false }
     )
 
@@ -177,7 +244,7 @@ describe('projectCreateCommand', () => {
       { another: true },
       { host: 'api.localhost', target: 'http://127.0.0.1:8080' },
       { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '' },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
       { startNow: false }
     )
 
@@ -211,7 +278,7 @@ describe('projectCreateCommand', () => {
       { projectName: 'app' },
       { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
       { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '' },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
       { startNow: false }
     )
 
@@ -220,20 +287,20 @@ describe('projectCreateCommand', () => {
     expect(fs.writeFileSync).toHaveBeenCalled()
   })
 
-  test('starts devCommand after creation when user confirms', async () => {
+  test('passes yes:true to devCommand when starting after creation', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
     mockPromptSequence(
       { projectName: 'app' },
       { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
       { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '' },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
       { startNow: true }
     )
 
     await projectCreateCommand({})
 
     expect(devCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ config: expect.stringContaining('.betty.yml') })
+      expect.objectContaining({ config: expect.stringContaining('.betty.yml'), yes: true })
     )
   })
 })
