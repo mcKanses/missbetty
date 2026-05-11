@@ -37,22 +37,36 @@ export const connectContainerToNetwork = (containerName: string): void => {
     const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
     if (networkKeys.includes(BETTY_PROXY_NETWORK)) return
   } catch {
-    printError(`Container '${containerName}' not found.`)
+    printError(`Container '${containerName}' not found. Make sure it is running: docker ps`)
     process.exit(1)
   }
 
-  execSync(`docker network connect ${BETTY_PROXY_NETWORK} ${containerName}`, { stdio: 'inherit' })
-  console.log(`Connected container '${containerName}' to network '${BETTY_PROXY_NETWORK}'.`)
+  try {
+    execSync(`docker network connect ${BETTY_PROXY_NETWORK} ${containerName}`, { stdio: 'inherit' })
+    console.log(`Connected container '${containerName}' to network '${BETTY_PROXY_NETWORK}'.`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    printError(`Failed to connect '${containerName}' to Betty's network.`)
+    printError(message)
+    process.exit(1)
+  }
 }
 
 export const getContainerIp = (containerName: string): string => {
-  const info = JSON.parse(
-    execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
-  ) as DockerInspectEntry[]
+  let info: DockerInspectEntry[]
+  try {
+    info = JSON.parse(
+      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+    ) as DockerInspectEntry[]
+  } catch {
+    printError(`Container '${containerName}' not found. Make sure it is running: docker ps`)
+    process.exit(1)
+  }
   const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
   const ip = networks[BETTY_PROXY_NETWORK]?.IPAddress ?? ''
   if (ip === '') {
     printError(`Could not determine IP for '${containerName}' in network '${BETTY_PROXY_NETWORK}'.`)
+    printError(`Try disconnecting and re-linking: betty unlink && betty link`)
     process.exit(1)
   }
   return ip
@@ -61,11 +75,18 @@ export const getContainerIp = (containerName: string): string => {
 // Restart Traefik so it picks up the config.
 // Windows bind mounts do not trigger inotify events in the container.
 export const restartTraefik = (composePath: string): void => {
-  execSync(`docker compose -f "${composePath}" restart traefik`, {
-    cwd: path.dirname(composePath),
-    stdio: 'inherit',
-  })
-  console.log('Restarted Traefik.')
+  try {
+    execSync(`docker compose -f "${composePath}" restart traefik`, {
+      cwd: path.dirname(composePath),
+      stdio: 'inherit',
+    })
+    console.log('Restarted Traefik.')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    printError(`Failed to restart Traefik. Try: betty serve`)
+    printError(message)
+    process.exit(1)
+  }
 }
 
 export const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
