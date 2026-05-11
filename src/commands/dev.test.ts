@@ -210,7 +210,7 @@ describe('dev command', () => {
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
   })
 
-  test('shows checkbox for multiple missing hosts entries and adds only selected domains', async () => {
+  test('shows checkbox for all domains in prompt mode and adds only selected', async () => {
     const MULTI_DOMAIN_CONFIG = [
       'project: test',
       'domains:',
