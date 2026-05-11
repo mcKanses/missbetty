@@ -15,6 +15,7 @@ describe('cli command registration', () => {
     const program = createProgram()
 
     expect(program.commands.map((cmd) => cmd.name())).toEqual([
+      'project',
       'dev',
       'serve',
       'stop',

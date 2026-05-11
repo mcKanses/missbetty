@@ -12,6 +12,7 @@ import configCommand from './commands/config'
 import doctorCommand from './commands/doctor'
 import setupCommand from './commands/setup'
 import devCommand from './commands/dev'
+import projectCommand, { projectCreateCommand, projectLoadCommand } from './commands/project'
 
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
@@ -54,6 +55,16 @@ interface DevOptions {
   dryRun?: boolean;
 }
 
+interface ProjectLoadOptions {
+  file?: string;
+  dryRun?: boolean;
+  yes?: boolean;
+}
+
+interface ProjectCreateOptions {
+  name?: string;
+}
+
 export const createProgram = (): Command => {
   const program = new Command()
 
@@ -63,9 +74,28 @@ export const createProgram = (): Command => {
     .version(`${version}\n${AUTHOR_INFO}`)
     .addHelpText('after', `\n${AUTHOR_INFO}`)
 
+  const projectCmd = program
+    .command('project')
+    .description('Manage betty projects')
+    .action(() => { void projectCommand() })
+
+  projectCmd
+    .command('load')
+    .description('Load and start a project from .betty.yml')
+    .option('--file <path>', 'Path to .betty.yml')
+    .option('--dry-run', 'Preview configuration without applying changes')
+    .option('-y, --yes', 'Accept all prompts automatically')
+    .action((opts: ProjectLoadOptions) => { void projectLoadCommand(opts) })
+
+  projectCmd
+    .command('create')
+    .description('Create a new .betty.yml interactively')
+    .option('--name <name>', 'Project name')
+    .action((opts: ProjectCreateOptions) => { void projectCreateCommand(opts) })
+
   program
     .command('dev')
-    .description('Start a project from .betty.yml')
+    .description('Start a project from .betty.yml (use "betty project" instead)')
     .option('--config <path>', 'Path to .betty.yml')
     .option('--dry-run', 'Preview project configuration without applying changes')
     .option('-y, --yes', 'Accept all prompts automatically')
