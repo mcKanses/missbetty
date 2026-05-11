@@ -149,4 +149,100 @@ describe('status command', () => {
 
     logSpy.mockRestore()
   })
+
+  test('renders full table with uptime, health and restarts columns', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    mockRunningProxy()
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('uptime')
+    expect(output).toContain('health')
+    expect(output).toContain('restarts')
+    expect(output).toContain('app.localhost')
+
+    logSpy.mockRestore()
+  })
+
+  test('prints Traefik container details with --long flag', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    mockRunningProxy()
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ long: true })
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Traefik Container Details')
+
+    logSpy.mockRestore()
+  })
+
+  test('shows n/a metadata when no container has the linked IP', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
+      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
+      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"10.0.0.99"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":0}]')
+      throw new Error(`Unexpected command: ${command}`)
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as {
+      projects: { uptime: string; health: string; restarts: string }[];
+    }
+    expect(payload.projects[0].uptime).toBe('n/a')
+    expect(payload.projects[0].health).toBe('n/a')
+    expect(payload.projects[0].restarts).toBe('n/a')
+
+    logSpy.mockRestore()
+  })
+
+  test('prints proxy info and "No links found" when no routes exist', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      return p.endsWith('/.betty/docker-compose.yml') || p.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue([])
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
+      throw new Error(`Unexpected command: ${command}`)
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('No links found')
+
+    logSpy.mockRestore()
+  })
+
+  test('skips malformed dynamic config files and returns empty project list', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      return p.endsWith('/.betty/docker-compose.yml') || p.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['bad.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('ENOENT') })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('docker not found') })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { projects: unknown[] }
+    expect(payload.projects).toEqual([])
+
+    logSpy.mockRestore()
+  })
 })
