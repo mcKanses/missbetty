@@ -1,56 +1,10 @@
-import path from 'path'
 import fs from 'fs'
+import path from 'path'
 import { printError } from '../cli/ui/output'
-import yaml from 'yaml'
 import inquirer from 'inquirer'
-import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
-import { BETTY_DYNAMIC_DIR } from '../utils/constants'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
-
-interface RouteEntry {
-  filePath: string;
-  fileName: string;
-  routerName: string;
-  domain: string;
-  target: string;
-}
-
-const readRoutes = (_composePath: string): RouteEntry[] => {
-  const dynamicDir = BETTY_DYNAMIC_DIR
-  if (!fs.existsSync(dynamicDir)) return []
-
-  const files = fs.readdirSync(dynamicDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
-
-  return files
-    .map((file) => {
-      const filePath = path.join(dynamicDir, file)
-      try {
-        const doc = yaml.parse(fs.readFileSync(filePath, 'utf8')) as TraefikDynamicConfig
-        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-        const services: Record<string, TraefikService> = doc.http?.services ?? {}
-        const routerKeys = Object.keys(routers)
-        const serviceKeys = Object.keys(services)
-        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure')) ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)))
-        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey
-        const rule = (routers[firstRouterKey] as TraefikRouter | undefined)?.rule ?? ''
-        const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
-        const domain = domainMatch?.[1] ?? ''
-        const url = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
-
-        return {
-          filePath,
-          fileName: file,
-          routerName: firstRouterKey,
-          domain,
-          target: url,
-        } satisfies RouteEntry
-      } catch {
-        return null
-      }
-    })
-    .filter((entry): entry is RouteEntry => entry !== null)
-}
+import { readRoutes, type RouteEntry } from '../utils/routes'
 
 interface FindRouteAnswer { selection: string; }
 interface ConfirmAnswer { confirm: boolean; }
@@ -156,7 +110,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
 
 const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: boolean }): Promise<void> => {
   const composePath = resolveTraefikComposePath()
-  const routes = readRoutes(composePath)
+  const routes = readRoutes()
 
   if (routes.length === 0) {
     console.log('No links found.')
@@ -192,7 +146,7 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
   fs.unlinkSync(route.filePath)
   console.log(`Removed routing configuration: ${route.fileName}`)
 
-  const remainingRoutes = readRoutes(composePath)
+  const remainingRoutes = readRoutes()
   const domainStillUsed = remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)
   let hostsStatus: string
   if (!domainStillUsed) {
