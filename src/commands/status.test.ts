@@ -470,6 +470,66 @@ describe('status command', () => {
     logSpy.mockRestore()
   })
 
+  test('returns one entry per domain for a multi-domain project file', () => {
+    const MULTI_DOMAIN_ROUTE = [
+      'http:',
+      '  routers:',
+      '    project-1:',
+      '      rule: \'Host("ui.dev")\'',
+      '      entryPoints: [web]',
+      '      service: project-1',
+      '    project-1-secure:',
+      '      rule: \'Host("ui.dev")\'',
+      '      entryPoints: [websecure]',
+      '      service: project-1',
+      '    project-2:',
+      '      rule: \'Host("api.dev")\'',
+      '      entryPoints: [web]',
+      '      service: project-2',
+      '    project-2-secure:',
+      '      rule: \'Host("api.dev")\'',
+      '      entryPoints: [websecure]',
+      '      service: project-2',
+      '  services:',
+      '    project-1:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:5173',
+      '    project-2:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:8080',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      return p.endsWith('/.betty/docker-compose.yml') || p.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['project.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      if (p.endsWith('/.betty/dynamic/project.yml')) return MULTI_DOMAIN_ROUTE
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
+      if (command === 'docker ps --format {{.ID}}') return Buffer.from('')
+      throw new Error(`Unexpected: ${command}`)
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { projects: { name: string; domain: string; port: string }[] }
+    expect(payload.projects).toHaveLength(2)
+    expect(payload.projects[0]).toMatchObject({ name: 'project-1', domain: 'http://ui.dev', port: '5173' })
+    expect(payload.projects[1]).toMatchObject({ name: 'project-2', domain: 'http://api.dev', port: '8080' })
+
+    logSpy.mockRestore()
+  })
+
   test('skips malformed dynamic config files and returns empty project list', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
       const p = normalizePath(String(args[0]))
