@@ -27,9 +27,12 @@ beforeEach(() => {
 
 afterEach(() => {
   Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
-  process.env.USERDOMAIN = originalEnv.USERDOMAIN
-  process.env.USERNAME = originalEnv.USERNAME
-  process.env.WSL_DISTRO_NAME = originalEnv.WSL_DISTRO_NAME
+  if (originalEnv.USERDOMAIN === undefined) delete process.env.USERDOMAIN
+  else process.env.USERDOMAIN = originalEnv.USERDOMAIN
+  if (originalEnv.USERNAME === undefined) delete process.env.USERNAME
+  else process.env.USERNAME = originalEnv.USERNAME
+  if (originalEnv.WSL_DISTRO_NAME === undefined) delete process.env.WSL_DISTRO_NAME
+  else process.env.WSL_DISTRO_NAME = originalEnv.WSL_DISTRO_NAME
 })
 
 const setPlatform = (platform: string): void => {
