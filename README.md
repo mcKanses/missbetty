@@ -37,7 +37,7 @@ betty rest
 
 The core workflow does not require a project configuration file. Start your
 containers with Docker or Docker Compose, then let Betty link them to local
-domains. Projects that want a single command can add `missbetty.yml` and run
+domains. Projects that want a single command can add `.betty.yml` and run
 `betty dev`.
 
 ## Requirements
@@ -82,11 +82,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.3.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+BETTY_VERSION=v1.5.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.3.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.5.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Windows installer options:
@@ -143,7 +143,7 @@ betty --help
 
 ## Quick Start
 
-For project-level orchestration, add `missbetty.yml` to the project root:
+For project-level orchestration, add `.betty.yml` to the project root:
 
 ```yaml
 project: my-app
@@ -192,11 +192,11 @@ betty link my-app --domain my-app.localhost --port 3000
 
 ### `betty dev`
 
-Starts a project from `missbetty.yml`.
+Starts a project from `.betty.yml`.
 
 ```sh
 betty dev
-betty dev --config ./missbetty.yml
+betty dev --config ./.betty.yml
 betty dev --dry-run
 ```
 
@@ -212,10 +212,10 @@ down:
   command: docker compose -f compose.yml -f compose.override.yml down
 
 domains:
-  - host: ory-ui.mckansescloud.dev
+  - host: my-app.dev
     target: http://127.0.0.1:5173
 
-  - host: api.mckansescloud.dev
+  - host: api.my-app.dev
     target: http://127.0.0.1:8080
 
 https:

@@ -1,8 +1,8 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
 import { getDomainSuffix } from './config'
+import { BETTY_DYNAMIC_DIR } from './constants'
 
 export interface SetupStatus {
   dockerInstalled: boolean;
@@ -19,9 +19,6 @@ export interface PlatformInfo {
   isMac: boolean;
   isLinux: boolean;
 }
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
 
 export const getPlatformInfo = (): PlatformInfo => {
   const isWsl = process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
@@ -118,9 +115,17 @@ export const addHostsEntry = (domain: string): { changed: boolean; warning?: str
       warning: `WSL detected. Please add this line to your Windows hosts file manually: ${entry}`,
     }
 
+  const hostsPath = getHostsPath()
+  try {
+    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
+    if (hasHostsEntry(domain)) return { changed: true }
+  } catch {
+    // fall through to platform-specific fallback
+  }
+
   if (platform.isWindows) return {
       changed: false,
-      warning: `Windows detected. Run an elevated editor and add: ${entry}`,
+      warning: `Could not write to the hosts file. Re-run the betty installer (requires admin) to grant permission, or add manually: ${entry}`,
     }
 
   const escapedEntry = entry.replace(/"/g, '\\"')

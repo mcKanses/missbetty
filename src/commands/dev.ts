@@ -1,24 +1,21 @@
-import { execSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printError, printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, checkMkcertInstalled, addHostsEntry, hasHostsEntry, runMkcertInstall } from '../utils/setup'
-import {
-  getDockerPortOwners,
-  getSystemPortOwners,
-  filterSystemOwnersForBettyPort,
-} from '../utils/portOwners'
+import { checkDockerRunning, checkMkcertInstalled, hasHostsEntry, runMkcertInstall } from '../utils/setup'
+import { ensureHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
-
-const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
-const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
-const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
-const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs')
-const TRAEFIK_NETWORK = 'betty_proxy'
-const TRAEFIK_CONTAINER = 'betty-traefik'
+import {
+  BETTY_HOME_DIR,
+  BETTY_PROXY_COMPOSE,
+  BETTY_DYNAMIC_DIR,
+  BETTY_CERTS_DIR,
+} from '../utils/constants'
+import { sanitizeName, certificatePaths } from '../utils/names'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { findDomainConflict } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -48,37 +45,6 @@ interface DevCommandOptions {
   dryRun?: boolean;
 }
 
-const desiredProxyCompose = `services:
-  traefik:
-    image: traefik:v2.10
-    container_name: ${TRAEFIK_CONTAINER}
-    restart: unless-stopped
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=${TRAEFIK_NETWORK}
-      - --providers.file.directory=/dynamic
-      - --providers.file.watch=true
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-    ports:
-      - "80:80"
-      - "443:443"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./dynamic:/dynamic:ro
-      - ./certs:/certs:ro
-    networks:
-      - ${TRAEFIK_NETWORK}
-
-networks:
-  ${TRAEFIK_NETWORK}:
-    external: true
-    name: ${TRAEFIK_NETWORK}
-`
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -94,29 +60,24 @@ const parsePermission = (value: unknown): PermissionMode | undefined => {
   throw new Error(`Invalid permission mode '${label}'. Use prompt, allowed, manual, or denied.`)
 }
 
-const sanitizeName = (value: string): string => value
-  .toLowerCase()
-  .replace(/[^a-z0-9.-]/g, '-')
-  .replace(/^-+|-+$/g, '')
-
 const resolveConfigPath = (configPath?: string): string => {
   if (configPath !== undefined) return path.resolve(process.cwd(), configPath)
 
-  const candidates = ['missbetty.yml', 'missbetty.yaml']
+  const candidates = ['.betty.yml', '.betty.yaml', '.missbetty.yml', '.missbetty.yaml']
   const match = candidates.find((candidate) => fs.existsSync(path.resolve(process.cwd(), candidate)))
   if (match !== undefined) return path.resolve(process.cwd(), match)
-  throw new Error('No missbetty.yml found in the current directory.')
+  throw new Error('No .betty.yml found in the current directory.')
 }
 
 export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
   const parsed = yaml.parse(fs.readFileSync(configPath, 'utf8')) as unknown
-  if (!isRecord(parsed)) throw new Error('missbetty.yml must contain a YAML object.')
+  if (!isRecord(parsed)) throw new Error('.betty.yml must contain a YAML object.')
 
   const project = asString(parsed.project)
-  if (project === null) throw new Error('missbetty.yml requires a non-empty project name.')
+  if (project === null) throw new Error('.betty.yml requires a non-empty project name.')
 
   const domainsRaw = parsed.domains
-  if (!Array.isArray(domainsRaw) || domainsRaw.length === 0) throw new Error('missbetty.yml requires at least one domain.')
+  if (!Array.isArray(domainsRaw) || domainsRaw.length === 0) throw new Error('.betty.yml requires at least one domain.')
 
   const domains = domainsRaw.map((domainRaw, index) => {
     if (!isRecord(domainRaw)) throw new Error(`domains[${String(index)}] must be an object.`)
@@ -166,58 +127,10 @@ const confirmPermission = async (message: string, mode: PermissionMode | undefin
   return answer.ok
 }
 
-const ensureProxyFiles = (): void => {
-  if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
-  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
-  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
-  if (!fs.existsSync(BETTY_PROXY_COMPOSE) || fs.readFileSync(BETTY_PROXY_COMPOSE, 'utf8') !== desiredProxyCompose) fs.writeFileSync(BETTY_PROXY_COMPOSE, desiredProxyCompose, 'utf8')
-}
-
-const ensureHttpsPortAvailable = (): void => {
-  const allDockerOwners = getDockerPortOwners(443)
-  const bettyOwnsPort = allDockerOwners.some((owner) => owner.startsWith(TRAEFIK_CONTAINER))
-  const dockerOwners = allDockerOwners.filter((owner) => !owner.startsWith(TRAEFIK_CONTAINER))
-  if (bettyOwnsPort && dockerOwners.length === 0) return
-
-  const systemOwners = filterSystemOwnersForBettyPort(getSystemPortOwners(443), bettyOwnsPort)
-  if (dockerOwners.length === 0 && systemOwners.length === 0) return
-
-  printError('Port 443 is already in use.')
-  dockerOwners.forEach((owner) => { printHint(`Docker: ${owner}`) })
-  systemOwners.forEach((owner) => { printHint(`Process: ${owner}`) })
-  process.exit(1)
-}
-
-const ensureProxyRunning = (): void => {
-  execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' })
-  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, {
-    cwd: BETTY_HOME_DIR,
-    stdio: 'inherit',
-  })
-}
-
-const createProxyNetworkIfNeeded = (): void => {
-  try {
-    execSync(`docker network inspect ${TRAEFIK_NETWORK}`, { stdio: 'pipe' })
-  } catch {
-    execSync(`docker network create ${TRAEFIK_NETWORK}`, { stdio: 'inherit' })
-  }
-}
-
 const targetForTraefik = (target: string): string => {
   const url = new URL(target)
   if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '::1') url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
-}
-
-const certificatePaths = (host: string): { hostPath: string; keyPath: string; certFile: string; keyFile: string } => {
-  const baseName = sanitizeName(host)
-  return {
-    hostPath: path.join(BETTY_CERTS_DIR, `${baseName}.pem`),
-    keyPath: path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`),
-    certFile: `/certs/${baseName}.pem`,
-    keyFile: `/certs/${baseName}-key.pem`,
-  }
 }
 
 const ensureCertificate = (host: string): { certFile: string; keyFile: string } => {
@@ -273,17 +186,19 @@ const writeProjectRoute = (
 }
 
 const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
-  for (const domain of config.domains) {
-    if (hasHostsEntry(domain.host)) continue
-    const allowed = await confirmPermission(`Add hosts entry for ${domain.host}?`, config.permissions?.hosts)
-    if (!allowed) {
+  const missing = config.domains.filter((domain) => !hasHostsEntry(domain.host))
+  if (missing.length === 0) return
+
+  const names = missing.map((d) => d.host).join(', ')
+  const allowed = await confirmPermission(`Add hosts entries for ${names}?`, config.permissions?.hosts)
+  if (!allowed) {
+    for (const domain of missing) {
       printWarn(`Hosts entry was not changed for ${domain.host}.`)
       printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
-      continue
     }
-    const result = addHostsEntry(domain.host)
-    if (result.warning !== undefined) printWarn(result.warning)
+    return
   }
+  for (const domain of missing) ensureHostsEntry(domain.host)
 }
 
 const prepareCertificates = async (config: DevProjectConfig): Promise<Record<string, { certFile: string; keyFile: string }>> => {
@@ -320,6 +235,7 @@ const printUrls = (config: DevProjectConfig): void => {
 }
 
 const devCommand = async (opts: DevCommandOptions): Promise<void> => {
+  let cleanExit = false
   try {
     const configPath = resolveConfigPath(opts.config)
     const config = readDevProjectConfig(configPath)
@@ -338,23 +254,39 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
     if (!dockerAllowed) throw new Error('Docker permission was not granted.')
     if (!checkDockerRunning()) throw new Error('Docker is not running or is not available.')
 
-    ensureProxyFiles()
+    ensureProxySetup({ certs: true })
     ensureHttpsPortAvailable()
-    createProxyNetworkIfNeeded()
-    ensureProxyRunning()
+    ensureProxyNetwork()
+    execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+
+    const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
+    for (const domain of config.domains) {
+      const conflict = findDomainConflict(domain.host, ownRouteFile)
+      if (conflict !== null) throw new Error(`Domain '${domain.host}' is already linked by ${conflict.routerName} (${conflict.fileName}). Run \`betty unlink\` first.`)
+    }
+
     writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
     execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, {
       cwd: BETTY_HOME_DIR,
       stdio: 'inherit',
     })
 
-    if (config.up?.command !== undefined) runProjectCommand(config.up.command, configPath)
-    printUrls(config)
+    if (config.up?.command !== undefined) {
+      const result = spawnSync(config.up.command, { shell: true, cwd: path.dirname(configPath), stdio: 'inherit' })
+      if (result.signal !== null) {
+        try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
+        try { execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'pipe' }) } catch { /* best-effort */ }
+        if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
+        cleanExit = true
+      } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
+    }
+    if (!cleanExit) printUrls(config)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     printError(message)
     process.exit(1)
   }
+  if (cleanExit) process.exit(0)
 }
 
 export default devCommand
