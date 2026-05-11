@@ -294,6 +294,40 @@ describe('dev command', () => {
     logSpy.mockRestore()
   })
 
+  test('--yes skips all prompts by treating prompt permissions as allowed', async () => {
+    const CONFIG_ALL_PROMPT = SAMPLE_CONFIG
+      .replace('hosts: allowed', 'hosts: prompt')
+      .replace('trustStore: allowed', 'trustStore: prompt')
+      .replace('docker: allowed', 'docker: prompt')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return CONFIG_ALL_PROMPT
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml', yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
   test('cleans up route and runs down command when up command is interrupted', async () => {
     const CONFIG_WITH_DOWN = SAMPLE_CONFIG + '\ndown:\n  command: docker compose down'
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {

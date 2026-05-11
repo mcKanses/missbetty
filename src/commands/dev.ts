@@ -43,6 +43,7 @@ interface DevProjectConfig {
 interface DevCommandOptions {
   config?: string;
   dryRun?: boolean;
+  yes?: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -271,10 +272,22 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
       return
     }
 
-    await prepareHosts(config)
-    const certificates = await prepareCertificates(config)
+    const resolvePermission = (mode: PermissionMode | undefined): PermissionMode | undefined =>
+      opts.yes === true && (mode ?? 'prompt') === 'prompt' ? 'allowed' : mode
 
-    const dockerAllowed = await confirmPermission('Run Docker commands for the Betty proxy and project startup?', config.permissions?.docker)
+    const effectiveConfig: DevProjectConfig = opts.yes !== true ? config : {
+      ...config,
+      permissions: {
+        hosts: resolvePermission(config.permissions?.hosts),
+        trustStore: resolvePermission(config.permissions?.trustStore),
+        docker: resolvePermission(config.permissions?.docker),
+      },
+    }
+
+    await prepareHosts(effectiveConfig)
+    const certificates = await prepareCertificates(effectiveConfig)
+
+    const dockerAllowed = await confirmPermission('Run Docker commands for the Betty proxy and project startup?', effectiveConfig.permissions?.docker)
     if (!dockerAllowed) throw new Error('Docker permission was not granted.')
     if (!checkDockerRunning()) throw new Error('Docker is not running or is not available.')
 

@@ -68,6 +68,7 @@ export const createProgram = (): Command => {
     .description('Start a project from .betty.yml')
     .option('--config <path>', 'Path to .betty.yml')
     .option('--dry-run', 'Preview project configuration without applying changes')
+    .option('-y, --yes', 'Accept all prompts automatically')
     .action((opts: DevOptions) => { void devCommand(opts) })
 
   program
