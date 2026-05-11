@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import inquirer from 'inquirer'
@@ -14,6 +14,7 @@ import {
 } from '../utils/constants'
 import { sanitizeName, certificatePaths } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { findDomainConflict } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -231,6 +232,7 @@ const printUrls = (config: DevProjectConfig): void => {
 }
 
 const devCommand = async (opts: DevCommandOptions): Promise<void> => {
+  let cleanExit = false
   try {
     const configPath = resolveConfigPath(opts.config)
     const config = readDevProjectConfig(configPath)
@@ -253,19 +255,35 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
     ensureHttpsPortAvailable()
     ensureProxyNetwork()
     execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+
+    const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
+    for (const domain of config.domains) {
+      const conflict = findDomainConflict(domain.host, ownRouteFile)
+      if (conflict !== null) throw new Error(`Domain '${domain.host}' is already linked by ${conflict.routerName} (${conflict.fileName}). Run \`betty unlink\` first.`)
+    }
+
     writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
     execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, {
       cwd: BETTY_HOME_DIR,
       stdio: 'inherit',
     })
 
-    if (config.up?.command !== undefined) runProjectCommand(config.up.command, configPath)
-    printUrls(config)
+    if (config.up?.command !== undefined) {
+      const result = spawnSync(config.up.command, { shell: true, cwd: path.dirname(configPath), stdio: 'inherit' })
+      if (result.signal !== null) {
+        try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
+        try { execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'pipe' }) } catch { /* best-effort */ }
+        if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
+        cleanExit = true
+      } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
+    }
+    if (!cleanExit) printUrls(config)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     printError(message)
     process.exit(1)
   }
+  if (cleanExit) process.exit(0)
 }
 
 export default devCommand
