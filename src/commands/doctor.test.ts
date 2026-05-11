@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals'
-import doctorCommand from './doctor'
+import doctorCommand, { statusLine } from './doctor'
 import { collectSetupStatus } from '../utils/setup'
 
 jest.mock('../utils/setup', () => ({
@@ -28,6 +28,15 @@ describe('doctor command', () => {
     expect(logSpy).toHaveBeenCalledWith('✗ mkcert CA installed')
     expect(logSpy).toHaveBeenCalledWith('✗ hosts entry exists for wienenergie.dev')
 
+    logSpy.mockRestore()
+  })
+
+  test('statusLine includes detail in parentheses when provided', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusLine('my check', true, 'v1.2.3')
+
+    expect(logSpy).toHaveBeenCalledWith('✓ my check (v1.2.3)')
     logSpy.mockRestore()
   })
 })
