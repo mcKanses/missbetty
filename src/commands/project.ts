@@ -3,7 +3,10 @@ import path from 'path'
 import yaml from 'yaml'
 import inquirer from 'inquirer'
 import { printError } from '../cli/ui/output'
-import devCommand from './dev'
+import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
+import unlinkCommand from './unlink'
+import { readRoutes } from '../utils/routes'
+import { sanitizeName } from '../utils/names'
 
 interface ProjectCreateOptions {
   name?: string;
@@ -124,55 +127,152 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
 }
 
 export const projectLoadCommand = async (opts: ProjectLoadOptions): Promise<void> => {
+  try {
+    if (opts.yes !== true && opts.dryRun !== true) {
+      const configPath = resolveConfigPath(opts.file)
+      const config = readDevProjectConfig(configPath)
+      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+      const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Load project '${config.project}' from ${relPath}?`,
+        default: true,
+      }]) as { confirm: boolean }
+      if (!confirm) { console.log('Cancelled.'); return }
+    }
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
   await devCommand({ config: opts.file, dryRun: opts.dryRun, yes: opts.yes })
 }
 
-const findBettyYml = (): string | undefined => {
-  const candidates = ['.betty.yml', '.betty.yaml', '.missbetty.yml', '.missbetty.yaml']
-  return candidates.find((c) => fs.existsSync(path.resolve(process.cwd(), c)))
+interface ProjectActionOptions {
+  file?: string;
+  yes?: boolean;
 }
 
-const projectCommand = async (): Promise<void> => {
+export const projectLinkCommand = async (opts: ProjectActionOptions): Promise<void> => {
   try {
-    const found = findBettyYml()
-
-    if (found !== undefined) {
-      const configPath = path.resolve(process.cwd(), found)
-      let projectName = path.basename(found, path.extname(found))
-      let previewDomains: { host: string; target?: string }[] = []
-      try {
-        const parsed = yaml.parse(fs.readFileSync(configPath, 'utf8')) as { project?: string; domains?: unknown[] }
-        if (typeof parsed.project === 'string' && parsed.project.trim() !== '') projectName = parsed.project
-        if (Array.isArray(parsed.domains)) previewDomains = parsed.domains.filter(
-          (d): d is { host: string; target?: string } =>
-            typeof (d as Record<string, unknown>).host === 'string'
-        )
-      } catch { /* ignore */ }
-
-      console.log(`\nProject: ${projectName} (${found})`)
-      for (const d of previewDomains) console.log(`  ${d.host}${d.target !== undefined ? ` → ${d.target}` : ''}`)
-
-      const { load } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'load',
-        message: 'Start this project?',
-        default: true,
-      }]) as { load: boolean }
-      if (load) await devCommand({ config: configPath })
-    } else {
-      const { create } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'create',
-        message: 'No .betty.yml found in this directory. Create a new project?',
-        default: true,
-      }]) as { create: boolean }
-      if (create) await projectCreateCommand({})
-    }
+    const configPath = resolveConfigPath(opts.file)
+    const config = readDevProjectConfig(configPath)
+    await linkProject(config, { yes: opts.yes })
+    printUrls(config)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    printError(message)
+    printError(err instanceof Error ? err.message : String(err))
     process.exit(1)
   }
 }
 
-export default projectCommand
+export const projectStopCommand = async (opts: ProjectActionOptions): Promise<void> => {
+  try {
+    const configPath = resolveConfigPath(opts.file)
+    const config = readDevProjectConfig(configPath)
+
+    if (opts.yes !== true) {
+      const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Stop project '${config.project}'?`,
+        default: false,
+      }]) as { confirm: boolean }
+      if (!confirm) { console.log('Cancelled.'); return }
+    }
+
+    if (config.down?.command !== undefined) {
+      console.log(`Running: ${config.down.command}`)
+      runProjectCommand(config.down.command, configPath)
+    }
+
+    await unlinkCommand({ project: sanitizeName(config.project), yes: true })
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+}
+
+const printStatusTable = (rows: { status: string; domain: string; target: string }[], projectName: string): void => {
+  const statusW = Math.max(8, ...rows.map((r) => r.status.length))
+  const domainW = Math.max(6, ...rows.map((r) => r.domain.length))
+  const targetW = Math.max(6, ...rows.map((r) => r.target.length))
+  const header = `${'status'.padEnd(statusW)} | ${'domain'.padEnd(domainW)} | ${'target'.padEnd(targetW)}`
+  const sep = `${'-'.repeat(statusW)}-|-${'-'.repeat(domainW)}-|-${'-'.repeat(targetW)}`
+  console.log(`\n${projectName}`)
+  console.log(header)
+  console.log(sep)
+  rows.forEach((r) => {
+    console.log(`${r.status.padEnd(statusW)} | ${r.domain.padEnd(domainW)} | ${r.target.padEnd(targetW)}`)
+  })
+}
+
+export const projectStatusCommand = async (opts: { file?: string }): Promise<void> => {
+  try {
+    const routes = readRoutes()
+
+    if (opts.file !== undefined) {
+      const configPath = resolveConfigPath(opts.file)
+      const config = readDevProjectConfig(configPath)
+      printStatusTable(
+        config.domains.map((d) => ({
+          status: routes.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
+          domain: d.host,
+          target: d.target,
+        })),
+        config.project
+      )
+      return
+    }
+
+    console.log('No project specified. Use --file <path> to target a specific project.\n')
+
+    const linkedNames = [...new Set(routes.map((r) => path.basename(r.fileName, path.extname(r.fileName))))]
+
+    if (linkedNames.length === 0) {
+      const configPath = resolveConfigPath(undefined)
+      const config = readDevProjectConfig(configPath)
+      printStatusTable(
+        config.domains.map((d) => ({ status: 'unlinked', domain: d.host, target: d.target })),
+        config.project
+      )
+      return
+    }
+
+    const selected = linkedNames.length === 1
+      ? linkedNames[0]
+      : ((await inquirer.prompt([{
+          type: 'list',
+          name: 'project',
+          message: 'Select a project:',
+          choices: linkedNames,
+        }]) as { project: string }).project)
+
+    // Use local .betty.yml if it matches the selected project
+    try {
+      const configPath = resolveConfigPath(undefined)
+      const config = readDevProjectConfig(configPath)
+      if (sanitizeName(config.project) === selected) {
+        printStatusTable(
+          config.domains.map((d) => ({
+            status: routes.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
+            domain: d.host,
+            target: d.target,
+          })),
+          config.project
+        )
+        return
+      }
+    } catch { /* no matching local config, fall through */ }
+
+    // Fall back to routes-only view
+    printStatusTable(
+      routes
+        .filter((r) => path.basename(r.fileName, path.extname(r.fileName)) === selected)
+        .map((r) => ({ status: 'linked', domain: r.domain, target: r.target })),
+      selected
+    )
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+}
+

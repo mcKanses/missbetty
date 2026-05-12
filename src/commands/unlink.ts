@@ -8,7 +8,6 @@ import { removeHostsEntry } from '../utils/hosts'
 import { readRoutes, type RouteEntry } from '../utils/routes'
 import type { TraefikDynamicConfig } from '../types'
 
-interface FindRouteAnswer { selection: string; }
 interface ConfirmAnswer { confirm: boolean; }
 interface ConfirmAllAnswer { confirmAll: boolean; }
 interface CheckboxAnswer { selected: ChoiceValue[]; }
@@ -16,6 +15,13 @@ interface CheckboxAnswer { selected: ChoiceValue[]; }
 type ChoiceValue =
   | { kind: 'domain'; route: RouteEntry }
   | { kind: 'project'; filePath: string; group: RouteEntry[] }
+
+export interface UnlinkOptions {
+  domain?: string;
+  project?: string;
+  all?: boolean;
+  yes?: boolean;
+}
 
 const removeSingleRoute = (route: RouteEntry): boolean => {
   const doc = yaml.parse(fs.readFileSync(route.filePath, 'utf8')) as TraefikDynamicConfig
@@ -43,47 +49,6 @@ const removeSingleRoute = (route: RouteEntry): boolean => {
 
   fs.writeFileSync(route.filePath, yaml.stringify(doc), 'utf8')
   return false
-}
-
-const findRoute = async (routes: RouteEntry[], target?: string, domain?: string, autoSelect = false): Promise<RouteEntry> => {
-  let matches = routes
-
-  if (domain !== undefined) matches = matches.filter((r) => r.domain === domain)
-  else if (target !== undefined) {
-    const normalizedTarget = target.toLowerCase()
-    matches = matches.filter((r) => {
-      const baseName = path.basename(r.fileName, path.extname(r.fileName)).toLowerCase()
-      return (
-        baseName === normalizedTarget ||
-        r.routerName.toLowerCase() === normalizedTarget ||
-        r.domain.toLowerCase() === normalizedTarget
-      )
-    })
-  }
-
-  if (matches.length === 1) return matches[0]
-
-  if (matches.length > 1) {
-    if (autoSelect) return matches[0]
-    const answer = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'selection',
-        message: 'Multiple matches found. Which link should be removed?',
-        choices: matches.map((r, i) => ({
-          name: `${r.domain} (${r.target !== '' ? r.target : 'n/a'})`,
-          value: String(i),
-        })),
-      },
-    ]) as FindRouteAnswer
-    const selected = matches[parseInt(answer.selection, 10)] as RouteEntry | undefined
-    if (selected !== undefined) return selected
-  }
-
-  if (target !== undefined || domain !== undefined) printError(`No link found for ${domain !== undefined ? `domain '${domain}'` : `target '${target ?? ''}'`}.`)
-  else printError('No link found.')
-
-  process.exit(1)
 }
 
 const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<void> => {
@@ -204,10 +169,9 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   const choices: { name: string; value: ChoiceValue }[] = []
   for (const [filePath, group] of byFile) {
     for (const r of group) choices.push({
-        name: `${r.domain}${r.target !== '' ? ` → ${r.target}` : ''}`,
-        value: { kind: 'domain', route: r },
-      })
-    
+      name: `${r.domain}${r.target !== '' ? ` → ${r.target}` : ''}`,
+      value: { kind: 'domain', route: r },
+    })
     if (group.length > 1) {
       const projectName = path.basename(filePath, path.extname(filePath))
       choices.push({
@@ -291,7 +255,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   console.log('- traefik: restarted')
 }
 
-const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: boolean; yes?: boolean }): Promise<void> => {
+const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
 
@@ -300,51 +264,63 @@ const unlinkCommand = async (target?: string, opts?: { domain?: string; all?: bo
     return
   }
 
-  if (opts?.all === true && target === undefined && opts.domain === undefined) {
+  // betty unlink --all
+  if (opts.all === true && opts.domain === undefined && opts.project === undefined) {
     await unlinkAll(composePath, routes)
     return
   }
 
-  if (target === undefined && opts?.domain === undefined) {
+  // betty unlink (no flags) → interactive checkbox
+  if (opts.domain === undefined && opts.project === undefined) {
     await unlinkInteractive(composePath, routes)
     return
   }
 
-  const autoSelect = opts?.all === true || opts?.yes === true
-  const route = await findRoute(routes, target, opts?.domain, autoSelect)
-  const projectRoutes = routes.filter((r) => r.filePath === route.filePath)
-  const isMultiDomain = projectRoutes.length > 1
+  // betty unlink --project <name>
+  if (opts.project !== undefined) {
+    const name = opts.project.toLowerCase()
+    const projectRoutes = routes.filter((r) =>
+      path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name
+    )
+
+    if (projectRoutes.length === 0) {
+      printError(`No project found with name '${opts.project}'.`)
+      process.exit(1)
+    }
+
+    if (!fs.existsSync(projectRoutes[0].filePath)) {
+      printError(`Routing file not found: ${projectRoutes[0].fileName}`)
+      process.exit(1)
+    }
+
+    if (opts.yes !== true) {
+      const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Remove all ${String(projectRoutes.length)} domain(s) in project '${opts.project}'?`,
+        default: false,
+      }]) as ConfirmAnswer
+      if (!confirm) { console.log('Cancelled.'); return }
+    }
+
+    removeProjectFile(projectRoutes[0], projectRoutes, composePath)
+    return
+  }
+
+  // betty unlink --domain <domain>
+  const route = routes.find((r) => r.domain.toLowerCase() === (opts.domain ?? '').toLowerCase())
+
+  if (route === undefined) {
+    printError(`No link found for domain '${opts.domain ?? ''}'.`)
+    process.exit(1)
+  }
 
   if (!fs.existsSync(route.filePath)) {
     printError(`Routing file not found: ${route.fileName}`)
     process.exit(1)
   }
 
-  if (isMultiDomain && opts?.all === true) {
-    removeProjectFile(route, projectRoutes, composePath)
-    return
-  }
-
-  if (isMultiDomain && opts?.yes !== true) {
-    const projectName = path.basename(route.filePath, path.extname(route.filePath))
-    const answer = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'selection',
-        message: `Project '${projectName}' has ${String(projectRoutes.length)} domains. What should be removed?`,
-        choices: [
-          { name: `Only ${route.domain}`, value: 'one' },
-          { name: `All ${String(projectRoutes.length)} domains (entire project)`, value: 'all' },
-        ],
-      },
-    ]) as FindRouteAnswer
-    if (answer.selection === 'all') {
-      removeProjectFile(route, projectRoutes, composePath)
-      return
-    }
-  }
-
-  if (opts?.yes !== true) {
+  if (opts.yes !== true) {
     const { confirm } = await inquirer.prompt([{
       type: 'confirm',
       name: 'confirm',

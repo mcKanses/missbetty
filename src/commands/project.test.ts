@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
 import inquirer from 'inquirer'
-import projectCommand, { projectCreateCommand, projectLoadCommand, validateHttpTarget } from './project'
+import { projectCreateCommand, projectLoadCommand, projectLinkCommand, projectStopCommand, projectStatusCommand, validateHttpTarget } from './project'
+import { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
+import unlinkCommand from './unlink'
+import { readRoutes } from '../utils/routes'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -30,6 +33,20 @@ jest.mock('inquirer', () => ({
 jest.mock('./dev', () => ({
   __esModule: true,
   default: jest.fn(),
+  resolveConfigPath: jest.fn(),
+  readDevProjectConfig: jest.fn(),
+  runProjectCommand: jest.fn(),
+  linkProject: jest.fn(),
+  printUrls: jest.fn(),
+}))
+
+jest.mock('./unlink', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}))
+
+jest.mock('../utils/routes', () => ({
+  readRoutes: jest.fn(),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -67,94 +84,59 @@ describe('validateHttpTarget', () => {
 })
 
 describe('projectLoadCommand', () => {
-  test('calls devCommand with mapped options', async () => {
+  test('calls devCommand with mapped options in dry-run (no prompt)', async () => {
     await projectLoadCommand({ file: 'custom.yml', dryRun: true, yes: false })
 
     expect(devCommand).toHaveBeenCalledWith({ config: 'custom.yml', dryRun: true, yes: false })
+    expect(inquirer.prompt).not.toHaveBeenCalled()
   })
-})
 
-describe('projectCommand (no subcommand)', () => {
-  test('displays domain list and asks to load when .betty.yml exists', async () => {
-    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
-      'project: my-app',
-      'domains:',
-      '  - host: my-app.localhost',
-      '    target: http://127.0.0.1:3000',
-    ].join('\n'))
-    mockPromptSequence({ load: true })
+  test('skips prompt and calls devCommand when --yes is set', async () => {
+    await projectLoadCommand({ file: 'custom.yml', yes: true })
+
+    expect(devCommand).toHaveBeenCalledWith({ config: 'custom.yml', dryRun: undefined, yes: true })
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
+  test('shows confirmation prompt and calls devCommand on confirm', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue({ project: 'my-app', domains: [] })
+    mockPromptSequence({ confirm: true })
+
+    await projectLoadCommand({})
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm' })])
+    )
+    expect(devCommand).toHaveBeenCalled()
+  })
+
+  test('cancels without calling devCommand when user declines', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue({ project: 'my-app', domains: [] })
+    mockPromptSequence({ confirm: false })
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await projectCommand()
+    await projectLoadCommand({})
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('my-app'))
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('my-app.localhost'))
-    expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: 'load' })])
-    )
-    expect(devCommand).toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+    expect(devCommand).not.toHaveBeenCalled()
 
     logSpy.mockRestore()
   })
 
-  test('does not start when user declines load', async () => {
-    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('project: my-app\ndomains: []\n')
-    mockPromptSequence({ load: false })
-
-    await projectCommand()
-
-    expect(devCommand).not.toHaveBeenCalled()
-  })
-
-  test('asks to create when no .betty.yml found', async () => {
-    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
-    mockPromptSequence({ create: false })
-
-    await projectCommand()
-
-    expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: 'create' })])
-    )
-    expect(devCommand).not.toHaveBeenCalled()
-  })
-
-  test('catches error thrown by devCommand and exits with code 1', async () => {
-    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('project: my-app\ndomains: []\n')
-    mockPromptSequence({ load: true })
-    devCommand.mockRejectedValueOnce(new Error('oops') as never)
+  test('exits with code 1 when resolveConfigPath throws', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockImplementation(() => { throw new Error('No .betty.yml found') })
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('oops'))
+    await expect(projectLoadCommand({})).rejects.toThrow('process-exit-1')
 
     errorSpy.mockRestore()
   })
-
-  test('starts create wizard when user confirms', async () => {
-    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
-    mockPromptSequence(
-      { create: true },
-      { projectName: 'my-app' },
-      { host: 'my-app.localhost', target: 'http://127.0.0.1:3000' },
-      { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
-      { startNow: false }
-    )
-
-    await projectCommand()
-
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.betty.yml'),
-      expect.stringContaining('my-app'),
-      'utf8'
-    )
-  })
 })
+
 
 describe('projectCreateCommand', () => {
   test('writes .betty.yml with all provided values', async () => {
@@ -372,5 +354,203 @@ describe('projectCreateCommand', () => {
     expect(devCommand).toHaveBeenCalledWith(
       expect.objectContaining({ config: expect.stringContaining('.betty.yml'), yes: true })
     )
+  })
+})
+
+describe('projectLinkCommand', () => {
+  const mockConfig = {
+    project: 'my-app',
+    domains: [{ host: 'my-app.localhost', target: 'http://127.0.0.1:3000' }],
+  }
+
+  test('links project and prints URLs on success', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(linkProject as unknown as jest.Mock).mockResolvedValue(undefined as never)
+
+    await projectLinkCommand({})
+
+    expect(resolveConfigPath).toHaveBeenCalledWith(undefined)
+    expect(readDevProjectConfig).toHaveBeenCalledWith('/project/.betty.yml')
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined })
+    expect(printUrls).toHaveBeenCalledWith(mockConfig)
+  })
+
+  test('forwards --file and --yes to underlying functions', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/custom/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(linkProject as unknown as jest.Mock).mockResolvedValue(undefined as never)
+
+    await projectLinkCommand({ file: 'custom.yml', yes: true })
+
+    expect(resolveConfigPath).toHaveBeenCalledWith('custom.yml')
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: true })
+  })
+
+  test('exits with code 1 when linkProject throws', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(linkProject as unknown as jest.Mock).mockRejectedValue(new Error('proxy failed') as never)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(projectLinkCommand({})).rejects.toThrow('process-exit-1')
+
+    errorSpy.mockRestore()
+  })
+})
+
+describe('projectStopCommand', () => {
+  const mockConfig = {
+    project: 'my-app',
+    domains: [{ host: 'my-app.localhost', target: 'http://127.0.0.1:3000' }],
+  }
+
+  const mockConfigWithDown = {
+    ...mockConfig,
+    down: { command: 'docker compose down' },
+  }
+
+  test('runs down command and unlinks when --yes is passed', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfigWithDown)
+    ;(unlinkCommand as unknown as jest.Mock).mockResolvedValue(undefined as never)
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStopCommand({ yes: true })
+
+    expect(runProjectCommand).toHaveBeenCalledWith('docker compose down', '/project/.betty.yml')
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'my-app', yes: true })
+    expect(logSpy).toHaveBeenCalledWith('Running: docker compose down')
+
+    logSpy.mockRestore()
+  })
+
+  test('skips down command when none configured', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(unlinkCommand as unknown as jest.Mock).mockResolvedValue(undefined as never)
+
+    await projectStopCommand({ yes: true })
+
+    expect(runProjectCommand).not.toHaveBeenCalled()
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'my-app', yes: true })
+  })
+
+  test('logs Cancelled and does nothing when user declines confirm', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    mockPromptSequence({ confirm: false })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStopCommand({})
+
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+    expect(unlinkCommand).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('unlinks when user confirms stop', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(unlinkCommand as unknown as jest.Mock).mockResolvedValue(undefined as never)
+    mockPromptSequence({ confirm: true })
+
+    await projectStopCommand({})
+
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'my-app', yes: true })
+  })
+
+  test('exits with code 1 when resolveConfigPath throws', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockImplementation(() => { throw new Error('No .betty.yml found') })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(projectStopCommand({ yes: true })).rejects.toThrow('process-exit-1')
+
+    errorSpy.mockRestore()
+  })
+})
+
+describe('projectStatusCommand', () => {
+  const mockConfig = {
+    project: 'my-app',
+    domains: [
+      { host: 'my-app.localhost', target: 'http://127.0.0.1:3000' },
+      { host: 'api.localhost', target: 'http://127.0.0.1:8080' },
+    ],
+  }
+
+  test('renders table with linked and unlinked rows', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([
+      { domain: 'my-app.localhost', routerName: 'my-app', fileName: 'my-app.yml', filePath: '/path/my-app.yml', target: 'http://127.0.0.1:3000' },
+    ])
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({})
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('No project specified')
+    expect(output).toContain('my-app')
+    expect(output).toContain('status')
+    expect(output).toContain('domain')
+    expect(output).toContain('target')
+    expect(output).toContain('linked')
+    expect(output).toContain('unlinked')
+
+    logSpy.mockRestore()
+  })
+
+  test('passes --file to resolveConfigPath', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/custom/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([])
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({ file: 'custom.yml' })
+
+    expect(resolveConfigPath).toHaveBeenCalledWith('custom.yml')
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain('No project specified')
+
+    logSpy.mockRestore()
+  })
+
+  test('exits with code 1 when resolveConfigPath throws', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([])
+    ;(resolveConfigPath as unknown as jest.Mock).mockImplementation(() => { throw new Error('No .betty.yml found') })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(projectStatusCommand({})).rejects.toThrow('process-exit-1')
+
+    errorSpy.mockRestore()
+  })
+
+  test('shows selection prompt when multiple projects are linked', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([
+      { domain: 'app-a.localhost', routerName: 'project-a', fileName: 'project-a.yml', filePath: '/path/project-a.yml', target: 'http://127.0.0.1:3000' },
+      { domain: 'app-b.localhost', routerName: 'project-b', fileName: 'project-b.yml', filePath: '/path/project-b.yml', target: 'http://127.0.0.1:4000' },
+    ])
+    mockPromptSequence({ project: 'project-b' })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({})
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'project', type: 'list' })])
+    )
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('project-b')
+    expect(output).toContain('app-b.localhost')
+
+    logSpy.mockRestore()
   })
 })

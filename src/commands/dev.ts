@@ -24,7 +24,7 @@ interface DevDomainConfig {
   target: string;
 }
 
-interface DevProjectConfig {
+export interface DevProjectConfig {
   project: string;
   up?: { command?: string };
   down?: { command?: string };
@@ -61,7 +61,7 @@ const parsePermission = (value: unknown): PermissionMode | undefined => {
   throw new Error(`Invalid permission mode '${label}'. Use prompt, allowed, manual, or denied.`)
 }
 
-const resolveConfigPath = (configPath?: string): string => {
+export const resolveConfigPath = (configPath?: string): string => {
   if (configPath !== undefined) return path.resolve(process.cwd(), configPath)
 
   const candidates = ['.betty.yml', '.betty.yaml', '.missbetty.yml', '.missbetty.yaml']
@@ -241,19 +241,51 @@ const prepareCertificates = async (config: DevProjectConfig): Promise<Record<str
   return certificates
 }
 
-const runProjectCommand = (command: string, configPath: string): void => {
+export const runProjectCommand = (command: string, configPath: string): void => {
   execSync(command, {
     cwd: path.dirname(configPath),
     stdio: 'inherit',
   })
 }
 
-const printUrls = (config: DevProjectConfig): void => {
+export const printUrls = (config: DevProjectConfig): void => {
   console.log('\nAvailable URLs:')
   config.domains.forEach((domain) => {
     const protocol = config.https?.enabled === true ? 'https' : 'http'
     console.log(`- ${protocol}://${domain.host} -> ${domain.target}`)
   })
+}
+
+export const linkProject = async (config: DevProjectConfig, opts: { yes?: boolean }): Promise<void> => {
+  const resolvePermission = (mode: PermissionMode | undefined): PermissionMode | undefined =>
+    opts.yes === true && (mode ?? 'prompt') === 'prompt' ? 'allowed' : mode
+
+  const effectiveConfig: DevProjectConfig = opts.yes !== true ? config : {
+    ...config,
+    permissions: {
+      hosts: resolvePermission(config.permissions?.hosts),
+      trustStore: resolvePermission(config.permissions?.trustStore),
+      docker: resolvePermission(config.permissions?.docker),
+    },
+  }
+
+  await prepareHosts(effectiveConfig)
+  const certificates = await prepareCertificates(effectiveConfig)
+
+  const dockerAllowed = await confirmPermission('Run Docker commands for the Betty proxy and project startup?', effectiveConfig.permissions?.docker)
+  if (!dockerAllowed) throw new Error('Docker permission was not granted.')
+  if (!checkDockerRunning()) throw new Error('Docker is not running or is not available.')
+
+  ensureProxySetup({ certs: true })
+  ensureHttpsPortAvailable()
+  ensureProxyNetwork()
+  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+
+  const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
+  for (const domain of config.domains) if (findDomainConflict(domain.host, ownRouteFile) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
+
+  writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
+  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
 }
 
 const devCommand = async (opts: DevCommandOptions): Promise<void> => {
@@ -269,43 +301,10 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
       return
     }
 
-    const resolvePermission = (mode: PermissionMode | undefined): PermissionMode | undefined =>
-      opts.yes === true && (mode ?? 'prompt') === 'prompt' ? 'allowed' : mode
-
-    const effectiveConfig: DevProjectConfig = opts.yes !== true ? config : {
-      ...config,
-      permissions: {
-        hosts: resolvePermission(config.permissions?.hosts),
-        trustStore: resolvePermission(config.permissions?.trustStore),
-        docker: resolvePermission(config.permissions?.docker),
-      },
-    }
-
-    await prepareHosts(effectiveConfig)
-    const certificates = await prepareCertificates(effectiveConfig)
-
-    const dockerAllowed = await confirmPermission('Run Docker commands for the Betty proxy and project startup?', effectiveConfig.permissions?.docker)
-    if (!dockerAllowed) throw new Error('Docker permission was not granted.')
-    if (!checkDockerRunning()) throw new Error('Docker is not running or is not available.')
-
-    ensureProxySetup({ certs: true })
-    ensureHttpsPortAvailable()
-    ensureProxyNetwork()
-    execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
-
-    const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
-    for (const domain of config.domains) {
-      const conflict = findDomainConflict(domain.host, ownRouteFile)
-      if (conflict !== null) throw new Error(`Domain '${domain.host}' is already linked by ${conflict.routerName} (${conflict.fileName}). Run \`betty unlink\` first.`)
-    }
-
-    writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
-    execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, {
-      cwd: BETTY_HOME_DIR,
-      stdio: 'inherit',
-    })
+    await linkProject(config, { yes: opts.yes })
 
     if (config.up?.command !== undefined) {
+      const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
       const result = spawnSync(config.up.command, { shell: true, cwd: path.dirname(configPath), stdio: 'inherit' })
       if (result.signal !== null) {
         try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
