@@ -126,12 +126,13 @@ export const createProgram = (): Command => {
     .command('status')
     .description('Show linked status for project domains')
     .option('--file <path>', 'Path to .betty.yml')
-    .action((opts: { file?: string }) => { void projectStatusCommand(opts) })
+    .option('--name <name>', 'Project name to look up from linked routes')
+    .action((opts: { file?: string; name?: string }) => { void projectStatusCommand(opts) })
 
   projectCmd
-    .command('serve')
+    .command('serve', { hidden: true })
     .description("Start Betty's local switchboard service")
-    .action(serveCommand)
+    .action(() => { console.log("Did you mean 'betty serve'?") })
 
   program
     .command('dev')

@@ -363,34 +363,64 @@ describe('projectLinkCommand', () => {
     domains: [{ host: 'my-app.localhost', target: 'http://127.0.0.1:3000' }],
   }
 
-  test('links project and prints URLs on success', async () => {
+  test('prompts for confirmation when no --file and no --yes, then links on confirm', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
     ;(linkProject as unknown as jest.Mock).mockResolvedValue(undefined as never)
+    mockPromptSequence({ confirm: true })
 
     await projectLinkCommand({})
 
-    expect(resolveConfigPath).toHaveBeenCalledWith(undefined)
-    expect(readDevProjectConfig).toHaveBeenCalledWith('/project/.betty.yml')
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm', message: expect.stringContaining('my-app') })])
+    )
     expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined })
     expect(printUrls).toHaveBeenCalledWith(mockConfig)
   })
 
-  test('forwards --file and --yes to underlying functions', async () => {
+  test('cancels when user declines confirmation', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    mockPromptSequence({ confirm: false })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectLinkCommand({})
+
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+    expect(linkProject).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('skips prompt when --yes is set', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    ;(linkProject as unknown as jest.Mock).mockResolvedValue(undefined as never)
+
+    await projectLinkCommand({ yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: true })
+  })
+
+  test('skips prompt when --file is set', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/custom/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
     ;(linkProject as unknown as jest.Mock).mockResolvedValue(undefined as never)
 
-    await projectLinkCommand({ file: 'custom.yml', yes: true })
+    await projectLinkCommand({ file: 'custom.yml' })
 
+    expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(resolveConfigPath).toHaveBeenCalledWith('custom.yml')
-    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: true })
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined })
   })
 
   test('exits with code 1 when linkProject throws', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
     ;(linkProject as unknown as jest.Mock).mockRejectedValue(new Error('proxy failed') as never)
+    mockPromptSequence({ confirm: true })
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
@@ -484,7 +514,86 @@ describe('projectStatusCommand', () => {
     ],
   }
 
-  test('renders table with linked and unlinked rows', async () => {
+  test('shows "no project specified" message when no --file and no local .betty.yml found', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([])
+    ;(resolveConfigPath as unknown as jest.Mock).mockImplementation(() => { throw new Error('No .betty.yml found') })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({})
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('No project specified')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompts with found project name when local .betty.yml exists and shows table on confirm', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([
+      { domain: 'my-app.localhost', routerName: 'my-app', fileName: 'my-app.yml', filePath: '/path/my-app.yml', target: 'http://127.0.0.1:3000' },
+    ])
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    mockPromptSequence({ confirm: true })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({})
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm', message: expect.stringContaining("my-app") })])
+    )
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('my-app')
+
+    logSpy.mockRestore()
+  })
+
+  test('cancels when user declines the found project prompt', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([])
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
+    mockPromptSequence({ confirm: false })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({})
+
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+
+    logSpy.mockRestore()
+  })
+
+  test('shows linked domains table when --name matches linked routes', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([
+      { domain: 'ory-ui.mckansescloud.dev', routerName: 'mckanses-auth', fileName: 'mckanses-auth.yml', filePath: '/path/mckanses-auth.yml', target: 'http://127.0.0.1:5173' },
+      { domain: 'api.mckansescloud.dev', routerName: 'mckanses-auth', fileName: 'mckanses-auth.yml', filePath: '/path/mckanses-auth.yml', target: 'http://127.0.0.1:8080' },
+    ])
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStatusCommand({ name: 'mckanses-auth' })
+
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('mckanses-auth')
+    expect(output).toContain('ory-ui.mckansescloud.dev')
+    expect(output).toContain('api.mckansescloud.dev')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('exits with code 1 when --name does not match any linked project', async () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([])
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(projectStatusCommand({ name: 'nonexistent' })).rejects.toThrow('process-exit-1')
+
+    errorSpy.mockRestore()
+  })
+
+  test('renders table with linked and unlinked rows when --file is given', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
     ;(readRoutes as unknown as jest.Mock).mockReturnValue([
@@ -493,10 +602,9 @@ describe('projectStatusCommand', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await projectStatusCommand({})
+    await projectStatusCommand({ file: '.betty.yml' })
 
     const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
-    expect(output).toContain('No project specified')
     expect(output).toContain('my-app')
     expect(output).toContain('status')
     expect(output).toContain('domain')
@@ -517,7 +625,6 @@ describe('projectStatusCommand', () => {
     await projectStatusCommand({ file: 'custom.yml' })
 
     expect(resolveConfigPath).toHaveBeenCalledWith('custom.yml')
-    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain('No project specified')
 
     logSpy.mockRestore()
   })
@@ -528,29 +635,8 @@ describe('projectStatusCommand', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectStatusCommand({})).rejects.toThrow('process-exit-1')
+    await expect(projectStatusCommand({ file: '.betty.yml' })).rejects.toThrow('process-exit-1')
 
     errorSpy.mockRestore()
-  })
-
-  test('shows selection prompt when multiple projects are linked', async () => {
-    ;(readRoutes as unknown as jest.Mock).mockReturnValue([
-      { domain: 'app-a.localhost', routerName: 'project-a', fileName: 'project-a.yml', filePath: '/path/project-a.yml', target: 'http://127.0.0.1:3000' },
-      { domain: 'app-b.localhost', routerName: 'project-b', fileName: 'project-b.yml', filePath: '/path/project-b.yml', target: 'http://127.0.0.1:4000' },
-    ])
-    mockPromptSequence({ project: 'project-b' })
-
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
-
-    await projectStatusCommand({})
-
-    expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: 'project', type: 'list' })])
-    )
-    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
-    expect(output).toContain('project-b')
-    expect(output).toContain('app-b.localhost')
-
-    logSpy.mockRestore()
   })
 })

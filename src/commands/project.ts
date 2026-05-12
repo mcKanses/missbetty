@@ -156,6 +156,18 @@ export const projectLinkCommand = async (opts: ProjectActionOptions): Promise<vo
   try {
     const configPath = resolveConfigPath(opts.file)
     const config = readDevProjectConfig(configPath)
+
+    if (opts.yes !== true && opts.file === undefined) {
+      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+      const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Link project '${config.project}' from ${relPath}?`,
+        default: true,
+      }]) as { confirm: boolean }
+      if (!confirm) { console.log('Cancelled.'); return }
+    }
+
     await linkProject(config, { yes: opts.yes })
     printUrls(config)
   } catch (err) {
@@ -197,7 +209,7 @@ const printStatusTable = (rows: { status: string; domain: string; target: string
   const targetW = Math.max(6, ...rows.map((r) => r.target.length))
   const header = `${'status'.padEnd(statusW)} | ${'domain'.padEnd(domainW)} | ${'target'.padEnd(targetW)}`
   const sep = `${'-'.repeat(statusW)}-|-${'-'.repeat(domainW)}-|-${'-'.repeat(targetW)}`
-  console.log(`\n${projectName}`)
+  console.log(`\nproject name: ${projectName}\n`)
   console.log(header)
   console.log(sep)
   rows.forEach((r) => {
@@ -205,70 +217,53 @@ const printStatusTable = (rows: { status: string; domain: string; target: string
   })
 }
 
-export const projectStatusCommand = async (opts: { file?: string }): Promise<void> => {
+export const projectStatusCommand = async (opts: { file?: string; name?: string }): Promise<void> => {
   try {
     const routes = readRoutes()
 
-    if (opts.file !== undefined) {
-      const configPath = resolveConfigPath(opts.file)
-      const config = readDevProjectConfig(configPath)
+    if (opts.name !== undefined) {
+      const projectName = opts.name.trim()
+      const projectRoutes = routes.filter(
+        (r) => path.basename(r.fileName, path.extname(r.fileName)) === sanitizeName(projectName)
+      )
+      if (projectRoutes.length === 0) {
+        printError(`No linked project found with name '${projectName}'.`)
+        process.exit(1)
+      }
       printStatusTable(
-        config.domains.map((d) => ({
-          status: routes.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
-          domain: d.host,
-          target: d.target,
-        })),
-        config.project
+        projectRoutes.map((r) => ({ status: 'linked', domain: r.domain, target: r.target })),
+        projectName
       )
       return
     }
 
-    console.log('No project specified. Use --file <path> to target a specific project.\n')
-
-    const linkedNames = [...new Set(routes.map((r) => path.basename(r.fileName, path.extname(r.fileName))))]
-
-    if (linkedNames.length === 0) {
-      const configPath = resolveConfigPath(undefined)
-      const config = readDevProjectConfig(configPath)
-      printStatusTable(
-        config.domains.map((d) => ({ status: 'unlinked', domain: d.host, target: d.target })),
-        config.project
-      )
-      return
-    }
-
-    const selected = linkedNames.length === 1
-      ? linkedNames[0]
-      : ((await inquirer.prompt([{
-          type: 'list',
-          name: 'project',
-          message: 'Select a project:',
-          choices: linkedNames,
-        }]) as { project: string }).project)
-
-    // Use local .betty.yml if it matches the selected project
-    try {
-      const configPath = resolveConfigPath(undefined)
-      const config = readDevProjectConfig(configPath)
-      if (sanitizeName(config.project) === selected) {
-        printStatusTable(
-          config.domains.map((d) => ({
-            status: routes.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
-            domain: d.host,
-            target: d.target,
-          })),
-          config.project
-        )
+    let configPath: string
+    if (opts.file === undefined) try {
+        configPath = resolveConfigPath(undefined)
+        const foundConfig = readDevProjectConfig(configPath)
+        const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+        const { confirm } = await inquirer.prompt([{
+          type: 'confirm',
+          name: 'confirm',
+          message: `Found project '${foundConfig.project}' in ${relPath}. Show status?`,
+          default: true,
+        }]) as { confirm: boolean }
+        if (!confirm) { console.log('Cancelled.'); return }
+      } catch {
+        console.log('\nNo project specified. Use --file <path> or --name <name> to target a specific project.')
         return
       }
-    } catch { /* no matching local config, fall through */ }
+     else configPath = resolveConfigPath(opts.file)
+    
 
-    // Fall back to routes-only view
+    const config = readDevProjectConfig(configPath)
     printStatusTable(
-      routes
-        .filter((r) => path.basename(r.fileName, path.extname(r.fileName)) === selected)
-        .map((r) => ({ status: 'linked', domain: r.domain, target: r.target })),
-      selected
+      config.domains.map((d) => ({
+        status: routes.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
+        domain: d.host,
+        target: d.target,
+      })),
+      config.project
     )
   } catch (err) {
     printError(err instanceof Error ? err.message : String(err))
