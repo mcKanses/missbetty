@@ -85,11 +85,47 @@ describe('cli command registration', () => {
     expect(optionFlags(unlinkSub)).toEqual(expect.arrayContaining(['-y, --yes']))
   })
 
-  test('registers setup repair option', () => {
+  test('registers setup repair and auto-confirm options', () => {
     const flags = optionFlags(command(createProgram(), 'setup'))
 
     expect(flags).toEqual(expect.arrayContaining([
       '--fix',
+      '-y, --yes',
+    ]))
+  })
+
+  test('registers all project subcommands', () => {
+    const program = createProgram()
+    const projectCmd = program.commands.find((cmd) => cmd.name() === 'project')
+    if (projectCmd === undefined) throw new Error('Missing command: project')
+
+    const subNames = projectCmd.commands.map((cmd) => cmd.name())
+    expect(subNames).toEqual(expect.arrayContaining(['load', 'create', 'unlink', 'link', 'stop', 'status']))
+  })
+
+  test('registers project status --name option', () => {
+    const program = createProgram()
+    const projectCmd = program.commands.find((cmd) => cmd.name() === 'project')
+    if (projectCmd === undefined) throw new Error('Missing command: project')
+    const statusSub = projectCmd.commands.find((cmd) => cmd.name() === 'status')
+    if (statusSub === undefined) throw new Error('Missing subcommand: project status')
+
+    expect(optionFlags(statusSub)).toEqual(expect.arrayContaining([
+      '--file <path>',
+      '--name <name>',
+    ]))
+  })
+
+  test('registers project link --yes option', () => {
+    const program = createProgram()
+    const projectCmd = program.commands.find((cmd) => cmd.name() === 'project')
+    if (projectCmd === undefined) throw new Error('Missing command: project')
+    const linkSub = projectCmd.commands.find((cmd) => cmd.name() === 'link')
+    if (linkSub === undefined) throw new Error('Missing subcommand: project link')
+
+    expect(optionFlags(linkSub)).toEqual(expect.arrayContaining([
+      '--file <path>',
+      '-y, --yes',
     ]))
   })
 

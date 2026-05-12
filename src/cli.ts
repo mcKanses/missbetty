@@ -110,7 +110,7 @@ export const createProgram = (): Command => {
 
   projectCmd
     .command('link')
-    .description('Link project domains without starting services')
+    .description('Link project domains without starting services (auto-detects local .betty.yml)')
     .option('--file <path>', 'Path to .betty.yml')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action((opts: ProjectActionOptions) => { void projectLinkCommand(opts) })
@@ -124,7 +124,7 @@ export const createProgram = (): Command => {
 
   projectCmd
     .command('status')
-    .description('Show linked status for project domains')
+    .description('Show linked status for project domains (auto-detects local .betty.yml)')
     .option('--file <path>', 'Path to .betty.yml')
     .option('--name <name>', 'Project name to look up from linked routes')
     .action((opts: { file?: string; name?: string }) => { void projectStatusCommand(opts) })
