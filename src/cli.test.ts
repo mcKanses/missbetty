@@ -1,6 +1,7 @@
 import { describe, expect, test } from '@jest/globals'
 import type { Command } from 'commander'
 import { createProgram } from './cli'
+import { AUTHOR_INFO } from './cli/ui/meta'
 
 const command = (program: Command, name: string): Command => {
   const match = program.commands.find((cmd) => cmd.name() === name)
@@ -68,9 +69,20 @@ describe('cli command registration', () => {
     ]))
     expect(optionFlags(command(program, 'unlink'))).toEqual(expect.arrayContaining([
       '--domain <domain>',
+      '--project <name>',
       '--all',
       '-y, --yes',
     ]))
+  })
+
+  test('registers project unlink subcommand with --yes flag', () => {
+    const program = createProgram()
+    const projectCmd = program.commands.find((cmd) => cmd.name() === 'project')
+    if (projectCmd === undefined) throw new Error('Missing command: project')
+
+    const unlinkSub = projectCmd.commands.find((cmd) => cmd.name() === 'unlink')
+    if (unlinkSub === undefined) throw new Error('Missing subcommand: project unlink')
+    expect(optionFlags(unlinkSub)).toEqual(expect.arrayContaining(['-y, --yes']))
   })
 
   test('registers setup repair option', () => {
@@ -87,12 +99,10 @@ describe('cli command registration', () => {
       .configureOutput({ writeOut: (text: string) => { output += text } })
       .outputHelp()
 
-    expect(output).toContain('Copyright (c) 2026\nby Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
-    expect(output).toContain('Support Betty ❤️ https://github.com/sponsors/mcKanses | https://buymeacoffee.com/mckanses')
+    expect(output).toContain(AUTHOR_INFO)
   })
 
   test('prints author information with version output', () => {
-    expect(createProgram().version()).toContain('Copyright (c) 2026\nby Arda Cansiz (https://github.com/mcKanses | https://linkedin.com/in/ardacansiz)')
-    expect(createProgram().version()).toContain('Support Betty ❤️ https://github.com/sponsors/mcKanses | https://buymeacoffee.com/mckanses')
+    expect(createProgram().version()).toContain(AUTHOR_INFO)
   })
 })
