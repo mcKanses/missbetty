@@ -44,6 +44,7 @@ interface LinkOptions {
 interface UnlinkOptions {
   domain?: string;
   all?: boolean;
+  yes?: boolean;
 }
 
 interface SetupOptions {
@@ -147,6 +148,7 @@ export const createProgram = (): Command => {
     .description('Remove a local domain link')
     .option('--domain <domain>', 'Linked domain, e.g. my-app.localhost')
     .option('--all', 'Remove all links at once')
+    .option('-y, --yes', 'Skip interactive prompts and remove only the matched domain')
     .action((target: string | undefined, opts: UnlinkOptions) => { void unlinkCommand(target, opts) })
 
   program

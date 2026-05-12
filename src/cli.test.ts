@@ -69,6 +69,7 @@ describe('cli command registration', () => {
     expect(optionFlags(command(program, 'unlink'))).toEqual(expect.arrayContaining([
       '--domain <domain>',
       '--all',
+      '-y, --yes',
     ]))
   })
 
