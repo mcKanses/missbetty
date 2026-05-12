@@ -13,18 +13,25 @@ interface LogoFrame {
 
 const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-const renderFrame = ({ topLeftCable, middleHCable, bottomLeftCable, bottomRightCable, bottomHLength }: LogoFrame): void => {
+const renderFrame = ({ topLeftCable, middleHCable, bottomLeftCable, bottomRightCable }: LogoFrame): void => {
   const tl = topLeftCable ? `${YELLOW}│${RESET}` : ' '
   const bl = bottomLeftCable ? `${YELLOW}│${RESET}` : ' '
   const br = bottomRightCable ? `${YELLOW}│${RESET}` : ' '
   const mh = middleHCable ? `${YELLOW}───${RESET}` : '   '
-  const bh = `${GRAY}●${RESET}${YELLOW}${'─'.repeat(bottomHLength)}${RESET}${' '.repeat(3 - bottomHLength)}${GRAY}●${RESET}`
 
-  console.log(`${GRAY}●   ●${RESET}`)
-  console.log(tl)
-  console.log(`${GRAY}●${RESET}${mh}${GRAY}●${RESET}   betty`)
-  console.log(`${bl}   ${br}   ${DIM}connects local domains to services${RESET}`)
-  console.log(bh)
+  const logo = [
+    `${GRAY}●   ●${RESET}`,
+    `${tl}   `,
+    `${GRAY}●${RESET}${mh}${GRAY}●${RESET}`,
+    `${bl}   ${br}`,
+    `${GRAY}●${RESET}${mh}${GRAY}●${RESET}`,
+  ]
+
+  console.log(logo[0])
+  console.log(logo[1])
+  console.log(logo[2] + '    betty')
+  console.log(logo[3] + `    ${DIM}connects local domains to services${RESET}`)
+  console.log(logo[4])
 }
 
 const FULL_FRAME: LogoFrame = {
