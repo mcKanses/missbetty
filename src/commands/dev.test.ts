@@ -244,6 +244,62 @@ describe('dev command', () => {
     )
   })
 
+  test('warns about missing hosts entry when hosts permission is manual', async () => {
+    const CONFIG_MANUAL_HOSTS = [
+      'project: test',
+      'domains:',
+      '  - host: api.test.dev',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: manual',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      String(p).replace(/\\/g, '/').endsWith('.betty.yml')
+    )
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return CONFIG_MANUAL_HOSTS
+      return ''
+    })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('api.test.dev'))
+
+    errorSpy.mockRestore()
+  })
+
+  test('uses confirm prompt for single-domain hosts:prompt and adds the entry', async () => {
+    const CONFIG_SINGLE_PROMPT = [
+      'project: test',
+      'domains:',
+      '  - host: api.test.dev',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: prompt',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return CONFIG_SINGLE_PROMPT
+      return ''
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true } as never)
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+
+    const confirmCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
+      (call) => (call[0] as { type: string }[])[0]?.type === 'confirm'
+    )
+    expect(confirmCall).toBeDefined()
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.any(String), expect.stringContaining('api.test.dev'), 'utf8'
+    )
+  })
+
   test('prompts user for docker permission and exits when denied interactively', async () => {
     const CONFIG_NO_HTTPS_PROMPT = [
       'project: test',

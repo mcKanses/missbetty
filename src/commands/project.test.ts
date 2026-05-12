@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
 import inquirer from 'inquirer'
-import projectCommand, { projectCreateCommand, projectLoadCommand } from './project'
+import projectCommand, { projectCreateCommand, projectLoadCommand, validateHttpTarget } from './project'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -46,6 +46,24 @@ beforeEach(() => {
     throw new Error(`process-exit-${String(code)}`)
   })
   devCommand.mockResolvedValue(undefined as never)
+})
+
+describe('validateHttpTarget', () => {
+  test('returns true for a valid http URL', () => {
+    expect(validateHttpTarget('http://127.0.0.1:3000')).toBe(true)
+  })
+
+  test('returns true for a valid https URL', () => {
+    expect(validateHttpTarget('https://example.com')).toBe(true)
+  })
+
+  test('returns error string for a non-URL value', () => {
+    expect(validateHttpTarget('not-a-url')).toBe('Must be a valid http(s) URL.')
+  })
+
+  test('returns error string for a non-http(s) protocol', () => {
+    expect(validateHttpTarget('ftp://example.com')).toBe('Must be an http(s) URL.')
+  })
 })
 
 describe('projectLoadCommand', () => {
@@ -101,6 +119,20 @@ describe('projectCommand (no subcommand)', () => {
       expect.arrayContaining([expect.objectContaining({ name: 'create' })])
     )
     expect(devCommand).not.toHaveBeenCalled()
+  })
+
+  test('catches error thrown by devCommand and exits with code 1', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('project: my-app\ndomains: []\n')
+    mockPromptSequence({ load: true })
+    devCommand.mockRejectedValueOnce(new Error('oops') as never)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(projectCommand()).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('oops'))
+
+    errorSpy.mockRestore()
   })
 
   test('starts create wizard when user confirms', async () => {
@@ -218,6 +250,44 @@ describe('projectCreateCommand', () => {
     const parsedYaml = require('yaml') as { parse: (s: string) => { project?: string } }
     expect(() => parsedYaml.parse(content)).not.toThrow()
     expect(parsedYaml.parse(content).project).toBe('my: tricky & project')
+  })
+
+  test('validate callback rejects empty project name', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'app' },
+      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
+      { another: false },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
+      { startNow: false }
+    )
+
+    await projectCreateCommand({})
+
+    interface PromptQuestion { name: string; validate?: (v: string) => string | boolean }
+    const nameQuestion = ((inquirer.prompt as unknown as jest.Mock).mock.calls[0][0] as PromptQuestion[])[0]
+    expect(nameQuestion.validate?.('')).toBe('Project name is required.')
+    expect(nameQuestion.validate?.('  ')).toBe('Project name is required.')
+    expect(nameQuestion.validate?.('ok')).toBe(true)
+  })
+
+  test('validate callback rejects empty domain host', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'app' },
+      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
+      { another: false },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
+      { startNow: false }
+    )
+
+    await projectCreateCommand({})
+
+    interface PromptQuestion { name: string; validate?: (v: string) => string | boolean }
+    const domainQuestions = (inquirer.prompt as unknown as jest.Mock).mock.calls[1][0] as PromptQuestion[]
+    const hostQuestion = domainQuestions.find((q) => q.name === 'host')
+    expect(hostQuestion?.validate?.('')).toBe('Host is required.')
+    expect(hostQuestion?.validate?.('app.localhost')).toBe(true)
   })
 
   test('uses --name option as default for project name prompt', async () => {

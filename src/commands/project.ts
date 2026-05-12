@@ -15,7 +15,7 @@ interface ProjectLoadOptions {
   yes?: boolean;
 }
 
-const validateHttpTarget = (value: string): true | string => {
+export const validateHttpTarget = (value: string): true | string => {
   try {
     const url = new URL(value.trim())
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'Must be an http(s) URL.'
