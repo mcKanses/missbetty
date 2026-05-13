@@ -68,7 +68,7 @@ describe('link command', () => {
   test('exits with 1 when proxy is not set up', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
       'process-exit-1'
     )
   })
@@ -82,7 +82,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
       'process-exit-1'
     )
   })
@@ -148,7 +148,7 @@ describe('link command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringContaining('myapp.yml'),
@@ -179,7 +179,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
   })
 
   test('falls back to HTTP when mkcert is missing and HTTPS is not explicitly requested', async () => {
@@ -198,7 +198,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
 
     const calledMkcertInstall = (execSync as unknown as jest.Mock).mock.calls
       .map((call) => String(call[0]))
@@ -234,7 +234,31 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
+  })
+
+  test('shows confirmation prompt and cancels on decline', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('/.betty/dynamic')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: false })
+      return Promise.resolve({})
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm', type: 'confirm' })])
+    )
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+
+    logSpy.mockRestore()
   })
 
   test('prompts for container using list when running containers exist', async () => {
@@ -248,7 +272,11 @@ describe('link command', () => {
       if (c.includes('docker network inspect')) return Buffer.from('[]')
       return Buffer.from('')
     })
-    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ container: 'myapp', domain: 'myapp.localhost' } as never)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ container: 'myapp', domain: 'myapp.localhost' })
+    })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await linkCommand(undefined, { port: '3000' })
@@ -271,7 +299,11 @@ describe('link command', () => {
       if (c.includes('docker network inspect')) return Buffer.from('[]')
       return Buffer.from('')
     })
-    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ port: '3000' } as never)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ port: '3000' })
+    })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await linkCommand('myapp', { domain: 'myapp.localhost' })
@@ -297,11 +329,12 @@ describe('link command', () => {
     ;(inquirer.prompt as unknown as jest.Mock)
       .mockResolvedValueOnce({ port: '__custom__' } as never)
       .mockResolvedValueOnce({ port: '9000' } as never)
+      .mockResolvedValueOnce({ confirm: true } as never)
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await linkCommand('myapp', { domain: 'myapp.localhost' })
 
-    expect(inquirer.prompt).toHaveBeenCalledTimes(2)
+    expect(inquirer.prompt).toHaveBeenCalledTimes(3)
     expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
@@ -317,7 +350,11 @@ describe('link command', () => {
       if (c.includes('docker network inspect')) return Buffer.from('[]')
       return Buffer.from('')
     })
-    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ port: '4000' } as never)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ port: '4000' })
+    })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await linkCommand('myapp', { domain: 'myapp.localhost' })
@@ -351,6 +388,7 @@ describe('link command', () => {
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
       captured.push(questions as PromptQuestion[])
       const qs = questions as PromptQuestion[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true } as never)
       if (qs.some((q) => q.name === 'container' || q.name === 'domain')) return Promise.resolve({ container: 'myapp', domain: 'myapp.localhost' } as never)
       if (qs.some((q) => q.name === 'port' && qs.length === 1 && (qs[0].default !== undefined))) return Promise.resolve({ port: '__custom__' } as never)
       return Promise.resolve({ port: '3000' } as never)
@@ -390,6 +428,7 @@ describe('link command', () => {
     let capturedPortQ: PortQuestion | undefined
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
       const qs = questions as PortQuestion[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true } as never)
       const pq = qs.find((q) => q.name === 'port')
       if (pq?.validate !== undefined) capturedPortQ = pq
       return Promise.resolve({ port: '3000' } as never)
@@ -441,7 +480,7 @@ describe('link command', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', open: true })
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', open: true, yes: true })
 
     const browserCalls = (execSync as unknown as jest.Mock).mock.calls
       .map((call) => String(call[0]))
@@ -465,7 +504,7 @@ describe('link command', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', open: true })
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', open: true, yes: true })
 
     const output = errSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not open browser')
@@ -567,7 +606,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -586,7 +625,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -606,7 +645,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
@@ -629,7 +668,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     expect(execSync).toHaveBeenCalledWith(
       expect.stringContaining('EncodedCommand'),
@@ -668,7 +707,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.unlinkSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')

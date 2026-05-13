@@ -274,6 +274,29 @@ describe('setup command', () => {
     logSpy.mockRestore()
   })
 
+  test('--yes applies all fixes including hosts entry without prompting', async () => {
+    ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
+      dockerInstalled: true,
+      dockerRunning: true,
+      mkcertInstalled: false,
+      mkcertCaInstalled: false,
+      hostsEntryExists: false,
+      domain: 'myapp.dev',
+    })
+    ;(installMkcertPackage as unknown as jest.Mock).mockReturnValue({ ok: true })
+    ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
+    ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
+    ;(runMkcertInstall as unknown as jest.Mock).mockReturnValue({ ok: true })
+    ;(addHostsEntry as unknown as jest.Mock).mockReturnValue({ changed: true })
+
+    await setupCommand({ yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(installMkcertPackage).toHaveBeenCalled()
+    expect(runMkcertInstall).toHaveBeenCalled()
+    expect(addHostsEntry).toHaveBeenCalledWith('myapp.dev')
+  })
+
   test('interactive mode logs docker-not-running when docker installed but not running', async () => {
     ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
       dockerInstalled: true,
