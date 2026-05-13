@@ -13,7 +13,7 @@ describe('printHelp', () => {
     printHelp()
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
-    expect(output).toContain('dev')
+    expect(output).toContain('project')
     expect(output).toContain('serve')
     expect(output).toContain('link')
     expect(output).toContain('relink')
@@ -32,6 +32,8 @@ describe('printHelp', () => {
     printHelp()
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('betty project load')
+    expect(output).toContain('betty project status')
     expect(output).toContain('betty serve')
     expect(output).toContain('betty link')
     expect(output).toContain('betty status')

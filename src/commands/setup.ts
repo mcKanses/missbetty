@@ -12,9 +12,11 @@ import {
 
 interface SetupOptions {
   fix?: boolean;
+  yes?: boolean;
 }
 
-const askYesNo = async (message: string): Promise<boolean> => {
+const askYesNo = async (message: string, yes?: boolean): Promise<boolean> => {
+  if (yes === true) return true
   const answer = await inquirer.prompt([{
     type: 'confirm',
     name: 'ok',
@@ -46,11 +48,11 @@ const runSetupFix = (): void => {
   else if (!status.dockerRunning) console.log('Warning: Docker is installed but not running.')
 }
 
-const runSetupInteractive = async (): Promise<void> => {
+const runSetupInteractive = async (yes?: boolean): Promise<void> => {
   const status = collectSetupStatus()
 
   if (!status.mkcertInstalled) {
-    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now? [Y/n]')
+    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now? [Y/n]', yes)
     if (shouldInstallMkcert) {
       const installResult = installMkcertPackage()
       if (!installResult.ok && installResult.warning !== undefined) {
@@ -61,7 +63,7 @@ const runSetupInteractive = async (): Promise<void> => {
   }
 
   if (checkMkcertInstalled() && (!status.mkcertCaInstalled || !checkMkcertCaInstalled())) {
-    const shouldInstallCa = await askYesNo('Run mkcert -install to create local CA? [Y/n]')
+    const shouldInstallCa = await askYesNo('Run mkcert -install to create local CA? [Y/n]', yes)
     if (shouldInstallCa) {
       const mkcertResult = runMkcertInstall()
       if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
@@ -69,7 +71,7 @@ const runSetupInteractive = async (): Promise<void> => {
   }
 
   if (!status.hostsEntryExists) {
-    const shouldAddHosts = await askYesNo(`Add ${status.domain} to /etc/hosts? Requires sudo. [Y/n]`)
+    const shouldAddHosts = await askYesNo(`Add ${status.domain} to /etc/hosts? Requires sudo. [Y/n]`, yes)
     if (shouldAddHosts) {
       const hostsResult = addHostsEntry(status.domain)
       if (!hostsResult.changed && hostsResult.warning !== undefined) console.log(`Warning: ${hostsResult.warning}`)
@@ -87,7 +89,7 @@ const setupCommand = async (opts?: SetupOptions): Promise<void> => {
     return
   }
 
-  await runSetupInteractive()
+  await runSetupInteractive(opts?.yes)
 }
 
 export default setupCommand
