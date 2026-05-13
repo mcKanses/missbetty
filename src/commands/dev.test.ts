@@ -269,7 +269,7 @@ describe('dev command', () => {
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
   })
 
-  test('shows checkbox for all domains in prompt mode and adds only selected', async () => {
+  test('shows checkbox for multiple missing hosts entries and adds only selected domains', async () => {
     const MULTI_DOMAIN_CONFIG = [
       'project: test',
       'domains:',
@@ -358,6 +358,7 @@ describe('dev command', () => {
       expect.any(String), expect.stringContaining('api.test.dev'), 'utf8'
     )
   })
+
 
   test('prompts user for docker permission and exits when denied interactively', async () => {
     const CONFIG_NO_HTTPS_PROMPT = [
