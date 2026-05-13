@@ -722,6 +722,157 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
+  test('exits in interactive mode when single route file is missing', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(unlinkCommand()).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('--project exits when route file is missing at removal time', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(unlinkCommand({ project: 'mckanses-auth', yes: true })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('reports failed project in checkbox selection when route file is missing', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const projectChoice = q.choices?.find((c) => (c.value as { kind?: string }).kind === 'project')
+        return Promise.resolve({ selected: projectChoice !== undefined ? [projectChoice.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('❌'))
+
+    logSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+
+  test('reports failed domain in checkbox selection when route file is missing', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('dev.yml')) return YAML_DEV_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const first = q.choices?.[0]?.value
+        return Promise.resolve({ selected: first !== undefined ? [first] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('❌'))
+
+    logSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+
+  test('keeps hosts entry in checkbox selection when domain is still used by another route file', async () => {
+    const YAML_APP2_SAME_DOMAIN = [
+      'http:',
+      '  routers:',
+      '    app2:',
+      "      rule: 'Host(\"app.localhost\")'",
+      '      entryPoints: [web]',
+      '      service: app2',
+      '  services:',
+      '    app2:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://172.18.0.3:5173',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/app.yml') ||
+        np.endsWith('/app2.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock)
+      .mockReturnValueOnce(['app.yml', 'app2.yml'])
+      .mockReturnValueOnce(['app2.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('app2.yml')) return YAML_APP2_SAME_DOMAIN
+      return YAML_APP_ROUTE
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const domainFromApp = q.choices?.find(
+          (c) => (c.value as { kind?: string; route?: { fileName?: string } }).kind === 'domain' &&
+                  (c.value as { route?: { fileName?: string } }).route?.fileName === 'app.yml'
+        )
+        return Promise.resolve({ selected: domainFromApp !== undefined ? [domainFromApp.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Keeping hosts entry'))
+
+    logSpy.mockRestore()
+  })
+
   test('removes hosts entry automatically for .dev domains', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
