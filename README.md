@@ -22,7 +22,11 @@ Betty currently orchestrates:
 Betty is an early prototype. The current goal is a small, Valet-like workflow:
 
 ```sh
-betty dev
+betty project load
+betty project create
+betty project link
+betty project stop
+betty project status
 betty serve
 betty link
 betty relink
@@ -38,7 +42,7 @@ betty rest
 The core workflow does not require a project configuration file. Start your
 containers with Docker or Docker Compose, then let Betty link them to local
 domains. Projects that want a single command can add `.betty.yml` and run
-`betty dev`.
+`betty project load`.
 
 ## Requirements
 
@@ -171,7 +175,7 @@ permissions:
 Then start the project:
 
 ```sh
-betty dev
+betty project load
 ```
 
 Betty prepares the local route and prints the available URLs:
@@ -190,17 +194,26 @@ betty link my-app --domain my-app.localhost --port 3000
 
 ## Commands
 
-### `betty dev`
+### `betty project`
 
-Starts a project from `.betty.yml`.
+Manages project-level orchestration from `.betty.yml`.
+
+#### `betty project load`
+
+Reads `.betty.yml`, prepares hosts entries and mkcert certificates, starts
+Betty's global proxy, writes project routes, runs the configured `up.command`,
+then prints the available URLs. Loopback targets such as `127.0.0.1` and
+`localhost` are routed through `host.docker.internal` inside the Traefik
+container.
 
 ```sh
-betty dev
-betty dev --config ./.betty.yml
-betty dev --dry-run
+betty project load
+betty project load --file ./.betty.yml
+betty project load --dry-run
+betty project load -y
 ```
 
-Example:
+Example `.betty.yml`:
 
 ```yaml
 project: mckanses-auth
@@ -228,19 +241,13 @@ permissions:
   docker: allowed
 ```
 
-`betty dev` reads the project config, prepares hosts entries and mkcert
-certificates, starts Betty's global proxy, writes project routes, runs the
-configured `up.command`, then prints the available URLs. Loopback targets such
-as `127.0.0.1` and `localhost` are routed through `host.docker.internal` inside
-the Traefik container.
-
 Config fields:
 
 | Field | Description |
 | --- | --- |
 | `project` | Stable project name used for Betty route file names |
 | `up.command` | Shell command run after hosts, certificates, and proxy routes are ready |
-| `down.command` | Reserved project shutdown command for tools and future workflow support |
+| `down.command` | Shell command run on project stop |
 | `domains[].host` | Local domain Betty should expose |
 | `domains[].target` | Local HTTP(S) target for the domain, for example `http://127.0.0.1:5173` |
 | `https.enabled` | Enables HTTPS routes and mkcert certificates |
@@ -248,6 +255,53 @@ Config fields:
 | `permissions.hosts` | `prompt`, `allowed`, `manual`, or `denied` for hosts-file changes |
 | `permissions.trustStore` | `prompt`, `allowed`, `manual`, or `denied` for mkcert CA setup |
 | `permissions.docker` | `prompt`, `allowed`, `manual`, or `denied` for Docker commands |
+
+#### `betty project create`
+
+Creates a new `.betty.yml` interactively.
+
+```sh
+betty project create
+betty project create --name my-app
+```
+
+#### `betty project link`
+
+Links project domains to the Betty proxy without running the `up.command`.
+Auto-detects `.betty.yml` in the current directory.
+
+```sh
+betty project link
+betty project link --file ./.betty.yml
+betty project link -y
+```
+
+#### `betty project stop`
+
+Runs the configured `down.command` and removes all domain links for the
+project. Auto-detects `.betty.yml` in the current directory.
+
+```sh
+betty project stop
+betty project stop --file ./.betty.yml
+betty project stop -y
+```
+
+#### `betty project status`
+
+Shows which project domains are currently linked. Auto-detects `.betty.yml`
+in the current directory, or accepts `--name` to look up a project by name.
+
+```sh
+betty project status
+betty project status --file ./.betty.yml
+betty project status --name my-app
+```
+
+#### `betty dev` (legacy)
+
+`betty dev` is a legacy alias for `betty project load`. Use `betty project load`
+instead.
 
 ### `betty serve`
 
