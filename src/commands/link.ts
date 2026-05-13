@@ -47,6 +47,7 @@ interface LinkCommandOptions {
   port?: string;
   dryRun?: boolean;
   open?: boolean;
+  yes?: boolean;
 }
 
 const stripReplicaSuffix = (value: string): string => value.replace(/-\d+$/, '')
@@ -134,17 +135,14 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
 
   if (resolvedPort === undefined) {
     const exposedPorts = resolvedContainer !== undefined ? readExposedPorts(resolvedContainer) : []
-    const CUSTOM_PORT = '__custom__'
-    if (exposedPorts.length > 0) {
-      const choices = [
-        ...exposedPorts.map(String),
-        { name: 'Other (enter manually)', value: CUSTOM_PORT },
-      ]
+    if (opts.yes === true) resolvedPort = exposedPorts.length > 0 ? String(exposedPorts[0]) : '80'
+     else if (exposedPorts.length > 0) {
+      const CUSTOM_PORT = '__custom__'
       const portAnswer = await inquirer.prompt([{
         type: 'list',
         name: 'port',
         message: 'Port:',
-        choices,
+        choices: [...exposedPorts.map(String), { name: 'Other (enter manually)', value: CUSTOM_PORT }],
         default: String(exposedPorts[0]),
       }]) as { port: string }
       if (portAnswer.port === CUSTOM_PORT) {
@@ -210,6 +208,16 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
     else console.log(`- hosts entry: 127.0.0.1 ${domainResolved} # added by betty`)
     console.log('- traefik restart: yes')
     return
+  }
+
+  if (opts.yes !== true) {
+    const { confirm } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'confirm',
+      message: `Link '${containerNameResolved}' → ${domainResolved}:${String(port)}?`,
+      default: true,
+    }]) as { confirm: boolean }
+    if (!confirm) { console.log('Cancelled.'); return }
   }
 
   ensureProxySetup()
