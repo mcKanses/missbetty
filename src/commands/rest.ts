@@ -1,13 +1,28 @@
+import inquirer from 'inquirer'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import { printError } from '../cli/ui/output'
 import { BETTY_HOME_DIR, BETTY_PROXY_COMPOSE } from '../utils/constants'
 
-const restCommand = (): void => {
+interface RestOptions {
+  yes?: boolean;
+}
+
+const restCommand = async (opts?: RestOptions): Promise<void> => {
   if (!fs.existsSync(BETTY_PROXY_COMPOSE)) {
     console.log("Betty's local switchboard service is not set up yet.")
     console.log('Start it with: betty serve')
     return
+  }
+
+  if (opts?.yes !== true) {
+    const { confirm } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'confirm',
+      message: 'Stop Betty proxy service?',
+      default: false,
+    }]) as { confirm: boolean }
+    if (!confirm) { console.log('Cancelled.'); return }
   }
 
   try {

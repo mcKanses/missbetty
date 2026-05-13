@@ -50,6 +50,28 @@ const YAML_APP_ROUTE = [
   '          - url: http://172.18.0.2:5173',
 ].join('\n')
 
+const YAML_MULTI_DOMAIN = [
+  'http:',
+  '  routers:',
+  '    mckanses-auth-1:',
+  '      rule: \'Host("ory-ui.mckansescloud.dev")\'',
+  '      entryPoints: [web]',
+  '      service: mckanses-auth-1',
+  '    mckanses-auth-2:',
+  '      rule: \'Host("api.mckansescloud.dev")\'',
+  '      entryPoints: [web]',
+  '      service: mckanses-auth-2',
+  '  services:',
+  '    mckanses-auth-1:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://host.docker.internal:5173',
+  '    mckanses-auth-2:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://host.docker.internal:8080',
+].join('\n')
+
 const YAML_DEV_ROUTE = [
   'http:',
   '  routers:',
@@ -62,6 +84,34 @@ const YAML_DEV_ROUTE = [
   '      loadBalancer:',
   '        servers:',
   '          - url: http://172.18.0.2:5173',
+].join('\n')
+
+const YAML_MULTI_WITH_TLS = [
+  'http:',
+  '  routers:',
+  '    app1:',
+  "      rule: 'Host(\"app1.localhost\")'",
+  '      entryPoints: [web]',
+  '      service: app1',
+  '    app2:',
+  "      rule: 'Host(\"app2.localhost\")'",
+  '      entryPoints: [web]',
+  '      service: app2',
+  '  services:',
+  '    app1:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://172.18.0.2:5173',
+  '    app2:',
+  '      loadBalancer:',
+  '        servers:',
+  '          - url: http://172.18.0.3:8080',
+  'tls:',
+  '  certificates:',
+  '    - certFile: /home/test-user/.betty/certs/app1.localhost.pem',
+  '      keyFile: /home/test-user/.betty/certs/app1.localhost-key.pem',
+  '    - certFile: /home/test-user/.betty/certs/app2.localhost.pem',
+  '      keyFile: /home/test-user/.betty/certs/app2.localhost-key.pem',
 ].join('\n')
 
 const normalizePath = (p: string) => p.replace(/\\/g, '/')
@@ -134,7 +184,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand('app')
+    await unlinkCommand({ domain: 'app.localhost' })
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('app.yml'))
     expect(execSync).toHaveBeenCalledWith(
@@ -182,7 +232,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand('app')
+    await unlinkCommand({ domain: 'app.localhost' })
 
     expect(fs.unlinkSync).not.toHaveBeenCalled()
     expect(execSync).not.toHaveBeenCalled()
@@ -191,7 +241,7 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
-  test('exits when target has no match', async () => {
+  test('exits when --domain flag has no match', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
       return (
@@ -208,8 +258,8 @@ describe('unlink command', () => {
       throw new Error(`process-exit-${String(code)}`)
     })
 
-    await expect(unlinkCommand('nonexistent')).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No link found for target 'nonexistent'"))
+    await expect(unlinkCommand({ domain: 'nonexistent.localhost' })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No link found for domain 'nonexistent.localhost'"))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()
@@ -230,7 +280,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand(undefined, { domain: 'app.localhost' })
+    await unlinkCommand({ domain: 'app.localhost' })
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('app.yml'))
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed link:'))
@@ -258,7 +308,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand(undefined, { all: true })
+    await unlinkCommand({ all: true })
 
     expect(fs.unlinkSync).toHaveBeenCalledTimes(2)
     expect(execSync).toHaveBeenCalledWith(expect.stringContaining('restart traefik'), expect.anything())
@@ -282,7 +332,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand(undefined, { all: true })
+    await unlinkCommand({ all: true })
 
     expect(fs.unlinkSync).not.toHaveBeenCalled()
     expect(execSync).not.toHaveBeenCalled()
@@ -291,7 +341,7 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
-  test('shows route selection prompt when multiple routes exist and no target given', async () => {
+  test('shows checkbox when multiple routes exist and no target given', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
       return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/app.yml')
@@ -302,8 +352,11 @@ describe('unlink command', () => {
       return YAML_APP_ROUTE
     })
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
-      const q = (questions as { type: string; choices?: { value: string }[] }[])[0]
-      if (q.type === 'list' && q.choices !== undefined) return Promise.resolve({ selection: q.choices[0].value })
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const first = q.choices?.[0]?.value
+        return Promise.resolve({ selected: first !== undefined ? [first] : [] })
+      }
       return Promise.resolve({ confirm: true })
     })
 
@@ -312,50 +365,35 @@ describe('unlink command', () => {
     await unlinkCommand()
 
     expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'selection' })])
+      expect.arrayContaining([expect.objectContaining({ type: 'checkbox', name: 'selected' })])
     )
     expect(fs.unlinkSync).toHaveBeenCalled()
 
     logSpy.mockRestore()
   })
 
-  test('shows disambiguation prompt when target matches multiple routes', async () => {
-    const YAML_APP_DUPLICATE = [
-      'http:',
-      '  routers:',
-      '    app:',
-      '      rule: \'Host("app2.localhost")\'',
-      '      entryPoints: [web]',
-      '      service: app',
-      '  services:',
-      '    app:',
-      '      loadBalancer:',
-      '        servers:',
-      '          - url: http://172.18.0.3:5173',
-    ].join('\n')
-
+  test('--project removes entire project by name and prompts for confirm', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
-      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/app.yml') || np.endsWith('/app2.yml')
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
     })
-    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'app2.yml'])
-    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      if (normalizePath(String(p)).endsWith('app2.yml')) return YAML_APP_DUPLICATE
-      return YAML_APP_ROUTE
-    })
-    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
-      const q = (questions as { type: string; choices?: { value: string }[] }[])[0]
-      if (q.type === 'list' && q.choices !== undefined) return Promise.resolve({ selection: q.choices[0].value })
-      return Promise.resolve({ confirm: true })
-    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirm: true }))
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand('app')
+    await unlinkCommand({ project: 'mckanses-auth' })
 
     expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('Multiple matches') })])
+      expect.arrayContaining([expect.objectContaining({ type: 'confirm', name: 'confirm' })])
     )
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed project:'))
 
     logSpy.mockRestore()
   })
@@ -374,7 +412,7 @@ describe('unlink command', () => {
       throw new Error(`process-exit-${String(code)}`)
     })
 
-    await expect(unlinkCommand('app')).rejects.toThrow('process-exit-1')
+    await expect(unlinkCommand({ domain: 'app.localhost' })).rejects.toThrow('process-exit-1')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
 
     errorSpy.mockRestore()
@@ -409,7 +447,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand('app')
+    await unlinkCommand({ domain: 'app.localhost' })
 
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Keeping hosts entry'))
 
@@ -428,7 +466,7 @@ describe('unlink command', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await unlinkCommand(undefined, { all: true })
+    await unlinkCommand({ all: true })
 
     expect(fs.unlinkSync).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
@@ -438,7 +476,7 @@ describe('unlink command', () => {
     errorSpy.mockRestore()
   })
 
-  test('prints "No link found." when prompt selection matches no route', async () => {
+  test('logs "Nothing selected." when checkbox is submitted empty', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
       return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/app.yml')
@@ -448,7 +486,249 @@ describe('unlink command', () => {
       if (normalizePath(String(p)).endsWith('dev.yml')) return YAML_DEV_ROUTE
       return YAML_APP_ROUTE
     })
-    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ selection: '/no/match.yml' }))
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ selected: [] }))
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(logSpy).toHaveBeenCalledWith('Nothing selected.')
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('shows checkbox for multi-domain project and removes entire project when "all in project" is selected', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock)
+      .mockReturnValueOnce(['mckanses-auth.yml'])
+      .mockReturnValueOnce([])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const projectChoice = q.choices?.find((c) => (c.value as { kind?: string }).kind === 'project')
+        return Promise.resolve({ selected: projectChoice !== undefined ? [projectChoice.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('✅ removed:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('skips confirm prompt and removes only matched domain when --domain --yes is passed', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ domain: 'ory-ui.mckansescloud.dev', yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('mckanses-auth.yml'),
+      expect.stringContaining('mckanses-auth-2'),
+      'utf8'
+    )
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed link:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('--project skips confirm and removes project when --yes is passed', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ project: 'mckanses-auth', yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Removed project:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('--project exits with error when project name is not found', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(unlinkCommand({ project: 'nonexistent' })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No project found with name 'nonexistent'"))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('removes only one router from a multi-domain file when a single domain is selected in checkbox', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const firstDomain = q.choices?.find((c) => (c.value as { kind?: string }).kind === 'domain')
+        return Promise.resolve({ selected: firstDomain !== undefined ? [firstDomain.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+    const writeCall = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find(
+      (call) => normalizePath(String(call[0])).endsWith('mckanses-auth.yml')
+    )
+    expect(writeCall).toBeDefined()
+    const content = typeof writeCall?.[1] === 'string' ? writeCall[1] : ''
+    expect(content).not.toContain('mckanses-auth-1')
+    expect(content).toContain('mckanses-auth-2')
+
+    logSpy.mockRestore()
+  })
+
+  test('removes TLS certificate for domain when updating a multi-domain route file', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/multi-tls.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['multi-tls.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_WITH_TLS)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const firstDomain = q.choices?.find((c) => (c.value as { kind?: string }).kind === 'domain')
+        return Promise.resolve({ selected: firstDomain !== undefined ? [firstDomain.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+    const writeCall = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find(
+      (call) => normalizePath(String(call[0])).endsWith('multi-tls.yml')
+    )
+    expect(writeCall).toBeDefined()
+    const content = typeof writeCall?.[1] === 'string' ? writeCall[1] : ''
+    expect(content).not.toContain('app1.localhost.pem')
+    expect(content).toContain('app2.localhost.pem')
+
+    logSpy.mockRestore()
+  })
+
+  test('--all with multi-domain file calls unlinkSync once and removes hosts for all domains', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirmAll: true }))
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ all: true })
+
+    expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('✅ removed: ory-ui.mckansescloud.dev'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('✅ removed: api.mckansescloud.dev'))
+
+    logSpy.mockRestore()
+  })
+
+  test('removeProjectFile removes hosts entries when domain is no longer in any remaining route', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock)
+      .mockReturnValueOnce(['mckanses-auth.yml'])
+      .mockReturnValueOnce([])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ project: 'mckanses-auth', yes: true })
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('- removed domain: ory-ui.mckansescloud.dev'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('- removed domain: api.mckansescloud.dev'))
+
+    logSpy.mockRestore()
+  })
+
+  test('exits in interactive mode when single route file is missing', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
@@ -456,10 +736,141 @@ describe('unlink command', () => {
     })
 
     await expect(unlinkCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No link found'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
 
     errorSpy.mockRestore()
     exitSpy.mockRestore()
+  })
+
+  test('--project exits when route file is missing at removal time', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(unlinkCommand({ project: 'mckanses-auth', yes: true })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('reports failed project in checkbox selection when route file is missing', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const projectChoice = q.choices?.find((c) => (c.value as { kind?: string }).kind === 'project')
+        return Promise.resolve({ selected: projectChoice !== undefined ? [projectChoice.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('❌'))
+
+    logSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+
+  test('reports failed domain in checkbox selection when route file is missing', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('dev.yml')) return YAML_DEV_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const first = q.choices?.[0]?.value
+        return Promise.resolve({ selected: first !== undefined ? [first] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('❌'))
+
+    logSpy.mockRestore()
+    errorSpy.mockRestore()
+  })
+
+  test('keeps hosts entry in checkbox selection when domain is still used by another route file', async () => {
+    const YAML_APP2_SAME_DOMAIN = [
+      'http:',
+      '  routers:',
+      '    app2:',
+      "      rule: 'Host(\"app.localhost\")'",
+      '      entryPoints: [web]',
+      '      service: app2',
+      '  services:',
+      '    app2:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://172.18.0.3:5173',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/app.yml') ||
+        np.endsWith('/app2.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock)
+      .mockReturnValueOnce(['app.yml', 'app2.yml'])
+      .mockReturnValueOnce(['app2.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('app2.yml')) return YAML_APP2_SAME_DOMAIN
+      return YAML_APP_ROUTE
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const q = (questions as { type: string; choices?: { value: unknown }[] }[])[0]
+      if (q.type === 'checkbox') {
+        const domainFromApp = q.choices?.find(
+          (c) => (c.value as { kind?: string; route?: { fileName?: string } }).kind === 'domain' &&
+                  (c.value as { route?: { fileName?: string } }).route?.fileName === 'app.yml'
+        )
+        return Promise.resolve({ selected: domainFromApp !== undefined ? [domainFromApp.value] : [] })
+      }
+      return Promise.resolve({ confirm: true })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand()
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Keeping hosts entry'))
+
+    logSpy.mockRestore()
   })
 
   test('removes hosts entry automatically for .dev domains', async () => {
@@ -482,7 +893,7 @@ describe('unlink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await unlinkCommand('app')
+    await unlinkCommand({ domain: 'ory-ui.mckanses-auth.dev' })
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringMatching(/hosts$/),

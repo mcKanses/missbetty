@@ -137,7 +137,7 @@ describe('relink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
 
     // prompt is called with empty array when all opts are provided (no interactive fields)
     expect(inquirer.prompt).toHaveBeenCalledWith([])
@@ -169,9 +169,11 @@ describe('relink command', () => {
     })
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
-    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() =>
-      Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
-    )
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    })
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const command = String(cmd)
       if (command.startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
@@ -180,7 +182,7 @@ describe('relink command', () => {
 
     await relinkCommand()
 
-    expect(inquirer.prompt).toHaveBeenCalledTimes(1)
+    expect(inquirer.prompt).toHaveBeenCalledTimes(2)
     expect(inquirer.prompt).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ name: 'container' }),
       expect.objectContaining({ name: 'domain' }),
@@ -299,6 +301,7 @@ describe('relink command', () => {
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
       const qs = questions as { name: string }[]
       if (qs.some((q) => q.name === 'route')) return Promise.resolve({ route: '/home/test-user/.betty/dynamic/app.yml' })
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
       return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
     })
 
@@ -344,7 +347,7 @@ describe('relink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app.localhost', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    await relinkCommand('app.localhost', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
 
     expect(inquirer.prompt).not.toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: 'route' })])
@@ -399,7 +402,7 @@ describe('relink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('HTTPS is available at https://newapp.localhost')
@@ -426,7 +429,9 @@ describe('relink command', () => {
     interface PromptQuestion { name: string; validate?: (v: string) => boolean | string }
     let capturedQuestions: PromptQuestion[] = []
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
-      capturedQuestions = questions as PromptQuestion[]
+      const qs = questions as PromptQuestion[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      capturedQuestions = qs
       return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
     })
 
@@ -442,6 +447,37 @@ describe('relink command', () => {
     expect(portQ?.validate?.('abc')).toBe('Please provide a valid port')
     expect(portQ?.validate?.('0')).toBe('Please provide a valid port')
     expect(portQ?.validate?.('3000')).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  test('shows confirmation prompt and cancels on decline', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: false })
+      return Promise.resolve({})
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm', type: 'confirm' })])
+    )
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
 
     logSpy.mockRestore()
   })
@@ -469,7 +505,7 @@ describe('relink command', () => {
       throw new Error(`process-exit-${String(code)}`)
     })
 
-    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
 
     exitSpy.mockRestore()
   })
@@ -521,7 +557,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -540,7 +576,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -560,7 +596,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
@@ -583,7 +619,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     expect(execSync).toHaveBeenCalledWith(
       expect.stringContaining('EncodedCommand'),
@@ -616,7 +652,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('.ps1'))
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
