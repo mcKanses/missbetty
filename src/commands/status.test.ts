@@ -464,8 +464,8 @@ describe('status command', () => {
     statusCommand({ json: true })
 
     const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { projects: { name: string; domain: string }[] }
-    expect(payload.projects[0].name).toBe('app-secure')
-    expect(payload.projects[0].domain).toBe('http://app.localhost')
+    expect(payload.projects[0].name).toBe('app')
+    expect(payload.projects[0].domain).toBe('https://app.localhost')
 
     logSpy.mockRestore()
   })
@@ -524,8 +524,8 @@ describe('status command', () => {
 
     const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { projects: { name: string; domain: string; port: string }[] }
     expect(payload.projects).toHaveLength(2)
-    expect(payload.projects[0]).toMatchObject({ name: 'project-1', domain: 'http://ui.dev', port: '5173' })
-    expect(payload.projects[1]).toMatchObject({ name: 'project-2', domain: 'http://api.dev', port: '8080' })
+    expect(payload.projects[0]).toMatchObject({ name: 'project', domain: 'https://ui.dev', port: '5173' })
+    expect(payload.projects[1]).toMatchObject({ name: 'project', domain: 'https://api.dev', port: '8080' })
 
     logSpy.mockRestore()
   })

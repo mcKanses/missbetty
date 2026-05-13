@@ -17,6 +17,7 @@ interface RelinkOptions {
   container?: string;
   domain?: string;
   port?: string;
+  yes?: boolean;
 }
 
 interface SelectRouteAnswer {
@@ -64,7 +65,7 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
 
   const route = await selectRoute(routes, target)
   const runningContainers = getRunningContainers()
-  const shouldPromptValues = opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined
+  const shouldPromptValues = opts?.yes !== true && opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined
 
   const answers = await inquirer.prompt([
     ...(shouldPromptValues ? [{
@@ -113,6 +114,16 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   if (!Number.isFinite(port) || port <= 0) {
     printError('Invalid port. Example: --port 3000')
     process.exit(1)
+  }
+
+  if (opts?.yes !== true) {
+    const { confirm } = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'confirm',
+      message: `Update link: ${containerName} → ${domain}:${String(port)}?`,
+      default: true,
+    }]) as { confirm: boolean }
+    if (!confirm) { console.log('Cancelled.'); return }
   }
 
   connectContainerToNetwork(containerName)

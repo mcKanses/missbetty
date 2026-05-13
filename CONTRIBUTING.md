@@ -17,6 +17,11 @@ This repo contains Betty, a CLI for local Docker development domains.
 The current workflow is:
 
 ```sh
+betty project load
+betty project create
+betty project link
+betty project stop
+betty project status
 betty serve
 betty link
 betty relink
@@ -26,6 +31,7 @@ betty stop
 ```
 
 `betty rest` is a legacy alias for `betty stop`.
+`betty dev` is a legacy alias for `betty project load`.
 
 Do not document or implement a replacement command name without considering
 backward compatibility.
