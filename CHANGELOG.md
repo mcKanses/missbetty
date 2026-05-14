@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.0](https://github.com/mcKanses/missbetty/compare/v1.5.2...v1.6.0) (2026-05-13)
+
+### Bug Fixes
+
+* Checkbox prompt for multiple missing hosts entries ([#75](https://github.com/mcKanses/missbetty/issues/75)) ([f67f3d2](https://github.com/mcKanses/missbetty/commit/f67f3d25272cadb98fa785e0f365c64c6ac024aa))
+* domain conflict detection in betty dev + fail-fast in betty link ([#67](https://github.com/mcKanses/missbetty/issues/67)) ([97cb564](https://github.com/mcKanses/missbetty/commit/97cb564706f4c784f64dbeb02ac3e045cf4e515b))
+* Fix README version and update-readme-version workflow ([07b344f](https://github.com/mcKanses/missbetty/commit/07b344f19028473e69fd35a28dc21b1de98aadc6))
+* Reliable hosts file management on Windows without repeated UAC prompts ([#71](https://github.com/mcKanses/missbetty/issues/71)) ([c111894](https://github.com/mcKanses/missbetty/commit/c11189412c1fd893b67e422d32861da18d99de3f))
+* Show project name and correct protocol in betty status ([#74](https://github.com/mcKanses/missbetty/issues/74)) ([94301a7](https://github.com/mcKanses/missbetty/commit/94301a77fa70453189d6c74bb0e7526b5d589620))
+* Windows hosts + multi-domain support for betty dev ([#72](https://github.com/mcKanses/missbetty/issues/72)) ([40a7fc1](https://github.com/mcKanses/missbetty/commit/40a7fc1013817c5032e51acc6233bb37e4f26cb5))
+
+### Features
+
+* betty project command, confirmation prompts & UX improvements ([#76](https://github.com/mcKanses/missbetty/issues/76)) ([6bfcd71](https://github.com/mcKanses/missbetty/commit/6bfcd7166c4df3dfbef52325cd515fa88fe64ae6))
+* betty project command, HTTPS workflow, UX improvements & coverage ([528a181](https://github.com/mcKanses/missbetty/commit/528a181dde1cffbda6ad45a4f4997a4bf546f7c5))
+* Rename project config file to .betty.yml ([09d097b](https://github.com/mcKanses/missbetty/commit/09d097b1229c24391987c783233605e598815d29))
+
 ## [1.5.1](https://github.com/mcKanses/missbetty/compare/v1.5.0...v1.5.1) (2026-05-09)
 
 ### Bug Fixes
@@ -70,7 +87,7 @@
 * Prepare devcontainer ([a9809b3](https://github.com/mcKanses/getbetty.dev/commit/a9809b3c11fca7afecb71342dafe32fc0b0e68ac))
 * Read version dynamically from package.json ([f496007](https://github.com/mcKanses/getbetty.dev/commit/f4960071a1b20f0ea5cc0ee1cbf60cff9963b0c4))
 * Register --all option for unlink in CLI and tests ([b787da3](https://github.com/mcKanses/getbetty.dev/commit/b787da32885c9bbe735401818f342bc260c28496))
-* Skip route selection for single link ([3fa01ca](https://github.com/mcKanses/getbetty.dev/commit/3fa01ca4ac5d1b243cdb1a024f013bc71644cc12))
+* Skip route selection for single link ([3fa01ca](https://github.com/mcKanses/getbetty.dev/commit/3fa01ca4ac5d1b243c9143b66c4bca2d1f927261))
 * Suggest compose subdomains with .dev default ([e71aed4](https://github.com/mcKanses/getbetty.dev/commit/e71aed436620762b8d9fba3faf538411d4c23bd4))
 * Suggest domain from container name in link prompt ([d10acb7](https://github.com/mcKanses/getbetty.dev/commit/d10acb7fb8baf6e33310cccf8ba323368fbefcf3))
 * Suggest exposed container ports during link ([81ab384](https://github.com/mcKanses/getbetty.dev/commit/81ab384dda69088d8f773fb4e3f728c13fe53650))
