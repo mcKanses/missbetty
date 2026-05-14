@@ -33,6 +33,10 @@ betty stop
 `betty rest` is a legacy alias for `betty stop`.
 `betty dev` is a legacy alias for `betty project load`.
 
+`betty stop` stops the global Traefik proxy (the switchboard service).
+`betty project stop` runs the project's configured `down.command` and removes its domain links.
+They are distinct commands — do not conflate them.
+
 Do not document or implement a replacement command name without considering
 backward compatibility.
 

@@ -237,4 +237,3 @@ export const run = async (argv = process.argv): Promise<void> => {
   program.parse(argv)
 }
 
-// if (require.main === module) void run()
