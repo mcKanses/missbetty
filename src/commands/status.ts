@@ -206,7 +206,4 @@ const statusCommand = (opts?: StatusOptions): void => {
   }
 }
 
-if (require.main === module) statusCommand()
-
-
 export default statusCommand
