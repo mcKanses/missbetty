@@ -1,22 +1,3 @@
-# [1.6.0](https://github.com/mcKanses/missbetty/compare/v1.5.2...v1.6.0) (2026-05-13)
-
-
-### Bug Fixes
-
-* Checkbox prompt for multiple missing hosts entries ([#75](https://github.com/mcKanses/missbetty/issues/75)) ([f67f3d2](https://github.com/mcKanses/missbetty/commit/f67f3d25272cadb98fa785e0f365c64c6ac024aa))
-* domain conflict detection in betty dev + fail-fast in betty link ([#67](https://github.com/mcKanses/missbetty/issues/67)) ([97cb564](https://github.com/mcKanses/missbetty/commit/97cb564706f4c784f64dbeb02ac3e045cf4e515b))
-* Fix README version and update-readme-version workflow ([07b344f](https://github.com/mcKanses/missbetty/commit/07b344f19028473e69fd35a28dc21b1de98aadc6))
-* Reliable hosts file management on Windows without repeated UAC prompts ([#71](https://github.com/mcKanses/missbetty/issues/71)) ([c111894](https://github.com/mcKanses/missbetty/commit/c11189412c1fd893b67e422d32861da18d99de3f))
-* Show project name and correct protocol in betty status ([#74](https://github.com/mcKanses/missbetty/issues/74)) ([94301a7](https://github.com/mcKanses/missbetty/commit/94301a77fa70453189d6c74bb0e7526b5d589620))
-* Windows hosts + multi-domain support for betty dev ([#72](https://github.com/mcKanses/missbetty/issues/72)) ([40a7fc1](https://github.com/mcKanses/missbetty/commit/40a7fc1013817c5032e51acc6233bb37e4f26cb5))
-
-
-### Features
-
-* betty project command, confirmation prompts & UX improvements ([#76](https://github.com/mcKanses/missbetty/issues/76)) ([6bfcd71](https://github.com/mcKanses/missbetty/commit/6bfcd7166c4df3dfbef52325cd515fa88fe64ae6))
-* betty project command, HTTPS workflow, UX improvements & coverage ([528a181](https://github.com/mcKanses/missbetty/commit/528a181dde1cffbda6ad45a4f4997a4bf546f7c5))
-* Rename project config file to .betty.yml ([09d097b](https://github.com/mcKanses/missbetty/commit/09d097b1229c24391987c783233605e598815d29))
-
 # Changelog
 
 ## [1.6.0](https://github.com/mcKanses/missbetty/compare/v1.5.2...v1.6.0) (2026-05-13)
