@@ -238,7 +238,8 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
     }
 
     let configPath: string
-    if (opts.file === undefined) try {
+    if (opts.file !== undefined) configPath = resolveConfigPath(opts.file)
+     else try {
         configPath = resolveConfigPath(undefined)
         const foundConfig = readDevProjectConfig(configPath)
         const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
@@ -253,8 +254,6 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
         console.log('\nNo project specified. Use --file <path> or --name <name> to target a specific project.')
         return
       }
-     else configPath = resolveConfigPath(opts.file)
-    
 
     const config = readDevProjectConfig(configPath)
     printStatusTable(
