@@ -79,7 +79,6 @@
   "dependencies": {
     "commander": "^11.0.0",
     "inquirer": "^8.2.6",
-    "missbetty": "^1.5.0",
     "yaml": "^2.3.4"
   },
   "devDependencies": {
