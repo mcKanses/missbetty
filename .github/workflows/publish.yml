@@ -56,6 +56,12 @@ jobs:
       - name: Disable hooks for release metadata commit
         run: git config core.hooksPath /dev/null
 
+      - name: Update README install version
+        run: |
+          TAG=$(node -p "require('./package.json').version")
+          sed -i "s/BETTY_VERSION=v[0-9]\+\.[0-9]\+\.[0-9]\+/BETTY_VERSION=v${TAG}/g" README.md
+          sed -i "s/\$env:BETTY_VERSION = 'v[0-9]\+\.[0-9]\+\.[0-9]\+'/\$env:BETTY_VERSION = 'v${TAG}'/g" README.md
+
       - name: Create release metadata PR
         uses: peter-evans/create-pull-request@v6
         env:
@@ -73,3 +79,4 @@ jobs:
             package.json
             package-lock.json
             CHANGELOG.md
+            README.md
