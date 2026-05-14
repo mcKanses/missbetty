@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-# Check for root privileges
-if [ "$(id -u)" -ne 0 ]; then
+# Check for root privileges (not required when BETTY_INSTALL_DIR is set)
+if [ -z "${BETTY_INSTALL_DIR:-}" ] && [ "$(id -u)" -ne 0 ]; then
   echo "This script must be run as root."
   echo "Please run:"
   echo "  curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh"
