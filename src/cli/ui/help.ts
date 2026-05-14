@@ -8,8 +8,7 @@ const commandLine = (name: string, description: string): string => {
   return `  ${label}${DIM}${description}${RESET}`
 }
 
-export function printHelp(): void {
-  // Name und Links rechtsbündig anzeigen
+export const printHelp = (): void => {
   const title = 'betty - connects local domains to services'
   const author = AUTHOR_INFO
   const pad = Math.max(0, 60 - title.length - author.length)

@@ -86,11 +86,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.5.1 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+BETTY_VERSION=v1.6.0 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.5.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.6.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Windows installer options:
@@ -417,8 +417,9 @@ betty unlink --domain my-app.localhost
 betty unlink --all
 ```
 
-For custom domains that are not under `.localhost`, `betty unlink` never
-removes or rewrites hosts entries.
+For custom domains that are not under `.localhost`, `betty unlink` removes
+the hosts entry when no other link uses the same domain. If removal fails,
+Betty prints the domain so you can remove it manually.
 
 | Option | Description |
 | --- | --- |
@@ -534,13 +535,12 @@ If Betty saves you time, consider supporting development:
 
 Support helps me work on:
 
-- Windows/WSL support
+- WSL support improvements
 - TLS automation
 - better Docker integration
 
 Future work may include:
 
-- better host file handling across Windows, WSL, Linux, and macOS
 - cleaner persistent link state
 - optional project discovery
 
