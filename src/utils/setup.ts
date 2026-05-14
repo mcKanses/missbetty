@@ -115,9 +115,17 @@ export const addHostsEntry = (domain: string): { changed: boolean; warning?: str
       warning: `WSL detected. Please add this line to your Windows hosts file manually: ${entry}`,
     }
 
+  const hostsPath = getHostsPath()
+  try {
+    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
+    if (hasHostsEntry(domain)) return { changed: true }
+  } catch {
+    // fall through to platform-specific fallback
+  }
+
   if (platform.isWindows) return {
       changed: false,
-      warning: `Windows detected. Run an elevated editor and add: ${entry}`,
+      warning: `Could not write to the hosts file. Re-run the betty installer (requires admin) to grant permission, or add manually: ${entry}`,
     }
 
   const escapedEntry = entry.replace(/"/g, '\\"')

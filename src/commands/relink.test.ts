@@ -137,7 +137,7 @@ describe('relink command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
 
     // prompt is called with empty array when all opts are provided (no interactive fields)
     expect(inquirer.prompt).toHaveBeenCalledWith([])
@@ -169,9 +169,11 @@ describe('relink command', () => {
     })
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
-    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() =>
-      Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
-    )
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    })
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const command = String(cmd)
       if (command.startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
@@ -180,7 +182,7 @@ describe('relink command', () => {
 
     await relinkCommand()
 
-    expect(inquirer.prompt).toHaveBeenCalledTimes(1)
+    expect(inquirer.prompt).toHaveBeenCalledTimes(2)
     expect(inquirer.prompt).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ name: 'container' }),
       expect.objectContaining({ name: 'domain' }),
@@ -273,6 +275,213 @@ describe('relink command', () => {
     exitSpy.mockRestore()
   })
 
+  test('shows route selection prompt when multiple routes exist and no target is given', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/dynamic/other.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/myapp.pem') ||
+        np.endsWith('/myapp-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'route')) return Promise.resolve({ route: '/home/test-user/.betty/dynamic/app.yml' })
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand()
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'route' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('myapp.yml'),
+      expect.any(String),
+      'utf8'
+    )
+
+    logSpy.mockRestore()
+  })
+
+  test('resolves route by domain name without showing selection prompt', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/dynamic/other.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/myapp.pem') ||
+        np.endsWith('/myapp-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE
+      return YAML_APP_ROUTE
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app.localhost', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'route' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('exits when domain resolves to empty string', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(
+      relinkCommand('app', { container: 'myapp', domain: '', port: '3000' })
+    ).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No domain provided.'))
+
+    errorSpy.mockRestore()
+    exitSpy.mockRestore()
+  })
+
+  test('logs HTTPS confirmation when certificate exists for the domain', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs') ||
+        np.endsWith('/newapp.localhost.pem') ||
+        np.endsWith('/newapp.localhost-key.pem')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('HTTPS is available at https://newapp.localhost')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompt validate functions reject empty domain and non-numeric port', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      if (String(cmd).includes('mkcert -help')) throw new Error('mkcert not installed')
+      return Buffer.from('')
+    })
+
+    interface PromptQuestion { name: string; validate?: (v: string) => boolean | string }
+    let capturedQuestions: PromptQuestion[] = []
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as PromptQuestion[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      capturedQuestions = qs
+      return Promise.resolve({ container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand()
+
+    const domainQ = capturedQuestions.find((q) => q.name === 'domain')
+    const portQ = capturedQuestions.find((q) => q.name === 'port')
+
+    expect(domainQ?.validate?.('')).toBe('Domain cannot be empty')
+    expect(domainQ?.validate?.('app.localhost')).toBe(true)
+    expect(portQ?.validate?.('abc')).toBe('Please provide a valid port')
+    expect(portQ?.validate?.('0')).toBe('Please provide a valid port')
+    expect(portQ?.validate?.('3000')).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  test('shows confirmation prompt and cancels on decline', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml') ||
+        np.endsWith('/.betty/certs')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: false })
+      return Promise.resolve({})
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm', type: 'confirm' })])
+    )
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+
+    logSpy.mockRestore()
+  })
+
   test('hard fails when mkcert is missing for .dev domains', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
@@ -296,7 +505,7 @@ describe('relink command', () => {
       throw new Error(`process-exit-${String(code)}`)
     })
 
-    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
 
     exitSpy.mockRestore()
   })
@@ -304,6 +513,7 @@ describe('relink command', () => {
 
 describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () => {
   const originalPlatform = process.platform
+  const originalEnv = { USERDOMAIN: process.env.USERDOMAIN, USERNAME: process.env.USERNAME }
 
   const setPlatform = (platform: NodeJS.Platform): void => {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true })
@@ -315,6 +525,8 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
   afterEach(() => {
     setPlatform(originalPlatform)
+    process.env.USERDOMAIN = originalEnv.USERDOMAIN
+    process.env.USERNAME = originalEnv.USERNAME
   })
 
   const mockBaseSetup = (): void => {
@@ -345,7 +557,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -364,7 +576,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -384,7 +596,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
@@ -393,43 +605,38 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     logSpy.mockRestore()
   })
 
-  test('writes PS1 script and returns true when PowerShell elevation succeeds on Windows', async () => {
+  test('uses EncodedCommand elevation and returns true when PowerShell elevation succeeds on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     mockBaseSetup()
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    let hostsReadCount = 0
+    ;(fs.appendFileSync as unknown as jest.Mock)
+      .mockImplementationOnce(() => { throw new Error('EACCES') })
+      .mockImplementationOnce(() => undefined)
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      const np = normalizePath(String(p))
-      if (np.includes('drivers/etc/hosts')) {
-        hostsReadCount++
-        return hostsReadCount === 1
-          ? '127.0.0.1 localhost\n'
-          : '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n'
-      }
+      if (normalizePath(String(p)).includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
       return YAML_APP_ROUTE
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.ps1'),
-      expect.stringContaining('myapp.test'),
-      'utf8'
-    )
     expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('Start-Process PowerShell -Verb RunAs'),
+      expect.stringContaining('EncodedCommand'),
       expect.objectContaining({ stdio: 'inherit' })
     )
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('.ps1'))
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Added hosts entry')
     expect(output).not.toContain('only reachable after the hosts entry')
 
     logSpy.mockRestore()
   })
 
-  test('cleans up PS1 script and prints manual hint when PowerShell elevation fails on Windows', async () => {
+  test('prints manual hint when PowerShell elevation fails on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     mockBaseSetup()
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
@@ -440,14 +647,14 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
       const command = String(cmd)
       if (command.startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
       if (command.includes('mkcert -help')) throw new Error('mkcert not installed')
-      if (command.includes('Start-Process PowerShell -Verb RunAs')) throw new Error('elevation failed')
+      if (command.includes('EncodedCommand')) throw new Error('elevation failed')
       return Buffer.from('')
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000' })
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('.ps1'))
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
 

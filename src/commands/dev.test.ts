@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import devCommand, { readDevProjectConfig } from './dev'
@@ -12,6 +12,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  spawnSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -21,11 +22,17 @@ jest.mock('fs', () => ({
     mkdirSync: jest.fn(),
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
+    appendFileSync: jest.fn(),
+    unlinkSync: jest.fn(),
+    readdirSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
+  appendFileSync: jest.fn(),
+  unlinkSync: jest.fn(),
+  readdirSync: jest.fn(),
 }))
 
 jest.mock('inquirer', () => ({
@@ -55,6 +62,7 @@ beforeEach(() => {
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
+  ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 0 })
 })
 
 describe('readDevProjectConfig', () => {
@@ -79,6 +87,73 @@ describe('readDevProjectConfig', () => {
     ].join('\n'))
 
     expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('target must be an http(s) URL')
+  })
+
+  test('throws for invalid permission mode', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      SAMPLE_CONFIG.replace('hosts: allowed', 'hosts: banana')
+    )
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow("Invalid permission mode 'banana'")
+  })
+
+  test('throws for non-scalar permission value', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      'project: app',
+      'domains:',
+      '  - host: app.localhost',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts:',
+      '    - allowed',
+      '    - denied',
+    ].join('\n'))
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow("Invalid permission mode 'non-scalar value'")
+  })
+
+  test('throws when YAML root is not an object', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('null')
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('.betty.yml must contain a YAML object.')
+  })
+
+  test('throws for missing project name', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      'domains:\n  - host: a.localhost\n    target: http://127.0.0.1:3000\n'
+    )
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('.betty.yml requires a non-empty project name.')
+  })
+
+  test('throws for empty domains array', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('project: app\ndomains: []\n')
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('.betty.yml requires at least one domain.')
+  })
+
+  test('throws for non-object domain entry', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      'project: app\ndomains:\n  - just-a-string\n'
+    )
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('domains[0] must be an object.')
+  })
+
+  test('throws for missing host in domain', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      'project: app\ndomains:\n  - target: http://127.0.0.1:3000\n'
+    )
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('domains[0].host is required.')
+  })
+
+  test('throws for missing target in domain', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      'project: app\ndomains:\n  - host: app.localhost\n'
+    )
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('domains[0].target is required.')
   })
 })
 
@@ -123,7 +198,8 @@ describe('dev command', () => {
       String(call[0]).replace(/\\/g, '/').endsWith('/.betty/dynamic/mckanses-auth.yml')
     )
     expect(routeWrite?.[1]).toContain('http://host.docker.internal:5173')
-    expect(execSync).toHaveBeenCalledWith('docker compose up -d', expect.objectContaining({
+    expect(spawnSync).toHaveBeenCalledWith('docker compose up -d', expect.objectContaining({
+      shell: true,
       cwd: expect.any(String),
     }))
 
@@ -137,5 +213,420 @@ describe('dev command', () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('auto-discovers .betty.yml when no config path is given', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      String(p).replace(/\\/g, '/').endsWith('.betty.yml')
+    )
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ dryRun: true })
+
+    expect(logSpy).toHaveBeenCalledWith('Project: mckanses-auth')
+
+    logSpy.mockRestore()
+  })
+
+  test('exits when no config file is found in the current directory', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+
+    await expect(devCommand({ dryRun: true })).rejects.toThrow('process-exit-1')
+  })
+
+  test('exits when docker permission is set to manual', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      SAMPLE_CONFIG.replace('docker: allowed', 'docker: manual')
+    )
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('adds hosts entry and exits when docker permission is denied', async () => {
+    const CONFIG_NO_HTTPS = [
+      'project: test',
+      'domains:',
+      '  - host: test.dev',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: allowed',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return CONFIG_NO_HTTPS
+      return ''
+    })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('shows checkbox for multiple missing hosts entries and adds only selected domains', async () => {
+    const MULTI_DOMAIN_CONFIG = [
+      'project: test',
+      'domains:',
+      '  - host: ui.dev',
+      '    target: http://127.0.0.1:5173',
+      '  - host: api.dev',
+      '    target: http://127.0.0.1:8080',
+      'permissions:',
+      '  hosts: prompt',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return MULTI_DOMAIN_CONFIG
+      return ''
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ hosts: ['ui.dev'] } as never)
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+
+    const checkboxCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
+      (call) => (call[0] as { type: string }[])[0]?.type === 'checkbox'
+    )
+    expect(checkboxCall).toBeDefined()
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.any(String), expect.stringContaining('ui.dev'), 'utf8'
+    )
+    expect(fs.appendFileSync).not.toHaveBeenCalledWith(
+      expect.any(String), expect.stringContaining('api.dev'), 'utf8'
+    )
+  })
+
+  test('warns about missing hosts entry when hosts permission is manual', async () => {
+    const CONFIG_MANUAL_HOSTS = [
+      'project: test',
+      'domains:',
+      '  - host: api.test.dev',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: manual',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      String(p).replace(/\\/g, '/').endsWith('.betty.yml')
+    )
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return CONFIG_MANUAL_HOSTS
+      return ''
+    })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('api.test.dev'))
+
+    errorSpy.mockRestore()
+  })
+
+  test('uses confirm prompt for single-domain hosts:prompt and adds the entry', async () => {
+    const CONFIG_SINGLE_PROMPT = [
+      'project: test',
+      'domains:',
+      '  - host: api.test.dev',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: prompt',
+      '  docker: denied',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return CONFIG_SINGLE_PROMPT
+      return ''
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true } as never)
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+
+    const confirmCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
+      (call) => (call[0] as { type: string }[])[0]?.type === 'confirm'
+    )
+    expect(confirmCall).toBeDefined()
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.any(String), expect.stringContaining('api.test.dev'), 'utf8'
+    )
+  })
+
+
+  test('prompts user for docker permission and exits when denied interactively', async () => {
+    const CONFIG_NO_HTTPS_PROMPT = [
+      'project: test',
+      'domains:',
+      '  - host: test.localhost',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: allowed',
+      '  docker: prompt',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(CONFIG_NO_HTTPS_PROMPT)
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    expect(inquirer.prompt).toHaveBeenCalled()
+  })
+
+  test('creates certificate when cert files do not yet exist', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml' })
+
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('mkcert -cert-file'),
+      expect.anything()
+    )
+
+    logSpy.mockRestore()
+  })
+
+  test('--yes skips all prompts by treating prompt permissions as allowed', async () => {
+    const CONFIG_ALL_PROMPT = SAMPLE_CONFIG
+      .replace('hosts: allowed', 'hosts: prompt')
+      .replace('trustStore: allowed', 'trustStore: prompt')
+      .replace('docker: allowed', 'docker: prompt')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return CONFIG_ALL_PROMPT
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml', yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+
+    logSpy.mockRestore()
+  })
+
+  test('cleans up route and runs down command when up command is interrupted', async () => {
+    const CONFIG_WITH_DOWN = SAMPLE_CONFIG + '\ndown:\n  command: docker compose down'
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return CONFIG_WITH_DOWN
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: 'SIGINT', status: null })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-0')
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('restart traefik'),
+      expect.objectContaining({ stdio: 'pipe' })
+    )
+    // down.command is run via execSync (inside runProjectCommand)
+    expect(execSync).toHaveBeenCalledWith('docker compose down', expect.objectContaining({
+      cwd: expect.any(String),
+    }))
+  })
+
+  test('exits when a domain is already linked by another project', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem') ||
+        normalized.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['other-project.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
+      if (normalized.endsWith('other-project.yml')) return [
+        'http:',
+        '  routers:',
+        '    other-project-1:',
+        '      rule: \'Host("ory-ui.mckansescloud.dev")\'',
+        '      entryPoints: [web]',
+        '      service: other-project-1',
+      ].join('\n')
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('dry-run does not log Up command when config has no up command', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      String(p).replace(/\\/g, '/').endsWith('.betty.yml')
+    )
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      'project: my-app\ndomains:\n  - host: my-app.localhost\n    target: http://127.0.0.1:3000\n'
+    )
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml', dryRun: true })
+
+    expect(logSpy).toHaveBeenCalledWith('Project: my-app')
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Up:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('prints URLs when no up command and linkProject succeeds', async () => {
+    const CONFIG_NO_UP = [
+      'project: test',
+      'domains:',
+      '  - host: test.localhost',
+      '    target: http://127.0.0.1:3000',
+      'permissions:',
+      '  hosts: allowed',
+      '  docker: allowed',
+    ].join('\n')
+
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') || normalized.endsWith('/.betty/docker-compose.yml')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return CONFIG_NO_UP
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml' })
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Available URLs:'))
+
+    logSpy.mockRestore()
+  })
+
+  test('exits when Docker is not running', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return 'project: test\ndomains:\n  - host: test.localhost\n    target: http://127.0.0.1:3000\npermissions:\n  hosts: allowed\n  docker: allowed\n'
+      
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => {
+      throw new Error('Docker not available')
+    })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('exits when up command exits with non-zero status code', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 1 })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('cleans up route without running down command when interrupted with no down config', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: 'SIGINT', status: null })
+
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-0')
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    const execCalls = (execSync as unknown as jest.Mock).mock.calls.map((c) => String(c[0]))
+    expect(execCalls.some((c) => c.includes('compose down'))).toBe(false)
   })
 })

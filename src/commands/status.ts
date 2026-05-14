@@ -87,49 +87,57 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
   if (!fs.existsSync(dynamicDir)) return []
 
   const files = fs.readdirSync(dynamicDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+  const projects: ProjectStatus[] = []
 
-  return files
-    .map((file) => {
-      try {
-        const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
-        const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-        const services: Record<string, TraefikService> = doc.http?.services ?? {}
-        const routerKeys = Object.keys(routers)
-        const serviceKeys = Object.keys(services)
-        const firstRouterKey = routerKeys.find((key) => !key.endsWith('-secure')) ?? (routerKeys.length > 0 ? routerKeys[0] : path.basename(file, path.extname(file)))
-        const firstServiceKey = serviceKeys.length > 0 ? serviceKeys[0] : firstRouterKey
-        const rule = (routers[firstRouterKey] as TraefikRouter | undefined)?.rule ?? ''
+  for (const file of files) try {
+      const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
+      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
+      const services: Record<string, TraefikService> = doc.http?.services ?? {}
+
+      const nonSecureKeys = Object.keys(routers).filter((key) => !key.endsWith('-secure'))
+      const routerKeys = nonSecureKeys.length > 0 ? nonSecureKeys
+        : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
+        : [path.basename(file, path.extname(file))]
+
+      const projectName = path.basename(file, path.extname(file))
+
+      for (const routerKey of routerKeys) {
+        const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
         const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
         const domain = domainMatch?.[1] ?? 'n/a'
-        const url = (services[firstServiceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
+        const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
+        const url = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
         const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null
         const port = portMatch?.[1] ?? 'n/a'
 
-        let domainWithProtocol = domain
-        if (domain !== 'n/a') if (url.startsWith('https://')) domainWithProtocol = `https://${domain}`
-          else if (url.startsWith('http://')) domainWithProtocol = `http://${domain}`
-          else if (port === '443') domainWithProtocol = `https://${domain}`
-          else domainWithProtocol = `http://${domain}`
-        
+        const isHttps = `${routerKey}-secure` in routers
+          || routerKey.endsWith('-secure')
+          || url.startsWith('https://')
+          || port === '443'
+        const domainWithProtocol = domain !== 'n/a'
+          ? `${isHttps ? 'https' : 'http'}://${domain}`
+          : domain
+
         const target = url !== '' ? url : 'n/a'
         const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)
         const ip = ipMatch?.[1] ?? ''
         const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
-        return {
-          name: firstRouterKey,
+        projects.push({
+          name: projectName,
           domain: domainWithProtocol,
           port,
           target,
           uptime: meta.uptime,
           health: meta.health,
           restarts: meta.restarts,
-        } satisfies ProjectStatus
-      } catch {
-        return null
+        } satisfies ProjectStatus)
       }
-    })
-    .filter((entry): entry is ProjectStatus => entry !== null)
+    } catch {
+      // ignore
+    }
+
+  return projects
 }
 
 const statusCommand = (opts?: StatusOptions): void => {

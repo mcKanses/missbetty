@@ -51,6 +51,11 @@ const DOCKER_INSPECT = JSON.stringify([
   },
 ])
 
+const DOCKER_INSPECT_WITH_PORTS = JSON.stringify([{
+  NetworkSettings: { Networks: { betty_proxy: { IPAddress: '172.18.0.5' } } },
+  Config: { Labels: {}, ExposedPorts: { '3000/tcp': {}, '8080/tcp': {} } },
+}])
+
 beforeEach(() => {
   jest.resetAllMocks()
   ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue([])
@@ -63,7 +68,7 @@ describe('link command', () => {
   test('exits with 1 when proxy is not set up', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
       'process-exit-1'
     )
   })
@@ -77,7 +82,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
       'process-exit-1'
     )
   })
@@ -93,6 +98,13 @@ describe('link command', () => {
     await expect(linkCommand(undefined, { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
       'process-exit-1'
     )
+  })
+
+  test('exits early when no containers are currently running', async () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand(undefined, {})).rejects.toThrow('process-exit-1')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
   test('exits with 1 when invalid port is given', async () => {
@@ -136,7 +148,7 @@ describe('link command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringContaining('myapp.yml'),
@@ -167,7 +179,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
   })
 
   test('falls back to HTTP when mkcert is missing and HTTPS is not explicitly requested', async () => {
@@ -186,7 +198,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
 
     const calledMkcertInstall = (execSync as unknown as jest.Mock).mock.calls
       .map((call) => String(call[0]))
@@ -210,6 +222,295 @@ describe('link command', () => {
     expect(execSync).not.toHaveBeenCalled()
 
     logSpy.mockRestore()
+  })
+
+  test('exits when proxy startup command fails', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker compose') && c.includes('up')) throw new Error('cannot connect to docker daemon')
+      return Buffer.from('')
+    })
+
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
+  })
+
+  test('shows confirmation prompt and cancels on decline', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('/.betty/dynamic')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: false })
+      return Promise.resolve({})
+    })
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ name: 'confirm', type: 'confirm' })])
+    )
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompts for container using list when running containers exist', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c === 'docker ps --format {{.Names}}') return Buffer.from('myapp\n')
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ container: 'myapp', domain: 'myapp.localhost' })
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand(undefined, { port: '3000' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'container' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+
+    logSpy.mockRestore()
+  })
+
+  test('selects port from exposed ports list when no port is given', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_PORTS)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ port: '3000' })
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'port' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompts for custom port when user selects Other from list', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_PORTS)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock)
+      .mockResolvedValueOnce({ port: '__custom__' } as never)
+      .mockResolvedValueOnce({ port: '9000' } as never)
+      .mockResolvedValueOnce({ confirm: true } as never)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost' })
+
+    expect(inquirer.prompt).toHaveBeenCalledTimes(3)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompts for free-form port when container exposes no ports', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ port: '4000' })
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost' })
+
+    expect(inquirer.prompt).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ type: 'input', name: 'port' })])
+    )
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+
+    logSpy.mockRestore()
+  })
+
+  test('prompt callbacks: domain default uses suggestDomain and port validate rejects invalid input', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c === 'docker ps --format {{.Names}}') return Buffer.from('myapp\n')
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_PORTS)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+
+    interface PromptQuestion {
+      name: string;
+      default?: ((a: { container?: string }) => string) | string;
+      validate?: (v: string) => boolean | string;
+    }
+    const captured: PromptQuestion[][] = []
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      captured.push(questions as PromptQuestion[])
+      const qs = questions as PromptQuestion[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true } as never)
+      if (qs.some((q) => q.name === 'container' || q.name === 'domain')) return Promise.resolve({ container: 'myapp', domain: 'myapp.localhost' } as never)
+      if (qs.some((q) => q.name === 'port' && qs.length === 1 && (qs[0].default !== undefined))) return Promise.resolve({ port: '__custom__' } as never)
+      return Promise.resolve({ port: '3000' } as never)
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand(undefined, {})
+
+    // domain prompt default callback
+    const containerDomainQuestions = captured.find((qs) => qs.some((q) => q.name === 'domain'))
+    const domainQ = containerDomainQuestions?.find((q) => q.name === 'domain')
+    expect(typeof domainQ?.default).toBe('function')
+    const defaultResult = (domainQ?.default as (a: { container?: string }) => string)({ container: 'myapp' })
+    expect(typeof defaultResult).toBe('string')
+
+    // port validate callbacks
+    const customPortQuestions = captured.find((qs) => qs.some((q) => q.name === 'port' && q.validate !== undefined))
+    const portQ = customPortQuestions?.find((q) => q.name === 'port')
+    expect(portQ?.validate?.('abc')).toBe('Please provide a valid port')
+    expect(portQ?.validate?.('3000')).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  test('free-form port validate rejects non-numeric and zero values', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+
+    interface PortQuestion { name: string; validate?: (v: string) => boolean | string }
+    let capturedPortQ: PortQuestion | undefined
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as PortQuestion[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true } as never)
+      const pq = qs.find((q) => q.name === 'port')
+      if (pq?.validate !== undefined) capturedPortQ = pq
+      return Promise.resolve({ port: '3000' } as never)
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost' })
+
+    expect(capturedPortQ?.validate?.('0')).toBe('Please provide a valid port')
+    expect(capturedPortQ?.validate?.('xyz')).toBe('Please provide a valid port')
+    expect(capturedPortQ?.validate?.('8080')).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  test('exits when container arg is empty string', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('exits when domain arg is empty string', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('myapp', { domain: '', port: '3000' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('exits when domain arg is whitespace only', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('process-exit-1')
+  })
+
+  test('opens browser after successful link when open flag is set', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', open: true, yes: true })
+
+    const browserCalls = (execSync as unknown as jest.Mock).mock.calls
+      .map((call) => String(call[0]))
+      .filter((c) => c.includes('myapp.localhost'))
+    expect(browserCalls.length).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  test('prints manual hint when browser open command fails', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      if (c.includes('myapp.localhost')) throw new Error('no display')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', open: true, yes: true })
+
+    const output = errSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Could not open browser')
+
+    logSpy.mockRestore()
+    errSpy.mockRestore()
   })
 })
 
@@ -272,8 +573,12 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true })
   }
 
+  const originalEnv = { USERDOMAIN: process.env.USERDOMAIN, USERNAME: process.env.USERNAME }
+
   afterEach(() => {
     setPlatform(originalPlatform)
+    process.env.USERDOMAIN = originalEnv.USERDOMAIN
+    process.env.USERNAME = originalEnv.USERNAME
   })
 
   const mockSetupForHostsEntry = (): void => {
@@ -301,7 +606,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -320,7 +625,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
@@ -340,7 +645,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
@@ -349,43 +654,38 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     logSpy.mockRestore()
   })
 
-  test('writes PS1 script and returns true when PowerShell elevation succeeds on Windows', async () => {
+  test('uses EncodedCommand elevation and returns true when PowerShell elevation succeeds on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     mockSetupForHostsEntry()
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    let hostsReadCount = 0
+    ;(fs.appendFileSync as unknown as jest.Mock)
+      .mockImplementationOnce(() => { throw new Error('EACCES') })
+      .mockImplementationOnce(() => undefined)
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      const np = String(p).replace(/\\/g, '/')
-      if (np.includes('drivers/etc/hosts')) {
-        hostsReadCount++
-        return hostsReadCount === 1
-          ? '127.0.0.1 localhost\n'
-          : '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n'
-      }
+      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
       return ''
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('.ps1'),
-      expect.stringContaining('myapp.test'),
-      'utf8'
-    )
     expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('Start-Process PowerShell -Verb RunAs'),
+      expect.stringContaining('EncodedCommand'),
       expect.objectContaining({ stdio: 'inherit' })
     )
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Added hosts entry')
     expect(output).not.toContain('only reachable after the hosts entry')
 
     logSpy.mockRestore()
   })
 
-  test('cleans up PS1 script and prints manual hint when PowerShell elevation fails on Windows', async () => {
+  test('prints manual hint when PowerShell elevation fails on Windows', async () => {
     setPlatform('win32')
+    process.env.USERDOMAIN = 'WORKSTATION'
+    process.env.USERNAME = 'testuser'
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
       if (normalized.endsWith('/myapp.test.pem') || normalized.endsWith('/myapp.test-key.pem')) return false
@@ -402,14 +702,14 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
       if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
       if (c.includes('docker network inspect')) return Buffer.from('[{}]')
       if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
-      if (c.includes('Start-Process PowerShell -Verb RunAs')) throw new Error('elevation failed')
+      if (c.includes('EncodedCommand')) throw new Error('elevation failed')
       return Buffer.from('')
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    await linkCommand('myapp', { domain: 'myapp.test', port: '3000' })
+    await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('.ps1'))
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Could not add hosts entry automatically')
 

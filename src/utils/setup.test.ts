@@ -30,10 +30,12 @@ jest.mock('fs', () => ({
     existsSync: jest.fn(),
     readdirSync: jest.fn(),
     readFileSync: jest.fn(),
+    appendFileSync: jest.fn(),
   },
   existsSync: jest.fn(),
   readdirSync: jest.fn(),
   readFileSync: jest.fn(),
+  appendFileSync: jest.fn(),
 }))
 
 jest.mock('./config', () => ({
@@ -111,7 +113,8 @@ describe('setup utils', () => {
     expect(result.warning).toContain('WSL detected')
   })
 
-  test('addHostsEntry appends hosts entry with sudo on Linux', () => {
+  test('addHostsEntry appends hosts entry with sudo on Linux when direct write fails', () => {
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
     ;(fs.readFileSync as unknown as jest.Mock)
       .mockReturnValueOnce('127.0.0.1 localhost\n')
       .mockReturnValueOnce('127.0.0.1 localhost\n127.0.0.1 myapp.dev # added by betty\n')
@@ -148,14 +151,16 @@ describe('setup utils', () => {
     expect(getHostsPath()).toBe('C:\\Windows\\System32\\drivers\\etc\\hosts')
   })
 
-  test('addHostsEntry returns warning on Windows instead of writing directly', () => {
+  test('addHostsEntry tries direct write on Windows and returns warning when it fails', () => {
     setPlatform('win32')
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
 
     const result = addHostsEntry('myapp.dev')
 
     expect(result.changed).toBe(false)
-    expect(result.warning).toContain('Windows detected')
+    expect(result.warning).toContain('Re-run the betty installer')
+    expect(fs.appendFileSync).toHaveBeenCalled()
     expect(execSync).not.toHaveBeenCalled()
   })
 
@@ -338,6 +343,160 @@ describe('setup utils', () => {
     expect(output).toContain('docker.com')
 
     logSpy.mockRestore()
+  })
+
+  test('checkMkcertCaInstalled returns false when mkcert -CAROOT throws', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd) === 'mkcert -help') return Buffer.from('ok')
+      if (String(cmd) === 'mkcert -CAROOT') throw new Error('caroot failed')
+      return Buffer.from('')
+    })
+
+    expect(checkMkcertCaInstalled()).toBe(false)
+  })
+
+  test('resolveSetupDomain falls back to suffix when dynamic files have no Host rule', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      String(p).replace(/\\/g, '/').endsWith('/.betty/dynamic')
+    )
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('http:\n  routers:\n    app:\n      rule: PathPrefix("/")\n')
+
+    expect(resolveSetupDomain()).toBe('betty.localhost')
+  })
+
+  test('addHostsEntry returns unverified warning when hosts entry is not found after sudo', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    const result = addHostsEntry('myapp.dev')
+
+    expect(result.changed).toBe(false)
+    expect(result.warning).toContain('Could not verify')
+  })
+
+  test('addHostsEntry returns failure warning when sudo append throws', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).includes('sudo sh -c')) throw new Error('sudo failed')
+      return Buffer.from('')
+    })
+
+    const result = addHostsEntry('myapp.dev')
+
+    expect(result.changed).toBe(false)
+    expect(result.warning).toContain('Failed to append')
+  })
+
+  test('runMkcertInstall returns mkcert-install-failed warning when mkcert -install throws', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd) === 'mkcert -help') return Buffer.from('ok')
+      if (String(cmd) === 'mkcert -install') throw new Error('install failed')
+      return Buffer.from('')
+    })
+
+    const result = runMkcertInstall()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toBe('mkcert -install failed.')
+  })
+
+  test('installMkcertPackage installs mkcert via apt on Linux when apt-get is missing', () => {
+    let installed = false
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') {
+        if (!installed) throw new Error('missing')
+        return Buffer.from('ok')
+      }
+      if (command.includes('command -v apt-get')) throw new Error('not found')
+      if (command.includes('command -v apt')) return Buffer.from('/usr/bin/apt')
+      if (command === 'sudo apt install -y mkcert') { installed = true; return Buffer.from('installed') }
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result).toEqual({ ok: true })
+    expect(execSync).toHaveBeenCalledWith('sudo apt install -y mkcert', { stdio: 'inherit' })
+  })
+
+  test('installMkcertPackage installs mkcert via pacman on Linux', () => {
+    let installed = false
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') {
+        if (!installed) throw new Error('missing')
+        return Buffer.from('ok')
+      }
+      if (command.includes('command -v apt-get')) throw new Error('not found')
+      if (command.includes('command -v apt')) throw new Error('not found')
+      if (command.includes('command -v pacman')) return Buffer.from('/usr/bin/pacman')
+      if (command === 'sudo pacman -S --noconfirm mkcert') { installed = true; return Buffer.from('installed') }
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result).toEqual({ ok: true })
+    expect(execSync).toHaveBeenCalledWith('sudo pacman -S --noconfirm mkcert', { stdio: 'inherit' })
+  })
+
+  test('installMkcertPackage returns warning on Linux when no supported package manager is found', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') throw new Error('missing')
+      if (command.includes('command -v')) throw new Error('not found')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toContain('No supported package manager')
+  })
+
+  test('installMkcertPackage returns not-supported warning on unknown platform', () => {
+    setPlatform('freebsd')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd) === 'mkcert -help') throw new Error('missing')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toContain('not supported on this platform')
+  })
+
+  test('installMkcertPackage returns installation-failed warning when execSync throws during install', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') throw new Error('missing')
+      if (command.includes('command -v apt-get')) return Buffer.from('/usr/bin/apt-get')
+      if (command.includes('apt-get install')) throw new Error('apt failed')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toBe('Automatic mkcert installation failed.')
+  })
+
+  test('installMkcertPackage returns still-not-found warning when mkcert is missing after install', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command === 'mkcert -help') throw new Error('missing')
+      if (command.includes('command -v apt-get')) return Buffer.from('/usr/bin/apt-get')
+      if (command === 'sudo apt-get install -y mkcert') return Buffer.from('installed')
+      return Buffer.from('')
+    })
+
+    const result = installMkcertPackage()
+
+    expect(result.ok).toBe(false)
+    expect(result.warning).toContain('still not found')
   })
 
   test('collectSetupStatus returns a complete status object', () => {
