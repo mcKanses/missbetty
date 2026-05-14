@@ -46,7 +46,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runs_on: ubuntu-latest
+          - runs_on:
+              - self-hosted
+              - Linux
+              - X64
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
@@ -88,6 +91,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -249,26 +254,3 @@ jobs:
 
           & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --help | Out-Null
 
-  update-readme:
-    needs: [resolve-release, build-and-upload]
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
-    name: Update README with Latest Version
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Update README version examples
-        run: node scripts/update-readme-version.mjs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
