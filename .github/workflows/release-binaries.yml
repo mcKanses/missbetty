@@ -46,10 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runs_on:
-              - self-hosted
-              - Linux
-              - X64
+          - runs_on: ubuntu-latest
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
@@ -59,17 +56,11 @@ jobs:
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - runs_on:
-              - self-hosted
-              - macOS
-              - betty-macos13
-            self_hosted: true
+          - runs_on: macos-13
             asset_name: betty-darwin-x64.tar.gz
             binary_name: betty
             archive_kind: tar
-            target_node_dist: darwin-x64
-            target_node_binary: bin/node
-            smoke_test: false
+            smoke_test: true
           - runs_on: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
