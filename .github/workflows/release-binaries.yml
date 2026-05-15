@@ -46,7 +46,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runs_on: ubuntu-latest
+          - runs_on:
+              - self-hosted
+              - Linux
+              - X64
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
