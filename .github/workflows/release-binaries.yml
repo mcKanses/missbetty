@@ -56,17 +56,11 @@ jobs:
             binary_name: betty
             archive_kind: tar
             smoke_test: true
-          - runs_on:
-              - self-hosted
-              - macOS
-              - betty-macos13
-            self_hosted: true
+          - runs_on: macos-13
             asset_name: betty-darwin-x64.tar.gz
             binary_name: betty
             archive_kind: tar
-            target_node_dist: darwin-x64
-            target_node_binary: bin/node
-            smoke_test: false
+            smoke_test: true
           - runs_on: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
