@@ -1,0 +1,23 @@
+project: mckanses-auth
+
+up:
+  command: docker compose --env-file .env -f compose.yml -f compose.override.yml up --build -d
+
+down:
+  command: docker compose -f compose.yml -f compose.override.yml down
+
+domains:
+  - host: ory-ui.mckansescloud.dev
+    target: http://127.0.0.1:5173
+
+  - host: api.mckansescloud.dev
+    target: http://127.0.0.1:8080
+
+https:
+  enabled: true
+  certificateAuthority: missbetty
+
+permissions:
+  hosts: allowed
+  trustStore: allowed
+  docker: allowed
