@@ -21,8 +21,8 @@ export const getRunningContainers = (): string[] => {
   try {
     return execSync('docker ps --format {{.Names}}', { stdio: 'pipe' })
       .toString()
-      .trim()
-      .split('\n')
+      .split(/\r?\n/)
+      .map((name) => name.trim())
       .filter(Boolean)
   } catch {
     return []

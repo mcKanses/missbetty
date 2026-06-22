@@ -6,6 +6,7 @@ import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
 import { readRoutes, type RouteEntry } from '../utils/routes'
+import { sanitizeName } from '../utils/names'
 import type { TraefikDynamicConfig } from '../types'
 
 interface ConfirmAnswer { confirm: boolean; }
@@ -37,7 +38,8 @@ const removeSingleRoute = (route: RouteEntry): boolean => {
   )
 
   if (doc.tls?.certificates !== undefined) {
-    doc.tls.certificates = doc.tls.certificates.filter((c) => !c.certFile.includes(route.domain))
+    const certFileName = `${sanitizeName(route.domain)}.pem`
+    doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
     if (doc.tls.certificates.length === 0) delete doc.tls
   }
 

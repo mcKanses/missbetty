@@ -95,6 +95,12 @@ describe('getRunningContainers', () => {
 
     expect(getRunningContainers()).toEqual([])
   })
+
+  it('trims CRLF line endings from Windows docker output', () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue('nginx-1\r\ntraefik-1\r\n')
+
+    expect(getRunningContainers()).toEqual(['nginx-1', 'traefik-1'])
+  })
 })
 
 describe('connectContainerToNetwork', () => {
