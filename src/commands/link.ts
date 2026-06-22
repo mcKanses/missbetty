@@ -124,7 +124,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
         type: 'input',
         name: 'domain',
         message: 'Domain:',
-        default: (answers: { container?: string }) => suggestDomain(resolvedContainer ?? answers.container ?? ''),
+        default: (current: { container?: string }) => suggestDomain(resolvedContainer ?? current.container ?? ''),
         validate: validateLocalDomain,
       }] : []),
     ]) as LinkPromptAnswers
@@ -190,7 +190,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()
-  const routeFileName = `${normalizeServiceName(containerNameResolved)}.yml`
+  const routeFileName = `${normalizeServiceName(domainResolved)}.yml`
   const conflict = findDomainConflict(domainResolved)
   if (conflict !== null) {
     printError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
@@ -231,7 +231,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   connectContainerToNetwork(containerNameResolved)
   const ip = getContainerIp(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
-  writeRouteConfig(normalizeServiceName(containerNameResolved), domainResolved, ip, port, certificate)
+  writeRouteConfig(containerNameResolved, domainResolved, ip, port, certificate)
   restartTraefik(traefikComposePath)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)

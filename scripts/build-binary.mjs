@@ -13,7 +13,7 @@ import { execSync } from 'child_process';
 import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-const root = new URL('..', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
+const root = decodeURIComponent(new URL('..', import.meta.url).pathname).replace(/^\/([A-Z]:)/, '$1');
 const dist = join(root, 'dist');
 const bundlePath = join(dist, 'bundle.js');
 const blobPath = join(dist, 'sea-prep.blob');
