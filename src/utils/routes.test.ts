@@ -30,9 +30,17 @@ jest.mock('./constants', () => ({
   BETTY_DYNAMIC_DIR: '/home/test-user/.betty/dynamic',
 }))
 
+jest.mock('./state', () => ({
+  __esModule: true,
+  getLinkContainer: jest.fn(),
+  setLinkContainer: jest.fn(),
+  removeLinkContainer: jest.fn(),
+}))
+
 import fs from 'fs'
 import yaml from 'yaml'
 import { readRoutes, findDomainConflict, writeRouteConfig } from './routes'
+import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 const DYNAMIC_DIR = '/home/test-user/.betty/dynamic'
 
@@ -87,6 +95,16 @@ describe('readRoutes', () => {
     ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('myapp-dev', 'myapp.dev', 'http://172.20.0.2:3000'))
 
     expect(readRoutes()[0].container).toBe('myapp')
+  })
+
+  it('prefers the container from the link state over the comment', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp-dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-container: from-comment\nhttp: {}')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('myapp-dev', 'myapp.dev', 'http://172.20.0.2:3000'))
+    ;(getLinkContainer as unknown as jest.Mock).mockReturnValue('from-state')
+
+    expect(readRoutes()[0].container).toBe('from-state')
   })
 
   it('falls back to the router name as container when no comment is present', () => {
@@ -266,6 +284,12 @@ describe('writeRouteConfig', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, expect.stringContaining('# betty-container: myapp'), 'utf8')
   })
 
+  it('records the container in the link state under the route file name', () => {
+    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+
+    expect(setLinkContainer).toHaveBeenCalledWith('myapp-dev.yml', 'myapp')
+  })
+
   it('creates dynamic dir when it does not exist', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
@@ -298,6 +322,7 @@ describe('writeRouteConfig', () => {
     writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null, oldFilePath)
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(oldFilePath)
+    expect(removeLinkContainer).toHaveBeenCalledWith('old-name.yml')
   })
 
   it('does not delete old file when oldFilePath matches new path', () => {

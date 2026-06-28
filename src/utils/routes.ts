@@ -4,6 +4,7 @@ import yaml from 'yaml'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import { BETTY_DYNAMIC_DIR } from './constants'
 import { normalizeServiceName } from './names'
+import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 // Betty stores the source container name in a leading YAML comment so relink can
 // recover it. Traefik's file provider ignores comments, so this stays invisible
@@ -45,7 +46,7 @@ export const readRoutes = (): RouteEntry[] => {
         const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
         const target = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
         const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? ''
-        entries.push({ filePath, fileName: file, routerName: routerKey, container: storedContainer ?? routerKey, domain, target, port })
+        entries.push({ filePath, fileName: file, routerName: routerKey, container: getLinkContainer(file) ?? storedContainer ?? routerKey, domain, target, port })
       }
     } catch {
       // Ignore malformed route files.
@@ -115,8 +116,12 @@ export const writeRouteConfig = (
   }
 
   const nextPath = path.join(BETTY_DYNAMIC_DIR, `${name}.yml`)
-  if (oldFilePath !== undefined && oldFilePath !== nextPath && fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath)
+  if (oldFilePath !== undefined && oldFilePath !== nextPath && fs.existsSync(oldFilePath)) {
+    fs.unlinkSync(oldFilePath)
+    removeLinkContainer(path.basename(oldFilePath))
+  }
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
   fs.writeFileSync(nextPath, `# betty-container: ${container}\n${yaml.stringify(config)}`, 'utf8')
+  setLinkContainer(`${name}.yml`, container)
   console.log(`${oldFilePath !== undefined ? 'Updated' : 'Wrote'} routing configuration: ${name}.yml`)
 }
