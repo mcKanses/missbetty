@@ -1,6 +1,5 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
-import { printError, printHint } from '../cli/ui/output'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
 import { getHttpPort, getHttpsPort } from './config'
 import { BettyError } from './errors'
@@ -58,25 +57,38 @@ export const ensureProxyNetwork = (): void => {
   }
 }
 
-export const printProxyStartError = (message: string, command: string): void => {
-  printError("Betty's proxy could not be started.")
+// Builds a BettyError describing why the proxy could not start, with targeted
+// hints for the common causes. Callers throw it so the central handler prints
+// the message and hints.
+export const proxyStartError = (message: string, command: string): BettyError => {
+  const headline = "Betty's proxy could not be started."
+
   if (message.includes('permission denied') && message.includes('/var/run/docker.sock')) {
-    printHint('Docker is installed, but your current shell has no access to /var/run/docker.sock.')
-    printHint('Run one of these and retry:')
-    printHint(' - newgrp docker')
-    printHint(' - log out and log back in')
-    printHint(`Then run: betty ${command}`)
-    return
+    const hints = [
+      'Docker is installed, but your current shell has no access to /var/run/docker.sock.',
+      'Run one of these and retry:',
+      ' - newgrp docker',
+      ' - log out and log back in',
+      `Then run: betty ${command}`,
+    ]
+    return new BettyError(headline, { hints })
   }
+
   if (message.includes('Bind for 0.0.0.0:80 failed')) {
-    printHint('Port 80 is already in use by another service.')
-    printHint(`Stop the conflicting HTTP server or proxy, then run: betty ${command}`)
-    return
+    const hints = [
+      'Port 80 is already in use by another service.',
+      `Stop the conflicting HTTP server or proxy, then run: betty ${command}`,
+    ]
+    return new BettyError(headline, { hints })
   }
+
   if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
-    printHint('Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve')
-    printHint('Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"')
-    return
+    const hints = [
+      'Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve',
+      'Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"',
+    ]
+    return new BettyError(headline, { hints })
   }
-  printHint(message)
+
+  return new BettyError(headline, { hints: [message] })
 }
