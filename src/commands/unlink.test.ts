@@ -251,16 +251,7 @@ describe('unlink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(unlinkCommand({ domain: 'nonexistent.localhost' })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No link found for domain 'nonexistent.localhost'"))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(unlinkCommand({ domain: 'nonexistent.localhost' })).rejects.toThrow("No link found for domain 'nonexistent.localhost'")
   })
 
   test('matches route by domain option', async () => {
@@ -405,16 +396,7 @@ describe('unlink command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ confirm: true }))
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(unlinkCommand({ domain: 'app.localhost' })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(unlinkCommand({ domain: 'app.localhost' })).rejects.toThrow('Routing file not found')
   })
 
   test('keeps hosts entry when domain is still used by another route', async () => {
@@ -587,16 +569,7 @@ describe('unlink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(unlinkCommand({ project: 'nonexistent' })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("No project found with name 'nonexistent'"))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(unlinkCommand({ project: 'nonexistent' })).rejects.toThrow("No project found with name 'nonexistent'")
   })
 
   test('removes only one router from a multi-domain file when a single domain is selected in checkbox', async () => {
@@ -728,16 +701,7 @@ describe('unlink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(unlinkCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(unlinkCommand()).rejects.toThrow('Routing file not found')
   })
 
   test('--project exits when route file is missing at removal time', async () => {
@@ -748,16 +712,7 @@ describe('unlink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(unlinkCommand({ project: 'mckanses-auth', yes: true })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Routing file not found'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(unlinkCommand({ project: 'mckanses-auth', yes: true })).rejects.toThrow('Routing file not found')
   })
 
   test('reports failed project in checkbox selection when route file is missing', async () => {
