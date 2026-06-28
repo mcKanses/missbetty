@@ -225,6 +225,16 @@ describe('findDomainConflict', () => {
     expect(findDomainConflict('MYAPP.DEV')).not.toBeNull()
   })
 
+  it('detects a conflict when two different domains normalize to the same route file', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['a-b-localhost.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('a-b-localhost', 'a-b.localhost', 'http://172.20.0.2:3000'))
+
+    // 'a.b.localhost' is a different domain but normalizes to the same name.
+    expect(findDomainConflict('a.b.localhost')).toEqual({ fileName: 'a-b-localhost.yml', routerName: 'a-b-localhost' })
+  })
+
   it('ignores the specified file path', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
