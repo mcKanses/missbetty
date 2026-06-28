@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import path from 'path'
 import inquirer from 'inquirer'
 import { printError, printHint } from '../cli/ui/output'
@@ -19,7 +19,7 @@ import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
 
 const ensureProxyRunning = (traefikComposePath: string): void => {
   try {
-    execSync(`docker compose -f "${traefikComposePath}" up -d`, {
+    execFileSync('docker', ['compose', '-f', traefikComposePath, 'up', '-d'], {
       cwd: path.dirname(traefikComposePath),
       stdio: 'inherit',
     })
@@ -62,7 +62,7 @@ interface DockerInspectComposeLabelsEntry extends DockerInspectEntry {
 export const readExposedPorts = (containerName: string): number[] => {
   try {
     const info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectComposeLabelsEntry[]
     const exposed = info[0]?.Config?.ExposedPorts ?? {}
     return Object.keys(exposed)
@@ -77,7 +77,7 @@ export const readExposedPorts = (containerName: string): number[] => {
 const readComposeLabels = (containerName: string): { project: string; service: string } | null => {
   try {
     const info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectComposeLabelsEntry[]
     const labels = info[0]?.Config?.Labels ?? {}
     const project = normalizeDomainLabel(labels['com.docker.compose.project'] ?? '')
