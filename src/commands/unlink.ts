@@ -8,6 +8,7 @@ import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
 import { readRoutes, type RouteEntry } from '../utils/routes'
+import { removeLinkContainer } from '../utils/state'
 import { sanitizeName } from '../utils/names'
 import type { TraefikDynamicConfig } from '../types'
 
@@ -48,6 +49,7 @@ const removeSingleRoute = (route: RouteEntry): boolean => {
   const hasRouters = doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0
   if (!hasRouters) {
     fs.unlinkSync(route.filePath)
+    removeLinkContainer(route.fileName)
     return true
   }
 
@@ -89,6 +91,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
       continue
     }
     fs.unlinkSync(route.filePath)
+    removeLinkContainer(route.fileName)
     deletedFiles.add(route.filePath)
     removeHostsEntry(route.domain)
     removedDomains.push(route.domain)
@@ -104,6 +107,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
 
 const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], composePath: string): void => {
   fs.unlinkSync(route.filePath)
+  removeLinkContainer(route.fileName)
   const remainingRoutes = readRoutes()
   const removedDomains: string[] = []
   for (const r of projectRoutes) {
@@ -224,6 +228,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
       continue
     }
     fs.unlinkSync(filePath)
+    removeLinkContainer(path.basename(filePath))
     const remainingRoutes = readRoutes()
     for (const r of group) if (!remainingRoutes.some((rem) => rem.domain === r.domain)) {
         removeHostsEntry(r.domain)

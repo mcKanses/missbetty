@@ -3,6 +3,7 @@ import { execSync, execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import unlinkCommand from './unlink'
+import { removeLinkContainer } from '../utils/state'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -41,6 +42,13 @@ jest.mock('../utils/lock', () => ({
   __esModule: true,
   withLock: (fn: () => unknown) => fn(),
   withLockAsync: (fn: () => unknown) => fn(),
+}))
+
+jest.mock('../utils/state', () => ({
+  __esModule: true,
+  getLinkContainer: jest.fn(),
+  setLinkContainer: jest.fn(),
+  removeLinkContainer: jest.fn(),
 }))
 
 const YAML_APP_ROUTE = [
@@ -191,6 +199,7 @@ describe('unlink command', () => {
     await unlinkCommand({ domain: 'app.localhost' })
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('app.yml'))
+    expect(removeLinkContainer).toHaveBeenCalledWith('app.yml')
     expect(execSync).toHaveBeenCalledWith(
       expect.stringContaining('restart traefik'),
       expect.objectContaining({ stdio: 'inherit' })
