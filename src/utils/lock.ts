@@ -54,3 +54,14 @@ export const withLock = <T>(fn: () => T): T => {
     release()
   }
 }
+
+// Async variant: holds the lock until the returned promise settles, so the
+// lock is not released while async work is still in flight.
+export const withLockAsync = async <T>(fn: () => Promise<T>): Promise<T> => {
+  acquire()
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
