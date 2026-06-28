@@ -70,12 +70,28 @@ describe('ensureHostsEntry', () => {
     expect(fs.appendFileSync).toHaveBeenCalled()
   })
 
-  it('returns false and warns when running in WSL', () => {
+  it('writes to the Windows hosts file on WSL when it is writable', () => {
     setPlatform('linux')
     process.env.WSL_DISTRO_NAME = 'Ubuntu'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      '/mnt/c/Windows/System32/drivers/etc/hosts',
+      expect.stringContaining('myapp.dev'),
+      'utf8'
+    )
+    expect(execSync).not.toHaveBeenCalled()
+  })
+
+  it('falls back to manual instructions on WSL when the Windows hosts file is not writable', () => {
+    setPlatform('linux')
+    process.env.WSL_DISTRO_NAME = 'Ubuntu'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
-    expect(fs.appendFileSync).not.toHaveBeenCalled()
     expect(execSync).not.toHaveBeenCalled()
   })
 
@@ -172,6 +188,21 @@ describe('removeHostsEntry', () => {
     expect(removeHostsEntry('myapp.dev')).toBe(true)
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/etc/hosts',
+      expect.not.stringContaining('myapp.dev'),
+      'utf8'
+    )
+  })
+
+  it('targets the Windows hosts file under WSL', () => {
+    setPlatform('linux')
+    process.env.WSL_DISTRO_NAME = 'Ubuntu'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      '127.0.0.1 myapp.dev # added by betty\n'
+    )
+
+    expect(removeHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      '/mnt/c/Windows/System32/drivers/etc/hosts',
       expect.not.stringContaining('myapp.dev'),
       'utf8'
     )
