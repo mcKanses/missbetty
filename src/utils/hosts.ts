@@ -5,9 +5,15 @@ import fs from 'fs'
 // marker so Betty never deletes hosts lines a user added manually.
 const BETTY_HOSTS_MARKER = '# added by betty'
 
-const getHostsPath = (): string => process.platform === 'win32'
-  ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
-  : '/etc/hosts'
+const isWsl = (): boolean => process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
+
+const getHostsPath = (): string => {
+  if (process.platform === 'win32') return 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+  // Under WSL the browser runs on Windows, so removals must target the Windows
+  // hosts file (reachable via /mnt/c) to match where ensureHostsEntry writes.
+  if (isWsl()) return '/mnt/c/Windows/System32/drivers/etc/hosts'
+  return '/etc/hosts'
+}
 
 const elevateWithPowerShell = (script: string): boolean => {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
@@ -45,18 +51,29 @@ const grantHostsWritePermission = (hostsPath: string): boolean => {
 export const ensureHostsEntry = (domain: string): boolean => {
   if (domain.toLowerCase().endsWith('.localhost')) return true
 
-  const isWsl = process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
-  if (isWsl) {
-    const entry = `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
-    console.log(`\n⚠️  WSL detected. Add this line to your Windows hosts file manually:`)
-    console.log(`   C:\\Windows\\System32\\drivers\\etc\\hosts`)
-    console.log(`   ${entry}`)
-    return false
+  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const entry = `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
+
+  if (isWsl()) {
+    // The browser runs on Windows, so the Windows hosts file is what matters.
+    // Try to write it directly through the /mnt/c mount; if that isn't writable
+    // (the common case without elevation), fall back to manual instructions.
+    const winHostsPath = '/mnt/c/Windows/System32/drivers/etc/hosts'
+    try {
+      const content = fs.readFileSync(winHostsPath, 'utf8')
+      if (new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)) return true
+      fs.appendFileSync(winHostsPath, `\n${entry}\n`, 'utf8')
+      console.log(`Added hosts entry to the Windows hosts file: ${entry}`)
+      return true
+    } catch {
+      console.log(`\n⚠️  WSL detected. Add this line to your Windows hosts file manually:`)
+      console.log(`   C:\\Windows\\System32\\drivers\\etc\\hosts`)
+      console.log(`   ${entry}`)
+      return false
+    }
   }
 
   const hostsPath = getHostsPath()
-  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const entry = `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
   const hasEntry = (): boolean => {
     const content = fs.readFileSync(hostsPath, 'utf8')
     return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)
