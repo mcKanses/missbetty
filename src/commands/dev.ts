@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
-import { printError, printHint, printWarn } from '../cli/ui/output'
+import { printHint, printWarn } from '../cli/ui/output'
 import { checkDockerRunning, checkMkcertInstalled, hasHostsEntry, runMkcertInstall } from '../utils/setup'
 import { ensureHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
@@ -319,9 +319,7 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
     if (!cleanExit) printUrls(config)
   } catch (err) {
     if (err instanceof BettyError) throw err
-    const message = err instanceof Error ? err.message : String(err)
-    printError(message)
-    process.exit(1)
+    throw new BettyError(err instanceof Error ? err.message : String(err))
   }
   if (cleanExit) process.exit(0)
 }
