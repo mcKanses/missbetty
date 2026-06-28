@@ -1,7 +1,7 @@
 import inquirer from 'inquirer'
 import { execSync } from 'child_process'
 import fs from 'fs'
-import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
 import { BETTY_HOME_DIR, BETTY_PROXY_COMPOSE } from '../utils/constants'
 
 interface RestOptions {
@@ -34,8 +34,7 @@ const restCommand = async (opts?: RestOptions): Promise<void> => {
     console.log('Betty is resting.')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    printError(`Betty's switchboard service could not be stopped: ${message}`)
-    process.exit(1)
+    throw new BettyError(`Betty's switchboard service could not be stopped: ${message}`)
   }
 }
 

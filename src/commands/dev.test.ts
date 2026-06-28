@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
+import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
 import devCommand, { readDevProjectConfig } from './dev'
 
@@ -212,7 +213,7 @@ describe('dev command', () => {
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
   })
 
   test('auto-discovers .betty.yml when no config path is given', async () => {
@@ -232,7 +233,7 @@ describe('dev command', () => {
   test('exits when no config file is found in the current directory', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    await expect(devCommand({ dryRun: true })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ dryRun: true })).rejects.toThrow(BettyError)
   })
 
   test('exits when docker permission is set to manual', async () => {
@@ -246,7 +247,7 @@ describe('dev command', () => {
       return Buffer.from('')
     })
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
   })
 
   test('adds hosts entry and exits when docker permission is denied', async () => {
@@ -266,7 +267,7 @@ describe('dev command', () => {
       return ''
     })
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
   })
 
   test('shows checkbox for multiple missing hosts entries and adds only selected domains', async () => {
@@ -289,7 +290,7 @@ describe('dev command', () => {
     })
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ hosts: ['ui.dev'] } as never)
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
 
     const checkboxCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
       (call) => (call[0] as { type: string }[])[0]?.type === 'checkbox'
@@ -324,7 +325,7 @@ describe('dev command', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('api.test.dev'))
 
     errorSpy.mockRestore()
@@ -348,7 +349,7 @@ describe('dev command', () => {
     })
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true } as never)
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
 
     const confirmCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
       (call) => (call[0] as { type: string }[])[0]?.type === 'confirm'
@@ -376,7 +377,7 @@ describe('dev command', () => {
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
     expect(inquirer.prompt).toHaveBeenCalled()
   })
 
@@ -510,7 +511,7 @@ describe('dev command', () => {
       return Buffer.from('')
     })
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
   })
 
   test('dry-run does not log Up command when config has no up command', async () => {
@@ -574,7 +575,7 @@ describe('dev command', () => {
       throw new Error('Docker not available')
     })
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
   })
 
   test('exits when up command exits with non-zero status code', async () => {
@@ -599,7 +600,7 @@ describe('dev command', () => {
     })
     ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 1 })
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
   })
 
   test('cleans up route without running down command when interrupted with no down config', async () => {
