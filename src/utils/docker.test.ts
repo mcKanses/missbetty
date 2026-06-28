@@ -12,10 +12,6 @@ jest.mock('fs', () => ({
   mkdirSync: jest.fn(),
 }))
 
-jest.mock('../cli/ui/output', () => ({
-  printError: jest.fn(),
-}))
-
 jest.mock('./setup', () => ({
   checkMkcertInstalled: jest.fn(),
   isHttpsRequestedDomain: jest.fn(),
@@ -33,7 +29,7 @@ jest.mock('./names', () => ({
 
 import fs from 'fs'
 import { execFileSync } from 'child_process'
-import { printError } from '../cli/ui/output'
+import { BettyError } from './errors'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import { sanitizeName } from './names'
 import {
@@ -72,8 +68,8 @@ describe('resolveTraefikComposePath', () => {
   it('exits when the compose file does not exist', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    expect(() => { resolveTraefikComposePath() }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalled()
+    expect(() => { resolveTraefikComposePath() }).toThrow(BettyError)
+    expect(() => { resolveTraefikComposePath() }).toThrow("Betty's proxy is not set up")
   })
 })
 
@@ -126,8 +122,7 @@ describe('connectContainerToNetwork', () => {
   it('exits when the container is not found', () => {
     ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('No such container') })
 
-    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith(expect.stringContaining('myapp-1'))
+    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' not found")
   })
 
   it('exits when network connect fails', () => {
@@ -135,7 +130,7 @@ describe('connectContainerToNetwork', () => {
       .mockReturnValueOnce(makeInspect(['bridge']))
       .mockImplementationOnce(() => { throw new Error('network error') })
 
-    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow('process-exit-1')
+    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow('Failed to connect')
   })
 })
 
@@ -149,14 +144,13 @@ describe('getContainerIp', () => {
   it('exits when the container is not found', () => {
     ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('No such container') })
 
-    expect(() => { getContainerIp('myapp-1') }).toThrow('process-exit-1')
+    expect(() => { getContainerIp('myapp-1') }).toThrow("Container 'myapp-1' not found")
   })
 
   it('exits when the container has no IP in the betty network', () => {
     ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy'], ''))
 
-    expect(() => { getContainerIp('myapp-1') }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith(expect.stringContaining('IP'))
+    expect(() => { getContainerIp('myapp-1') }).toThrow('Could not determine IP')
   })
 })
 
@@ -176,8 +170,7 @@ describe('restartTraefik', () => {
   it('exits when restart fails', () => {
     ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('restart failed') })
 
-    expect(() => { restartTraefik('/home/test/.betty/docker-compose.yml') }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith(expect.stringContaining('Traefik'))
+    expect(() => { restartTraefik('/home/test/.betty/docker-compose.yml') }).toThrow('Failed to restart Traefik')
   })
 })
 
@@ -239,7 +232,7 @@ describe('ensureCertificate', () => {
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(false)
     ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
 
-    expect(() => { ensureCertificate('myapp.dev') }).toThrow('process-exit-1')
+    expect(() => { ensureCertificate('myapp.dev') }).toThrow('mkcert is not installed')
   })
 
   it('returns null when cert creation fails and domain does not require https', () => {
@@ -259,6 +252,6 @@ describe('ensureCertificate', () => {
     ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert failed') })
     ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
 
-    expect(() => { ensureCertificate('myapp.dev') }).toThrow('process-exit-1')
+    expect(() => { ensureCertificate('myapp.dev') }).toThrow('certificate creation failed')
   })
 })
