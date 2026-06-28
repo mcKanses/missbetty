@@ -131,7 +131,7 @@ describe('projectLoadCommand', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectLoadCommand({})).rejects.toThrow('process-exit-1')
+    await expect(projectLoadCommand({})).rejects.toThrow('No .betty.yml found')
 
     errorSpy.mockRestore()
   })
@@ -424,7 +424,7 @@ describe('projectLinkCommand', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectLinkCommand({})).rejects.toThrow('process-exit-1')
+    await expect(projectLinkCommand({})).rejects.toThrow('proxy failed')
 
     errorSpy.mockRestore()
   })
@@ -499,7 +499,7 @@ describe('projectStopCommand', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectStopCommand({ yes: true })).rejects.toThrow('process-exit-1')
+    await expect(projectStopCommand({ yes: true })).rejects.toThrow('No .betty.yml found')
 
     errorSpy.mockRestore()
   })
@@ -588,7 +588,7 @@ describe('projectStatusCommand', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectStatusCommand({ name: 'nonexistent' })).rejects.toThrow('process-exit-1')
+    await expect(projectStatusCommand({ name: 'nonexistent' })).rejects.toThrow("No linked project found with name 'nonexistent'")
 
     errorSpy.mockRestore()
   })
@@ -635,7 +635,7 @@ describe('projectStatusCommand', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(projectStatusCommand({ file: '.betty.yml' })).rejects.toThrow('process-exit-1')
+    await expect(projectStatusCommand({ file: '.betty.yml' })).rejects.toThrow('No .betty.yml found')
 
     errorSpy.mockRestore()
   })
