@@ -222,12 +222,15 @@ describe('run', () => {
     expect(statusCommand).toHaveBeenCalledWith(expect.objectContaining({ json: true }))
   })
 
-  test('maps a BettyError thrown by a command to printError and its exit code', async () => {
-    ;(configCommand as unknown as jest.Mock).mockImplementation(() => { throw new BettyError('boom', 1) })
+  test('maps a BettyError thrown by a command to printError, its hints and exit code', async () => {
+    ;(configCommand as unknown as jest.Mock).mockImplementation(() => {
+      throw new BettyError('boom', { hints: ['try this instead'] })
+    })
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
     await expect(run(argv('config', 'get', 'bad'))).rejects.toThrow('process-exit-1')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('boom'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('try this instead'))
 
     errorSpy.mockRestore()
   })

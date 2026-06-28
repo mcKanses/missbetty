@@ -3,6 +3,7 @@ import fs from 'fs'
 import { printError, printHint } from '../cli/ui/output'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
 import { getHttpPort, getHttpsPort } from './config'
+import { BettyError } from './errors'
 import {
   BETTY_TRAEFIK_CONTAINER,
   BETTY_HOME_DIR,
@@ -24,18 +25,17 @@ export const ensureHttpsPortAvailable = (): void => {
 
   if (dockerOwners.length === 0 && systemOwners.length === 0) return
 
-  printError(`Port ${String(httpsPort)} is already in use.`)
-  printHint(`Betty needs host port ${String(httpsPort)} for HTTPS domains such as .dev.`)
+  const hints = [`Betty needs host port ${String(httpsPort)} for HTTPS domains such as .dev.`]
   if (dockerOwners.length > 0) {
-    printHint(`\nDocker containers publishing ${String(httpsPort)}:`)
-    dockerOwners.forEach((owner) => { printHint(` - ${owner}`) })
+    hints.push(`\nDocker containers publishing ${String(httpsPort)}:`)
+    dockerOwners.forEach((owner) => { hints.push(` - ${owner}`) })
   }
   if (systemOwners.length > 0) {
-    printHint(`\nProcesses listening on ${String(httpsPort)}:`)
-    systemOwners.forEach((owner) => { printHint(` - ${owner}`) })
+    hints.push(`\nProcesses listening on ${String(httpsPort)}:`)
+    systemOwners.forEach((owner) => { hints.push(` - ${owner}`) })
   }
-  printHint('\nStop the conflicting HTTPS server or proxy, then run: betty serve')
-  process.exit(1)
+  hints.push('\nStop the conflicting HTTPS server or proxy, then run: betty serve')
+  throw new BettyError(`Port ${String(httpsPort)} is already in use.`, { hints })
 }
 
 export const ensureProxySetup = (opts: { certs?: boolean } = {}): void => {
