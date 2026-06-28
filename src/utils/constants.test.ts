@@ -14,7 +14,7 @@ import {
   BETTY_CERTS_DIR,
   BETTY_PROXY_NETWORK,
   BETTY_TRAEFIK_CONTAINER,
-  TRAEFIK_COMPOSE,
+  renderTraefikCompose,
 } from './constants'
 
 describe('path constants', () => {
@@ -49,22 +49,33 @@ describe('network and container constants', () => {
   })
 })
 
-describe('TRAEFIK_COMPOSE', () => {
+describe('renderTraefikCompose', () => {
+  const compose = renderTraefikCompose(80, 443)
+
   test('references the correct container name', () => {
-    expect(TRAEFIK_COMPOSE).toContain(`container_name: ${BETTY_TRAEFIK_CONTAINER}`)
+    expect(compose).toContain(`container_name: ${BETTY_TRAEFIK_CONTAINER}`)
   })
 
   test('references the correct network name', () => {
-    expect(TRAEFIK_COMPOSE).toContain(`network=${BETTY_PROXY_NETWORK}`)
-    expect(TRAEFIK_COMPOSE).toContain(`- ${BETTY_PROXY_NETWORK}`)
+    expect(compose).toContain(`network=${BETTY_PROXY_NETWORK}`)
+    expect(compose).toContain(`- ${BETTY_PROXY_NETWORK}`)
   })
 
-  test('exposes ports 80 and 443', () => {
-    expect(TRAEFIK_COMPOSE).toContain('"80:80"')
-    expect(TRAEFIK_COMPOSE).toContain('"443:443"')
+  test('maps the given host ports to container 80 and 443', () => {
+    expect(compose).toContain('"80:80"')
+    expect(compose).toContain('"443:443"')
+  })
+
+  test('publishes custom host ports while keeping container ports 80 and 443', () => {
+    const custom = renderTraefikCompose(8080, 8443)
+    expect(custom).toContain('"8080:80"')
+    expect(custom).toContain('"8443:443"')
+    // entrypoints inside the container stay standard
+    expect(custom).toContain('--entrypoints.web.address=:80')
+    expect(custom).toContain('--entrypoints.websecure.address=:443')
   })
 
   test('mounts the docker socket read-only', () => {
-    expect(TRAEFIK_COMPOSE).toContain('/var/run/docker.sock:/var/run/docker.sock:ro')
+    expect(compose).toContain('/var/run/docker.sock:/var/run/docker.sock:ro')
   })
 })
