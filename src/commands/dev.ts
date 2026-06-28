@@ -15,6 +15,7 @@ import {
 } from '../utils/constants'
 import { sanitizeName, certificatePaths } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { BettyError } from '../utils/errors'
 import { findDomainConflict } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
@@ -317,6 +318,7 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
     }
     if (!cleanExit) printUrls(config)
   } catch (err) {
+    if (err instanceof BettyError) throw err
     const message = err instanceof Error ? err.message : String(err)
     printError(message)
     process.exit(1)
