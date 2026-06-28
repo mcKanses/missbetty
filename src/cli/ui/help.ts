@@ -3,12 +3,20 @@ const RESET = '\x1b[0m'
 
 import { AUTHOR_INFO } from './meta'
 
+// Describes one top-level command in the help listing. Callers derive this from
+// the Commander program so the help text has a single source of truth and cannot
+// silently drift from the registered commands.
+export interface HelpCommand {
+  name: string;
+  description: string;
+}
+
 const commandLine = (name: string, description: string): string => {
   const label = name.padEnd(9, ' ')
   return `  ${label}${DIM}${description}${RESET}`
 }
 
-export const printHelp = (): void => {
+export const printHelp = (commands: HelpCommand[]): void => {
   const title = 'betty - connects local domains to services'
   const author = AUTHOR_INFO
   const pad = Math.max(0, 60 - title.length - author.length)
@@ -16,17 +24,7 @@ export const printHelp = (): void => {
   console.log(title + right + author)
   console.log('')
   console.log('Commands:')
-  console.log(commandLine('project', 'manage betty projects (load, create, link, stop, status)'))
-  console.log(commandLine('serve', 'start local switchboard service'))
-  console.log(commandLine('stop', 'stop local switchboard service'))
-  console.log(commandLine('rest', "alias for 'stop'"))
-  console.log(commandLine('status', 'show switchboard status'))
-  console.log(commandLine('link', 'connect a service to a domain'))
-  console.log(commandLine('relink', 'update an existing domain link'))
-  console.log(commandLine('unlink', 'remove a domain link'))
-  console.log(commandLine('config', 'read or update betty settings'))
-  console.log(commandLine('doctor', 'run dependency diagnostics'))
-  console.log(commandLine('setup', 'interactive setup and repair'))
+  for (const { name, description } of commands) console.log(commandLine(name, description))
   console.log('')
   console.log('Examples:')
   console.log('  betty project load')

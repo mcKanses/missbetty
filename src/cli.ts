@@ -229,7 +229,11 @@ export const run = async (argv = process.argv): Promise<void> => {
   if (cmd === 'help') {
     printBettyLogo()
     console.log('')
-    printHelp()
+    const commands = createProgram().commands.map((command) => ({
+      name: command.name(),
+      description: command.description(),
+    }))
+    printHelp(commands)
     process.exit(0)
   }
 
