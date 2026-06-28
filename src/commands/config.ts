@@ -7,7 +7,7 @@ import {
   setHttpPort,
   setHttpsPort,
 } from '../utils/config'
-import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
 
 const SUPPORTED_KEYS = ['domainSuffix', 'httpPort', 'httpsPort']
 const SUPPORTED_KEYS_HINT = `Unknown config key. Supported: ${SUPPORTED_KEYS.join(', ')}`
@@ -51,39 +51,28 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
 
   if (action === 'get') {
     const result = key !== undefined ? readKey(key) : null
-    if (result === null) {
-      printError(SUPPORTED_KEYS_HINT)
-      process.exit(1)
-    }
+    if (result === null) throw new BettyError(SUPPORTED_KEYS_HINT)
 
     console.log(result)
     return
   }
 
   if (action === 'set') {
-    if (key === undefined || !SUPPORTED_KEYS.includes(key)) {
-      printError(SUPPORTED_KEYS_HINT)
-      process.exit(1)
-    }
+    if (key === undefined || !SUPPORTED_KEYS.includes(key)) throw new BettyError(SUPPORTED_KEYS_HINT)
 
-    if (value === undefined || value.trim() === '') {
-      printError(`Missing value. Example: betty config set ${key} ${key === 'domainSuffix' ? '.localhost' : '8080'}`)
-      process.exit(1)
-    }
+    if (value === undefined || value.trim() === '') throw new BettyError(`Missing value. Example: betty config set ${key} ${key === 'domainSuffix' ? '.localhost' : '8080'}`)
 
     try {
       const normalized = writeKey(key, value)
       console.log(`Saved: ${key}=${normalized}`)
       return
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      printError(message)
-      process.exit(1)
+      if (err instanceof BettyError) throw err
+      throw new BettyError(err instanceof Error ? err.message : String(err))
     }
   }
 
-  printError('Usage: betty config [get|set] <key> [value]')
-  process.exit(1)
+  throw new BettyError('Usage: betty config [get|set] <key> [value]')
 }
 
 export default configCommand

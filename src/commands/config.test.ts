@@ -9,6 +9,7 @@ import {
   setHttpPort,
   setHttpsPort,
 } from '../utils/config'
+import { BettyError } from '../utils/errors'
 
 jest.mock('../utils/config', () => ({
   __esModule: true,
@@ -89,53 +90,30 @@ describe('config command', () => {
     logSpy.mockRestore()
   })
 
-  test('exits with 1 for unknown key', () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    expect(() => { configCommand('get', 'other') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown config key. Supported: domainSuffix'))
-
-    errorSpy.mockRestore()
+  test('throws a BettyError for an unknown get key', () => {
+    expect(() => { configCommand('get', 'other') }).toThrow(BettyError)
+    expect(() => { configCommand('get', 'other') }).toThrow('Unknown config key. Supported: domainSuffix')
   })
 
-  test('exits with 1 when set is given an unknown key', () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    expect(() => { configCommand('set', 'other', '.localhost') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown config key. Supported: domainSuffix'))
+  test('throws when set is given an unknown key', () => {
+    expect(() => { configCommand('set', 'other', '.localhost') }).toThrow('Unknown config key. Supported: domainSuffix')
     expect(setDomainSuffix).not.toHaveBeenCalled()
-
-    errorSpy.mockRestore()
   })
 
-  test('exits with 1 when set is missing a value', () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    expect(() => { configCommand('set', 'domainSuffix') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Missing value'))
+  test('throws when set is missing a value', () => {
+    expect(() => { configCommand('set', 'domainSuffix') }).toThrow('Missing value')
     expect(setDomainSuffix).not.toHaveBeenCalled()
-
-    errorSpy.mockRestore()
   })
 
-  test('exits with 1 when set value is only whitespace', () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    expect(() => { configCommand('set', 'domainSuffix', '   ') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Missing value'))
+  test('throws when set value is only whitespace', () => {
+    expect(() => { configCommand('set', 'domainSuffix', '   ') }).toThrow('Missing value')
     expect(setDomainSuffix).not.toHaveBeenCalled()
-
-    errorSpy.mockRestore()
   })
 
-  test('exits with 1 and reports the error when setDomainSuffix throws', () => {
+  test('wraps the error when setDomainSuffix throws', () => {
     ;(setDomainSuffix as unknown as jest.Mock).mockImplementation(() => { throw new Error('disk full') })
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    expect(() => { configCommand('set', 'domainSuffix', '.localhost') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('disk full'))
-
-    errorSpy.mockRestore()
+    expect(() => { configCommand('set', 'domainSuffix', '.localhost') }).toThrow('disk full')
   })
 
   test('stringifies a non-Error thrown by setDomainSuffix', () => {
@@ -143,21 +121,12 @@ describe('config command', () => {
       const failure: unknown = 'plain string failure'
       throw failure
     })
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    expect(() => { configCommand('set', 'domainSuffix', '.localhost') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('plain string failure'))
-
-    errorSpy.mockRestore()
+    expect(() => { configCommand('set', 'domainSuffix', '.localhost') }).toThrow('plain string failure')
   })
 
-  test('exits with 1 for an unrecognized action', () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    expect(() => { configCommand('bogus') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: betty config [get|set] <key> [value]'))
-
-    errorSpy.mockRestore()
+  test('throws for an unrecognized action', () => {
+    expect(() => { configCommand('bogus') }).toThrow('Usage: betty config [get|set] <key> [value]')
   })
 
   test('list shows the configured http and https ports', () => {
@@ -198,11 +167,7 @@ describe('config command', () => {
 
   test('set rejects an invalid port via the thrown error', () => {
     ;(setHttpPort as unknown as jest.Mock).mockImplementation(() => { throw new Error('Invalid port. Example: betty config set httpPort 8080') })
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    expect(() => { configCommand('set', 'httpPort', 'abc') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid port'))
-
-    errorSpy.mockRestore()
+    expect(() => { configCommand('set', 'httpPort', 'abc') }).toThrow('Invalid port')
   })
 })
