@@ -34,7 +34,14 @@ jest.mock('./constants', () => ({
   BETTY_CERTS_DIR: '/home/test-user/.betty/certs',
   BETTY_PROXY_COMPOSE: '/home/test-user/.betty/docker-compose.yml',
   BETTY_PROXY_NETWORK: 'betty_proxy',
-  TRAEFIK_COMPOSE: 'traefik-compose-content',
+  // Plain function (not jest.fn) so resetAllMocks does not clear it.
+  renderTraefikCompose: (httpPort: number, httpsPort: number) =>
+    `traefik-compose-${String(httpPort)}-${String(httpsPort)}`,
+}))
+
+jest.mock('./config', () => ({
+  getHttpPort: () => 80,
+  getHttpsPort: () => 443,
 }))
 
 import fs from 'fs'
@@ -102,7 +109,7 @@ describe('ensureHttpsPortAvailable', () => {
 describe('ensureProxySetup', () => {
   beforeEach(() => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('traefik-compose-content')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('traefik-compose-80-443')
   })
 
   it('does nothing when all dirs and compose file already exist and are current', () => {
@@ -156,7 +163,7 @@ describe('ensureProxySetup', () => {
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/home/test-user/.betty/docker-compose.yml',
-      'traefik-compose-content',
+      'traefik-compose-80-443',
       'utf8'
     )
   })
