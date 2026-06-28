@@ -115,6 +115,35 @@ describe('readRoutes', () => {
     expect(readRoutes()[0].routerName).toBe('myapp')
   })
 
+  it('falls back to the first router when only a secure router exists', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({
+      http: {
+        routers: {
+          'myapp-secure': { rule: 'Host("myapp.dev")', entryPoints: ['websecure'], service: 'myapp', tls: {} },
+        },
+        services: { myapp: { loadBalancer: { servers: [{ url: 'http://172.20.0.2:3000' }] } } },
+      },
+    })
+
+    const routes = readRoutes()
+    expect(routes).toHaveLength(1)
+    expect(routes[0]).toMatchObject({ routerName: 'myapp-secure', domain: 'myapp.dev', port: '3000' })
+  })
+
+  it('falls back to the file name as router when the file has no routers', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['empty.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({ http: {} })
+
+    const routes = readRoutes()
+    expect(routes).toHaveLength(1)
+    expect(routes[0]).toMatchObject({ routerName: 'empty', domain: '', target: '', port: '' })
+  })
+
   it('extracts port from target url', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
