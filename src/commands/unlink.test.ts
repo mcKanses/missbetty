@@ -128,19 +128,10 @@ describe('unlink command', () => {
     )
   })
 
-  test('logs error and exits when Betty proxy is not set up', async () => {
+  test('throws a BettyError when Betty proxy is not set up', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(unlinkCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Betty's proxy is not set up yet. Run: betty serve"))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(unlinkCommand()).rejects.toThrow("Betty's proxy is not set up yet. Run: betty serve")
   })
 
   test('logs "No links found." when dynamic dir has no routes', async () => {
