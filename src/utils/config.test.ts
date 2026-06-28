@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
-import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort } from './config'
+import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort } from './config'
 
 jest.mock('./constants', () => ({
   BETTY_HOME_DIR: '/home/test-user/.betty',
@@ -175,6 +175,45 @@ describe('getHttpPort / getHttpsPort', () => {
 
     expect(getHttpPort()).toBe(80)
     expect(getHttpsPort()).toBe(443)
+  })
+})
+
+describe('setHttpPort / setHttpsPort', () => {
+  test('write the port into the config file and return it', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('{}')
+
+    expect(setHttpPort('8080')).toBe(8080)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      '/home/test-user/.betty/config.json',
+      expect.stringContaining('"httpPort": 8080'),
+      'utf8'
+    )
+
+    expect(setHttpsPort('8443')).toBe(8443)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      '/home/test-user/.betty/config.json',
+      expect.stringContaining('"httpsPort": 8443'),
+      'utf8'
+    )
+  })
+
+  test('preserve existing config keys when setting a port', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ domainSuffix: '.dev' }))
+
+    setHttpPort('8080')
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      '/home/test-user/.betty/config.json',
+      expect.stringContaining('.dev'),
+      'utf8'
+    )
+  })
+
+  test('throw on an invalid port', () => {
+    expect(() => { setHttpPort('abc') }).toThrow('Invalid port')
+    expect(() => { setHttpsPort('70000') }).toThrow('Invalid port')
   })
 })
 
