@@ -4,12 +4,16 @@ import path from 'path'
 export const BETTY_HOME_DIR = path.join(os.homedir(), '.betty')
 export const BETTY_PROXY_COMPOSE = path.join(BETTY_HOME_DIR, 'docker-compose.yml')
 export const BETTY_CONFIG_PATH = path.join(BETTY_HOME_DIR, 'config.json')
+export const BETTY_STATE_PATH = path.join(BETTY_HOME_DIR, 'links.json')
 export const BETTY_DYNAMIC_DIR = path.join(BETTY_HOME_DIR, 'dynamic')
 export const BETTY_CERTS_DIR = path.join(BETTY_HOME_DIR, 'certs')
 export const BETTY_PROXY_NETWORK = 'betty_proxy'
 export const BETTY_TRAEFIK_CONTAINER = 'betty-traefik'
 
-export const TRAEFIK_COMPOSE = `
+// Renders the global Traefik compose file. Only the host-side port mapping is
+// configurable; Traefik always listens on 80/443 inside the container, so
+// routing and certificates stay standard regardless of the published ports.
+export const renderTraefikCompose = (httpPort: number, httpsPort: number): string => `
 services:
   traefik:
     image: traefik:v2.10
@@ -24,8 +28,8 @@ services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
     ports:
-      - "80:80"
-      - "443:443"
+      - "${String(httpPort)}:80"
+      - "${String(httpsPort)}:443"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

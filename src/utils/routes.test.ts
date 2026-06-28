@@ -30,9 +30,17 @@ jest.mock('./constants', () => ({
   BETTY_DYNAMIC_DIR: '/home/test-user/.betty/dynamic',
 }))
 
+jest.mock('./state', () => ({
+  __esModule: true,
+  getLinkContainer: jest.fn(),
+  setLinkContainer: jest.fn(),
+  removeLinkContainer: jest.fn(),
+}))
+
 import fs from 'fs'
 import yaml from 'yaml'
 import { readRoutes, findDomainConflict, writeRouteConfig } from './routes'
+import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 const DYNAMIC_DIR = '/home/test-user/.betty/dynamic'
 
@@ -80,6 +88,34 @@ describe('readRoutes', () => {
     })
   })
 
+  it('reads the source container from the betty-container comment', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp-dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-container: myapp\nhttp: {}')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('myapp-dev', 'myapp.dev', 'http://172.20.0.2:3000'))
+
+    expect(readRoutes()[0].container).toBe('myapp')
+  })
+
+  it('prefers the container from the link state over the comment', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp-dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-container: from-comment\nhttp: {}')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('myapp-dev', 'myapp.dev', 'http://172.20.0.2:3000'))
+    ;(getLinkContainer as unknown as jest.Mock).mockReturnValue('from-state')
+
+    expect(readRoutes()[0].container).toBe('from-state')
+  })
+
+  it('falls back to the router name as container when no comment is present', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('myapp', 'myapp.dev', 'http://172.20.0.2:3000'))
+
+    expect(readRoutes()[0].container).toBe('myapp')
+  })
+
   it('prefers the non-secure router when both exist', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
@@ -95,6 +131,35 @@ describe('readRoutes', () => {
     })
 
     expect(readRoutes()[0].routerName).toBe('myapp')
+  })
+
+  it('falls back to the first router when only a secure router exists', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({
+      http: {
+        routers: {
+          'myapp-secure': { rule: 'Host("myapp.dev")', entryPoints: ['websecure'], service: 'myapp', tls: {} },
+        },
+        services: { myapp: { loadBalancer: { servers: [{ url: 'http://172.20.0.2:3000' }] } } },
+      },
+    })
+
+    const routes = readRoutes()
+    expect(routes).toHaveLength(1)
+    expect(routes[0]).toMatchObject({ routerName: 'myapp-secure', domain: 'myapp.dev', port: '3000' })
+  })
+
+  it('falls back to the file name as router when the file has no routers', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['empty.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({ http: {} })
+
+    const routes = readRoutes()
+    expect(routes).toHaveLength(1)
+    expect(routes[0]).toMatchObject({ routerName: 'empty', domain: '', target: '', port: '' })
   })
 
   it('extracts port from target url', () => {
@@ -178,6 +243,16 @@ describe('findDomainConflict', () => {
     expect(findDomainConflict('MYAPP.DEV')).not.toBeNull()
   })
 
+  it('detects a conflict when two different domains normalize to the same route file', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['a-b-localhost.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('a-b-localhost', 'a-b.localhost', 'http://172.20.0.2:3000'))
+
+    // 'a.b.localhost' is a different domain but normalizes to the same name.
+    expect(findDomainConflict('a.b.localhost')).toEqual({ fileName: 'a-b-localhost.yml', routerName: 'a-b-localhost' })
+  })
+
   it('ignores the specified file path', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myapp.yml'])
@@ -190,17 +265,29 @@ describe('findDomainConflict', () => {
 })
 
 describe('writeRouteConfig', () => {
-  const NEXT_PATH = path.join(DYNAMIC_DIR, 'myapp.yml')
+  const NEXT_PATH = path.join(DYNAMIC_DIR, 'myapp-dev.yml')
 
   beforeEach(() => {
     ;(yaml.stringify as unknown as jest.Mock).mockReturnValue('yaml-content')
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
   })
 
-  it('writes config file with correct path', () => {
+  it('derives the file name from the domain and writes the rendered config', () => {
     writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, 'yaml-content', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, expect.stringContaining('yaml-content'), 'utf8')
+  })
+
+  it('stores the source container in a leading comment', () => {
+    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, expect.stringContaining('# betty-container: myapp'), 'utf8')
+  })
+
+  it('records the container in the link state under the route file name', () => {
+    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+
+    expect(setLinkContainer).toHaveBeenCalledWith('myapp-dev.yml', 'myapp')
   })
 
   it('creates dynamic dir when it does not exist', () => {
@@ -216,8 +303,8 @@ describe('writeRouteConfig', () => {
 
     const config = (yaml.stringify as unknown as jest.Mock).mock.calls[0][0] as Record<string, unknown>
     const routers = (config.http as { routers: Record<string, unknown> }).routers
-    expect(Object.keys(routers)).toEqual(['myapp'])
-    expect(routers['myapp-secure']).toBeUndefined()
+    expect(Object.keys(routers)).toEqual(['myapp-dev'])
+    expect(routers['myapp-dev-secure']).toBeUndefined()
   })
 
   it('adds secure router and tls block when certificate is provided', () => {
@@ -225,7 +312,7 @@ describe('writeRouteConfig', () => {
 
     const config = (yaml.stringify as unknown as jest.Mock).mock.calls[0][0] as Record<string, unknown>
     const routers = (config.http as { routers: Record<string, unknown> }).routers
-    expect(routers['myapp-secure']).toBeDefined()
+    expect(routers['myapp-dev-secure']).toBeDefined()
     expect(config.tls).toBeDefined()
   })
 
@@ -235,6 +322,7 @@ describe('writeRouteConfig', () => {
     writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null, oldFilePath)
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(oldFilePath)
+    expect(removeLinkContainer).toHaveBeenCalledWith('old-name.yml')
   })
 
   it('does not delete old file when oldFilePath matches new path', () => {

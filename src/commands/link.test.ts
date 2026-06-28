@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import linkCommand, { suggestDomain, readExposedPorts } from './link'
@@ -13,6 +13,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -41,6 +42,12 @@ jest.mock('inquirer', () => ({
   prompt: jest.fn(),
 }))
 
+jest.mock('../utils/lock', () => ({
+  __esModule: true,
+  withLock: (fn: () => unknown) => fn(),
+  withLockAsync: (fn: () => unknown) => fn(),
+}))
+
 const DOCKER_INSPECT = JSON.stringify([
   {
     NetworkSettings: {
@@ -62,18 +69,25 @@ beforeEach(() => {
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
+  // docker.ts and link.ts now call execFileSync for Betty-built docker/mkcert
+  // commands. Route those through the per-test execSync mock by reconstructing
+  // the command string, so existing string-based routing and assertions keep
+  // working regardless of which child_process API the source uses.
+  ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+    (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
+  )
 })
 
 describe('link command', () => {
-  test('exits with 1 when proxy is not set up', async () => {
+  test('throws a BettyError when proxy is not set up', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
-      'process-exit-1'
+      "Betty's proxy is not set up"
     )
   })
 
-  test('exits with 1 when port 443 is blocked by another Docker container', async () => {
+  test('throws when port 443 is blocked by another Docker container', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
@@ -83,7 +97,7 @@ describe('link command', () => {
     })
 
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
-      'process-exit-1'
+      'Port 443 is already in use'
     )
   })
 
@@ -96,14 +110,14 @@ describe('link command', () => {
     )
 
     await expect(linkCommand(undefined, { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
-      'process-exit-1'
+      'No containers are currently running'
     )
   })
 
   test('exits early when no containers are currently running', async () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand(undefined, {})).rejects.toThrow('process-exit-1')
+    await expect(linkCommand(undefined, {})).rejects.toThrow('No containers are currently running')
     expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
@@ -113,7 +127,7 @@ describe('link command', () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: 'abc' })).rejects.toThrow(
-      'process-exit-1'
+      'Invalid port'
     )
   })
 
@@ -132,7 +146,7 @@ describe('link command', () => {
       '      service: existing',
     ].join('\n'))
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('already linked')
   })
 
   test('writes route config and restarts traefik on success', async () => {
@@ -151,7 +165,7 @@ describe('link command', () => {
     await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('myapp.yml'),
+      expect.stringContaining('myapp-localhost.yml'),
       expect.any(String),
       'utf8'
     )
@@ -179,7 +193,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000', yes: true })).rejects.toThrow('mkcert is not installed')
   })
 
   test('falls back to HTTP when mkcert is missing and HTTPS is not explicitly requested', async () => {
@@ -234,7 +248,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow("Betty's proxy could not be started")
   })
 
   test('shows confirmation prompt and cancels on decline', async () => {
@@ -284,7 +298,7 @@ describe('link command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'container' })])
     )
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -311,7 +325,7 @@ describe('link command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'port' })])
     )
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -335,7 +349,7 @@ describe('link command', () => {
     await linkCommand('myapp', { domain: 'myapp.localhost' })
 
     expect(inquirer.prompt).toHaveBeenCalledTimes(3)
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -362,7 +376,7 @@ describe('link command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ type: 'input', name: 'port' })])
     )
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -449,7 +463,7 @@ describe('link command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand('', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('No container provided')
   })
 
   test('exits when domain arg is empty string', async () => {
@@ -457,7 +471,7 @@ describe('link command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand('myapp', { domain: '', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: '', port: '3000' })).rejects.toThrow('No domain provided')
   })
 
   test('exits when domain arg is whitespace only', async () => {
@@ -465,7 +479,7 @@ describe('link command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('Domain cannot be empty')
   })
 
   test('opens browser after successful link when open flag is set', async () => {

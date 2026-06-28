@@ -1,6 +1,7 @@
 import path from 'path'
 import inquirer from 'inquirer'
-import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
@@ -31,6 +32,7 @@ const selectRoute = async (routes: RouteEntry[], target?: string): Promise<Route
     const normalized = target.toLowerCase()
     const matches = routes.filter((route) =>
       route.routerName.toLowerCase() === normalized ||
+      route.container.toLowerCase() === normalized ||
       route.domain.toLowerCase() === normalized ||
       path.basename(route.fileName, path.extname(route.fileName)).toLowerCase() === normalized
     )
@@ -55,7 +57,7 @@ interface RelinkPromptAnswers {
   port?: string;
 }
 
-const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<void> => {
+const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
   if (routes.length === 0) {
@@ -72,7 +74,7 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
       type: runningContainers.length > 0 ? 'list' : 'input',
       name: 'container',
       message: 'Container:',
-      default: route.routerName,
+      default: route.container,
       ...(runningContainers.length > 0 ? { choices: runningContainers } : {}),
     }] : []),
     ...(shouldPromptValues ? [{
@@ -91,30 +93,18 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
     }] : []),
   ]) as RelinkPromptAnswers
 
-  const containerName = (opts?.container ?? answers.container ?? route.routerName).trim()
+  const containerName = (opts?.container ?? answers.container ?? route.container).trim()
   const domain = (opts?.domain ?? answers.domain ?? route.domain).trim()
   const port = parseInt((opts?.port ?? answers.port ?? route.port) || '80', 10)
 
-  if (!containerName) {
-    printError('No container provided.')
-    process.exit(1)
-  }
+  if (!containerName) throw new BettyError('No container provided.')
 
-  if (!domain) {
-    printError('No domain provided.')
-    process.exit(1)
-  }
+  if (!domain) throw new BettyError('No domain provided.')
 
   const conflict = findDomainConflict(domain, route.filePath)
-  if (conflict !== null) {
-    printError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
-    process.exit(1)
-  }
+  if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
 
-  if (!Number.isFinite(port) || port <= 0) {
-    printError('Invalid port. Example: --port 3000')
-    process.exit(1)
-  }
+  if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
 
   if (opts?.yes !== true) {
     const { confirm } = await inquirer.prompt([{
@@ -129,8 +119,8 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   connectContainerToNetwork(containerName)
   const ip = getContainerIp(containerName)
   const certificate = ensureCertificate(domain)
-  const routeFileName = `${normalizeServiceName(containerName)}.yml`
-  writeRouteConfig(normalizeServiceName(containerName), domain, ip, port, certificate, route.filePath)
+  const routeFileName = `${normalizeServiceName(domain)}.yml`
+  writeRouteConfig(containerName, domain, ip, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 
@@ -150,5 +140,8 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`)
   if (certificate) console.log(`✅ HTTPS is available at https://${domain}`)
 }
+
+const relinkCommand = (target?: string, opts?: RelinkOptions): Promise<void> =>
+  withLockAsync(() => relinkCommandImpl(target, opts))
 
 export default relinkCommand

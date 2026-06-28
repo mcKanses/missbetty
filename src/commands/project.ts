@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import yaml from 'yaml'
 import inquirer from 'inquirer'
-import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
 import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
 import { readRoutes } from '../utils/routes'
@@ -141,8 +141,8 @@ export const projectLoadCommand = async (opts: ProjectLoadOptions): Promise<void
       if (!confirm) { console.log('Cancelled.'); return }
     }
   } catch (err) {
-    printError(err instanceof Error ? err.message : String(err))
-    process.exit(1)
+    if (err instanceof BettyError) throw err
+    throw new BettyError(err instanceof Error ? err.message : String(err))
   }
   await devCommand({ config: opts.file, dryRun: opts.dryRun, yes: opts.yes })
 }
@@ -171,8 +171,8 @@ export const projectLinkCommand = async (opts: ProjectActionOptions): Promise<vo
     await linkProject(config, { yes: opts.yes })
     printUrls(config)
   } catch (err) {
-    printError(err instanceof Error ? err.message : String(err))
-    process.exit(1)
+    if (err instanceof BettyError) throw err
+    throw new BettyError(err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -198,8 +198,8 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
 
     await unlinkCommand({ project: sanitizeName(config.project), yes: true })
   } catch (err) {
-    printError(err instanceof Error ? err.message : String(err))
-    process.exit(1)
+    if (err instanceof BettyError) throw err
+    throw new BettyError(err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -226,10 +226,7 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
       const projectRoutes = routes.filter(
         (r) => path.basename(r.fileName, path.extname(r.fileName)) === sanitizeName(projectName)
       )
-      if (projectRoutes.length === 0) {
-        printError(`No linked project found with name '${projectName}'.`)
-        process.exit(1)
-      }
+      if (projectRoutes.length === 0) throw new BettyError(`No linked project found with name '${projectName}'.`)
       printStatusTable(
         projectRoutes.map((r) => ({ status: 'linked', domain: r.domain, target: r.target })),
         projectName
@@ -265,8 +262,8 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
       config.project
     )
   } catch (err) {
-    printError(err instanceof Error ? err.message : String(err))
-    process.exit(1)
+    if (err instanceof BettyError) throw err
+    throw new BettyError(err instanceof Error ? err.message : String(err))
   }
 }
 

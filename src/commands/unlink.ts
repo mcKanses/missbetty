@@ -2,10 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import yaml from 'yaml'
 import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
 import { readRoutes, type RouteEntry } from '../utils/routes'
+import { removeLinkContainer } from '../utils/state'
+import { sanitizeName } from '../utils/names'
 import type { TraefikDynamicConfig } from '../types'
 
 interface ConfirmAnswer { confirm: boolean; }
@@ -37,13 +41,15 @@ const removeSingleRoute = (route: RouteEntry): boolean => {
   )
 
   if (doc.tls?.certificates !== undefined) {
-    doc.tls.certificates = doc.tls.certificates.filter((c) => !c.certFile.includes(route.domain))
+    const certFileName = `${sanitizeName(route.domain)}.pem`
+    doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
     if (doc.tls.certificates.length === 0) delete doc.tls
   }
 
   const hasRouters = doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0
   if (!hasRouters) {
     fs.unlinkSync(route.filePath)
+    removeLinkContainer(route.fileName)
     return true
   }
 
@@ -85,6 +91,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
       continue
     }
     fs.unlinkSync(route.filePath)
+    removeLinkContainer(route.fileName)
     deletedFiles.add(route.filePath)
     removeHostsEntry(route.domain)
     removedDomains.push(route.domain)
@@ -100,6 +107,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<voi
 
 const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], composePath: string): void => {
   fs.unlinkSync(route.filePath)
+  removeLinkContainer(route.fileName)
   const remainingRoutes = readRoutes()
   const removedDomains: string[] = []
   for (const r of projectRoutes) {
@@ -144,10 +152,7 @@ const removeSingleWithSummary = (route: RouteEntry, composePath: string): void =
 const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Promise<void> => {
   if (routes.length === 1) {
     const route = routes[0]
-    if (!fs.existsSync(route.filePath)) {
-      printError(`Routing file not found: ${route.fileName}`)
-      process.exit(1)
-    }
+    if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
     const { confirm } = await inquirer.prompt([{
       type: 'confirm',
       name: 'confirm',
@@ -223,6 +228,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
       continue
     }
     fs.unlinkSync(filePath)
+    removeLinkContainer(path.basename(filePath))
     const remainingRoutes = readRoutes()
     for (const r of group) if (!remainingRoutes.some((rem) => rem.domain === r.domain)) {
         removeHostsEntry(r.domain)
@@ -255,7 +261,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   console.log('- traefik: restarted')
 }
 
-const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
+const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
 
@@ -283,15 +289,9 @@ const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
       path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name
     )
 
-    if (projectRoutes.length === 0) {
-      printError(`No project found with name '${opts.project}'.`)
-      process.exit(1)
-    }
+    if (projectRoutes.length === 0) throw new BettyError(`No project found with name '${opts.project}'.`)
 
-    if (!fs.existsSync(projectRoutes[0].filePath)) {
-      printError(`Routing file not found: ${projectRoutes[0].fileName}`)
-      process.exit(1)
-    }
+    if (!fs.existsSync(projectRoutes[0].filePath)) throw new BettyError(`Routing file not found: ${projectRoutes[0].fileName}`)
 
     if (opts.yes !== true) {
       const { confirm } = await inquirer.prompt([{
@@ -310,15 +310,9 @@ const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
   // betty unlink --domain <domain>
   const route = routes.find((r) => r.domain.toLowerCase() === (opts.domain ?? '').toLowerCase())
 
-  if (route === undefined) {
-    printError(`No link found for domain '${opts.domain ?? ''}'.`)
-    process.exit(1)
-  }
+  if (route === undefined) throw new BettyError(`No link found for domain '${opts.domain ?? ''}'.`)
 
-  if (!fs.existsSync(route.filePath)) {
-    printError(`Routing file not found: ${route.fileName}`)
-    process.exit(1)
-  }
+  if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
 
   if (opts.yes !== true) {
     const { confirm } = await inquirer.prompt([{
@@ -332,5 +326,8 @@ const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
 
   removeSingleWithSummary(route, composePath)
 }
+
+const unlinkCommand = (opts: UnlinkOptions = {}): Promise<void> =>
+  withLockAsync(() => unlinkCommandImpl(opts))
 
 export default unlinkCommand
