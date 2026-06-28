@@ -17,6 +17,8 @@ import { projectCreateCommand, projectLoadCommand, projectLinkCommand, projectSt
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
 import { AUTHOR_INFO } from './cli/ui/meta'
+import { printError } from './cli/ui/output'
+import { BettyError } from './utils/errors'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string }
@@ -238,6 +240,14 @@ export const run = async (argv = process.argv): Promise<void> => {
   }
 
   const program = createProgram()
-  program.parse(argv)
+  try {
+    await program.parseAsync(argv)
+  } catch (err) {
+    if (err instanceof BettyError) {
+      printError(err.message)
+      process.exit(err.exitCode)
+    }
+    throw err
+  }
 }
 

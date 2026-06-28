@@ -43,6 +43,7 @@ import {
 import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
 import { createProgram, run } from './cli'
+import { BettyError } from './utils/errors'
 
 // Build a node-style argv (node + script + user args) for program.parse / run.
 const argv = (...args: string[]): string[] => ['node', 'betty', ...args]
@@ -219,5 +220,15 @@ describe('run', () => {
     await run(argv('status', '--json'))
 
     expect(statusCommand).toHaveBeenCalledWith(expect.objectContaining({ json: true }))
+  })
+
+  test('maps a BettyError thrown by a command to printError and its exit code', async () => {
+    ;(configCommand as unknown as jest.Mock).mockImplementation(() => { throw new BettyError('boom', 1) })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(run(argv('config', 'get', 'bad'))).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('boom'))
+
+    errorSpy.mockRestore()
   })
 })
