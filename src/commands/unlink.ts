@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import yaml from 'yaml'
 import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
@@ -146,10 +147,7 @@ const removeSingleWithSummary = (route: RouteEntry, composePath: string): void =
 const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Promise<void> => {
   if (routes.length === 1) {
     const route = routes[0]
-    if (!fs.existsSync(route.filePath)) {
-      printError(`Routing file not found: ${route.fileName}`)
-      process.exit(1)
-    }
+    if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
     const { confirm } = await inquirer.prompt([{
       type: 'confirm',
       name: 'confirm',
@@ -285,15 +283,9 @@ const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
       path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name
     )
 
-    if (projectRoutes.length === 0) {
-      printError(`No project found with name '${opts.project}'.`)
-      process.exit(1)
-    }
+    if (projectRoutes.length === 0) throw new BettyError(`No project found with name '${opts.project}'.`)
 
-    if (!fs.existsSync(projectRoutes[0].filePath)) {
-      printError(`Routing file not found: ${projectRoutes[0].fileName}`)
-      process.exit(1)
-    }
+    if (!fs.existsSync(projectRoutes[0].filePath)) throw new BettyError(`Routing file not found: ${projectRoutes[0].fileName}`)
 
     if (opts.yes !== true) {
       const { confirm } = await inquirer.prompt([{
@@ -312,15 +304,9 @@ const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
   // betty unlink --domain <domain>
   const route = routes.find((r) => r.domain.toLowerCase() === (opts.domain ?? '').toLowerCase())
 
-  if (route === undefined) {
-    printError(`No link found for domain '${opts.domain ?? ''}'.`)
-    process.exit(1)
-  }
+  if (route === undefined) throw new BettyError(`No link found for domain '${opts.domain ?? ''}'.`)
 
-  if (!fs.existsSync(route.filePath)) {
-    printError(`Routing file not found: ${route.fileName}`)
-    process.exit(1)
-  }
+  if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
 
   if (opts.yes !== true) {
     const { confirm } = await inquirer.prompt([{
