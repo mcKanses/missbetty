@@ -83,4 +83,66 @@ describe('config command', () => {
 
     errorSpy.mockRestore()
   })
+
+  test('exits with 1 when set is given an unknown key', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('set', 'other', '.localhost') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown config key. Supported: domainSuffix'))
+    expect(setDomainSuffix).not.toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  test('exits with 1 when set is missing a value', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('set', 'domainSuffix') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Missing value'))
+    expect(setDomainSuffix).not.toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  test('exits with 1 when set value is only whitespace', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('set', 'domainSuffix', '   ') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Missing value'))
+    expect(setDomainSuffix).not.toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  test('exits with 1 and reports the error when setDomainSuffix throws', () => {
+    ;(setDomainSuffix as unknown as jest.Mock).mockImplementation(() => { throw new Error('disk full') })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('set', 'domainSuffix', '.localhost') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('disk full'))
+
+    errorSpy.mockRestore()
+  })
+
+  test('stringifies a non-Error thrown by setDomainSuffix', () => {
+    ;(setDomainSuffix as unknown as jest.Mock).mockImplementation(() => {
+      const failure: unknown = 'plain string failure'
+      throw failure
+    })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('set', 'domainSuffix', '.localhost') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('plain string failure'))
+
+    errorSpy.mockRestore()
+  })
+
+  test('exits with 1 for an unrecognized action', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('bogus') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: betty config [get|set] domainSuffix [value]'))
+
+    errorSpy.mockRestore()
+  })
 })

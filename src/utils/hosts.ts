@@ -1,6 +1,10 @@
 import { execSync } from 'child_process'
 import fs from 'fs'
 
+// Marker Betty appends to every hosts entry it creates. Removal is gated on this
+// marker so Betty never deletes hosts lines a user added manually.
+const BETTY_HOSTS_MARKER = '# added by betty'
+
 const getHostsPath = (): string => process.platform === 'win32'
   ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
   : '/etc/hosts'
@@ -43,7 +47,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
 
   const isWsl = process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
   if (isWsl) {
-    const entry = `127.0.0.1 ${domain} # added by betty`
+    const entry = `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
     console.log(`\n⚠️  WSL detected. Add this line to your Windows hosts file manually:`)
     console.log(`   C:\\Windows\\System32\\drivers\\etc\\hosts`)
     console.log(`   ${entry}`)
@@ -52,7 +56,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
 
   const hostsPath = getHostsPath()
   const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const entry = `127.0.0.1 ${domain} # added by betty`
+  const entry = `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
   const hasEntry = (): boolean => {
     const content = fs.readFileSync(hostsPath, 'utf8')
     return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)
@@ -101,7 +105,7 @@ export const removeHostsEntry = (domain: string): boolean => {
 
   const removeLines = (content: string): { nextContent: string; removed: boolean } => {
     const lines = content.split(/\r?\n/)
-    const kept = lines.filter((line) => !domainRegex.test(line))
+    const kept = lines.filter((line) => !(domainRegex.test(line) && line.includes(BETTY_HOSTS_MARKER)))
     return {
       nextContent: `${kept.join('\n')}\n`,
       removed: kept.length !== lines.length,

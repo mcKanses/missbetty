@@ -31,6 +31,7 @@ const selectRoute = async (routes: RouteEntry[], target?: string): Promise<Route
     const normalized = target.toLowerCase()
     const matches = routes.filter((route) =>
       route.routerName.toLowerCase() === normalized ||
+      route.container.toLowerCase() === normalized ||
       route.domain.toLowerCase() === normalized ||
       path.basename(route.fileName, path.extname(route.fileName)).toLowerCase() === normalized
     )
@@ -72,7 +73,7 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
       type: runningContainers.length > 0 ? 'list' : 'input',
       name: 'container',
       message: 'Container:',
-      default: route.routerName,
+      default: route.container,
       ...(runningContainers.length > 0 ? { choices: runningContainers } : {}),
     }] : []),
     ...(shouldPromptValues ? [{
@@ -91,7 +92,7 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
     }] : []),
   ]) as RelinkPromptAnswers
 
-  const containerName = (opts?.container ?? answers.container ?? route.routerName).trim()
+  const containerName = (opts?.container ?? answers.container ?? route.container).trim()
   const domain = (opts?.domain ?? answers.domain ?? route.domain).trim()
   const port = parseInt((opts?.port ?? answers.port ?? route.port) || '80', 10)
 
@@ -129,8 +130,8 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   connectContainerToNetwork(containerName)
   const ip = getContainerIp(containerName)
   const certificate = ensureCertificate(domain)
-  const routeFileName = `${normalizeServiceName(containerName)}.yml`
-  writeRouteConfig(normalizeServiceName(containerName), domain, ip, port, certificate, route.filePath)
+  const routeFileName = `${normalizeServiceName(domain)}.yml`
+  writeRouteConfig(containerName, domain, ip, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 

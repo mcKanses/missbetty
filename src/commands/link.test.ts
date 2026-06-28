@@ -151,7 +151,7 @@ describe('link command', () => {
     await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('myapp.yml'),
+      expect.stringContaining('myapp-localhost.yml'),
       expect.any(String),
       'utf8'
     )
@@ -284,7 +284,7 @@ describe('link command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'container' })])
     )
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -311,7 +311,7 @@ describe('link command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ type: 'list', name: 'port' })])
     )
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -335,7 +335,7 @@ describe('link command', () => {
     await linkCommand('myapp', { domain: 'myapp.localhost' })
 
     expect(inquirer.prompt).toHaveBeenCalledTimes(3)
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
@@ -362,7 +362,7 @@ describe('link command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ type: 'input', name: 'port' })])
     )
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp.yml'), expect.any(String), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
 
     logSpy.mockRestore()
   })
