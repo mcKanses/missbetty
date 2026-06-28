@@ -22,7 +22,7 @@ jest.mock('./constants', () => ({
 
 import fs from 'fs'
 import path from 'path'
-import { withLock } from './lock'
+import { withLock, withLockAsync } from './lock'
 import { BettyError } from './errors'
 
 // Match the platform-specific separators that path.join uses in lock.ts.
@@ -72,5 +72,28 @@ describe('withLock', () => {
     expect(withLock(fn)).toBe('ok')
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
     expect(fn).toHaveBeenCalled()
+  })
+})
+
+describe('withLockAsync', () => {
+  it('awaits fn and releases the lock', async () => {
+    const result = await withLockAsync(async () => Promise.resolve('done'))
+
+    expect(result).toBe('done')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, expect.any(String), { flag: 'wx' })
+    expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
+  })
+
+  it('releases the lock even when the promise rejects', async () => {
+    await expect(withLockAsync(async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
+
+    expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
+  })
+
+  it('refuses to run when a fresh lock is already held', async () => {
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EEXIST') })
+    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() })
+
+    await expect(withLockAsync(async () => Promise.resolve('x'))).rejects.toThrow('Another betty command is already running')
   })
 })
