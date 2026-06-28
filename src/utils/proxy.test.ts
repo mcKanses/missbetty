@@ -49,6 +49,17 @@ import { execSync } from 'child_process'
 import { printError, printHint } from '../cli/ui/output'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from './proxy'
+import { BettyError } from './errors'
+
+const captureBettyError = (fn: () => void): BettyError => {
+  try {
+    fn()
+  } catch (err) {
+    if (err instanceof BettyError) return err
+    throw err
+  }
+  throw new Error('expected a BettyError to be thrown')
+}
 
 beforeEach(() => {
   jest.resetAllMocks()
@@ -74,35 +85,35 @@ describe('ensureHttpsPortAvailable', () => {
     expect(printError).not.toHaveBeenCalled()
   })
 
-  it('exits when another docker container occupies port 443', () => {
+  it('throws a BettyError when another docker container occupies port 443', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue(['nginx-proxy-1'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith('Port 443 is already in use.')
+    const error = captureBettyError(() => { ensureHttpsPortAvailable() })
+    expect(error.message).toBe('Port 443 is already in use.')
   })
 
-  it('exits when a system process occupies port 443', () => {
+  it('throws a BettyError when a system process occupies port 443', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue([])
     ;(filterSystemOwnersForBettyPort as unknown as jest.Mock).mockReturnValue(['nginx (pid 1234)'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith('Port 443 is already in use.')
+    const error = captureBettyError(() => { ensureHttpsPortAvailable() })
+    expect(error.message).toBe('Port 443 is already in use.')
   })
 
-  it('lists conflicting docker containers in output', () => {
+  it('lists conflicting docker containers in the error hints', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue(['nginx-1', 'apache-1'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow()
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('nginx-1'))
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('apache-1'))
+    const hints = captureBettyError(() => { ensureHttpsPortAvailable() }).hints.join('\n')
+    expect(hints).toContain('nginx-1')
+    expect(hints).toContain('apache-1')
   })
 
-  it('lists conflicting system processes in output', () => {
+  it('lists conflicting system processes in the error hints', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue([])
     ;(filterSystemOwnersForBettyPort as unknown as jest.Mock).mockReturnValue(['caddy (pid 999)'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow()
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('caddy (pid 999)'))
+    const hints = captureBettyError(() => { ensureHttpsPortAvailable() }).hints.join('\n')
+    expect(hints).toContain('caddy (pid 999)')
   })
 })
 
