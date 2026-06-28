@@ -330,6 +330,13 @@ Betty keeps routing config globally in `~/.betty/dynamic`, and local
 certificates in `~/.betty/certs`, so individual projects do not need
 Betty-specific files.
 
+Betty also maintains `~/.betty/links.json` — the source container for each
+linked route, written when you link and pruned when you unlink — and, when you
+change settings, `~/.betty/config.json`. Commands that change this shared state
+(`serve`, `link`, `relink`, `unlink`, `dev`/`project`) take a short exclusive
+lock on `~/.betty`, so running two Betty commands at once is refused with a
+"please retry" hint instead of corrupting the files.
+
 ### `betty stop`
 
 Stops Betty's global local switchboard service.
