@@ -3,6 +3,7 @@ import path from 'path'
 import yaml from 'yaml'
 import { printError } from '../cli/ui/output'
 import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
@@ -255,7 +256,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   console.log('- traefik: restarted')
 }
 
-const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
+const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
 
@@ -320,5 +321,8 @@ const unlinkCommand = async (opts: UnlinkOptions = {}): Promise<void> => {
 
   removeSingleWithSummary(route, composePath)
 }
+
+const unlinkCommand = (opts: UnlinkOptions = {}): Promise<void> =>
+  withLockAsync(() => unlinkCommandImpl(opts))
 
 export default unlinkCommand

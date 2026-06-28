@@ -17,6 +17,7 @@ import { findDomainConflict, writeRouteConfig } from '../utils/routes'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
 import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
 import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 
 const ensureProxyRunning = (traefikComposePath: string): void => {
   try {
@@ -99,7 +100,7 @@ export const suggestDomain = (containerName: string): string => {
   return `${cleaned}${suffix}`
 }
 
-const linkCommand = async (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> => {
+const linkCommandImpl = async (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> => {
   let resolvedContainer = containerName
   let resolvedDomain = opts.domain
   let resolvedPort = opts.port
@@ -248,5 +249,8 @@ const openInBrowser = (url: string): void => {
     printHint(`Could not open browser. Visit manually: ${url}`)
   }
 }
+
+const linkCommand = (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> =>
+  withLockAsync(() => linkCommandImpl(containerName, opts))
 
 export default linkCommand

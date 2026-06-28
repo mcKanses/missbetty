@@ -1,6 +1,7 @@
 import path from 'path'
 import inquirer from 'inquirer'
 import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
@@ -56,7 +57,7 @@ interface RelinkPromptAnswers {
   port?: string;
 }
 
-const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<void> => {
+const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
   if (routes.length === 0) {
@@ -139,5 +140,8 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`)
   if (certificate) console.log(`✅ HTTPS is available at https://${domain}`)
 }
+
+const relinkCommand = (target?: string, opts?: RelinkOptions): Promise<void> =>
+  withLockAsync(() => relinkCommandImpl(target, opts))
 
 export default relinkCommand

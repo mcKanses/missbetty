@@ -42,6 +42,12 @@ jest.mock('inquirer', () => ({
   prompt: jest.fn(),
 }))
 
+jest.mock('../utils/lock', () => ({
+  __esModule: true,
+  withLock: (fn: () => unknown) => fn(),
+  withLockAsync: (fn: () => unknown) => fn(),
+}))
+
 const DOCKER_INSPECT = JSON.stringify([
   {
     NetworkSettings: {
