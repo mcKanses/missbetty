@@ -1,7 +1,7 @@
 import { execSync, execFileSync } from 'child_process'
 import path from 'path'
 import inquirer from 'inquirer'
-import { printError, printHint } from '../cli/ui/output'
+import { printHint } from '../cli/ui/output'
 import { getDomainSuffix } from '../utils/config'
 import type { DockerInspectEntry } from '../types'
 import {
@@ -16,6 +16,7 @@ import { ensureHostsEntry } from '../utils/hosts'
 import { findDomainConflict, writeRouteConfig } from '../utils/routes'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from '../utils/proxy'
 import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
+import { BettyError } from '../utils/errors'
 
 const ensureProxyRunning = (traefikComposePath: string): void => {
   try {
@@ -107,11 +108,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   if (resolvedContainer === undefined || resolvedDomain === undefined) {
     const runningContainers = getRunningContainers()
 
-    if (resolvedContainer === undefined && runningContainers.length === 0) {
-      printError('No containers are currently running.')
-      printHint('Start a container first, then run: betty link')
-      process.exit(1)
-    }
+    if (resolvedContainer === undefined && runningContainers.length === 0) throw new BettyError('No containers are currently running.', { hints: ['Start a container first, then run: betty link'] })
 
     const answers = await inquirer.prompt([
       ...(resolvedContainer === undefined ? [{
@@ -166,37 +163,21 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
     }
   }
 
-  if (resolvedContainer === undefined || resolvedContainer === '') {
-    printError('No container provided.')
-    process.exit(1)
-  }
+  if (resolvedContainer === undefined || resolvedContainer === '') throw new BettyError('No container provided.')
 
-  if (resolvedDomain === undefined || resolvedDomain === '') {
-    printError('No domain provided.')
-    process.exit(1)
-  }
+  if (resolvedDomain === undefined || resolvedDomain === '') throw new BettyError('No domain provided.')
 
   const domainValidation = validateLocalDomain(resolvedDomain)
-  if (domainValidation !== true) {
-    printError(domainValidation)
-    process.exit(1)
-  }
+  if (domainValidation !== true) throw new BettyError(domainValidation)
 
   const port = parseInt(resolvedPort, 10)
-  if (!Number.isFinite(port) || port <= 0) {
-    printError('Invalid port. Example: --port 3000')
-    process.exit(1)
-  }
+  if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()
   const routeFileName = `${normalizeServiceName(domainResolved)}.yml`
   const conflict = findDomainConflict(domainResolved)
-  if (conflict !== null) {
-    printError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
-    printHint('Use `betty relink` to move an existing domain to another container.')
-    process.exit(1)
-  }
+  if (conflict !== null) throw new BettyError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`, { hints: ['Use `betty relink` to move an existing domain to another container.'] })
 
   if (opts.dryRun === true) {
     console.log('Dry run: no changes were applied.')
