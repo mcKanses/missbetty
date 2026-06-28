@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
-import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix } from './config'
+import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort } from './config'
 
 jest.mock('./constants', () => ({
   BETTY_HOME_DIR: '/home/test-user/.betty',
@@ -23,14 +23,23 @@ jest.mock('fs', () => ({
 
 const originalEnv = process.env.BETTY_DOMAIN_SUFFIX
 
+const originalHttpPortEnv = process.env.BETTY_HTTP_PORT
+const originalHttpsPortEnv = process.env.BETTY_HTTPS_PORT
+
 beforeEach(() => {
   jest.clearAllMocks()
   delete process.env.BETTY_DOMAIN_SUFFIX
+  delete process.env.BETTY_HTTP_PORT
+  delete process.env.BETTY_HTTPS_PORT
 })
 
 afterAll(() => {
   if (originalEnv === undefined) delete process.env.BETTY_DOMAIN_SUFFIX
   else process.env.BETTY_DOMAIN_SUFFIX = originalEnv
+  if (originalHttpPortEnv === undefined) delete process.env.BETTY_HTTP_PORT
+  else process.env.BETTY_HTTP_PORT = originalHttpPortEnv
+  if (originalHttpsPortEnv === undefined) delete process.env.BETTY_HTTPS_PORT
+  else process.env.BETTY_HTTPS_PORT = originalHttpsPortEnv
 })
 
 describe('getDomainSuffix', () => {
@@ -122,6 +131,50 @@ describe('setDomainSuffix', () => {
     setDomainSuffix('.dev')
 
     expect(fs.mkdirSync).toHaveBeenCalledWith('/home/test-user/.betty', { recursive: true })
+  })
+})
+
+describe('getHttpPort / getHttpsPort', () => {
+  test('default to 80 and 443 when no env var and no config file', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+
+    expect(getHttpPort()).toBe(80)
+    expect(getHttpsPort()).toBe(443)
+  })
+
+  test('read ports from the config file', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ httpPort: 8080, httpsPort: 8443 }))
+
+    expect(getHttpPort()).toBe(8080)
+    expect(getHttpsPort()).toBe(8443)
+  })
+
+  test('env vars take precedence over the config file', () => {
+    process.env.BETTY_HTTP_PORT = '9080'
+    process.env.BETTY_HTTPS_PORT = '9443'
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ httpPort: 8080, httpsPort: 8443 }))
+
+    expect(getHttpPort()).toBe(9080)
+    expect(getHttpsPort()).toBe(9443)
+  })
+
+  test('fall back to defaults when env var is not a valid port', () => {
+    process.env.BETTY_HTTP_PORT = 'not-a-port'
+    process.env.BETTY_HTTPS_PORT = '70000'
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+
+    expect(getHttpPort()).toBe(80)
+    expect(getHttpsPort()).toBe(443)
+  })
+
+  test('fall back to defaults when config holds an out-of-range port', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ httpPort: 0, httpsPort: 99999 }))
+
+    expect(getHttpPort()).toBe(80)
+    expect(getHttpsPort()).toBe(443)
   })
 })
 
