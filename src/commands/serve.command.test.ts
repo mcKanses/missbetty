@@ -46,6 +46,11 @@ jest.mock('../cli/ui/output', () => ({
   printHint: jest.fn(),
 }))
 
+jest.mock('../utils/lock', () => ({
+  __esModule: true,
+  withLock: (fn: () => unknown) => fn(),
+}))
+
 describe('serve command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
