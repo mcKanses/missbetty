@@ -56,10 +56,15 @@ export const readRoutes = (): RouteEntry[] => {
 }
 
 export const findDomainConflict = (domain: string, ignoreFilePath?: string): { fileName: string; routerName: string } | null => {
+  // Compare on the normalized service name, not the raw domain, so two distinct
+  // domains that collapse to the same route file name (e.g. "a.b.localhost" and
+  // "a-b.localhost", or case variants on case-insensitive file systems) are
+  // reported as a conflict instead of silently overwriting each other.
+  const target = normalizeServiceName(domain.toLowerCase())
   const routes = readRoutes()
   for (const route of routes) {
     if (ignoreFilePath !== undefined && route.filePath === ignoreFilePath) continue
-    if (route.domain.toLowerCase() !== domain.toLowerCase()) continue
+    if (normalizeServiceName(route.domain.toLowerCase()) !== target) continue
     return { fileName: route.fileName, routerName: route.routerName }
   }
   return null
