@@ -73,11 +73,11 @@ beforeEach(() => {
 })
 
 describe('link command', () => {
-  test('exits with 1 when proxy is not set up', async () => {
+  test('throws a BettyError when proxy is not set up', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
-      'process-exit-1'
+      "Betty's proxy is not set up"
     )
   })
 
@@ -187,7 +187,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.dev', port: '3000', yes: true })).rejects.toThrow('mkcert is not installed')
   })
 
   test('falls back to HTTP when mkcert is missing and HTTPS is not explicitly requested', async () => {
