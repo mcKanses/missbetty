@@ -81,7 +81,7 @@ describe('link command', () => {
     )
   })
 
-  test('exits with 1 when port 443 is blocked by another Docker container', async () => {
+  test('throws when port 443 is blocked by another Docker container', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
@@ -91,7 +91,7 @@ describe('link command', () => {
     })
 
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow(
-      'process-exit-1'
+      'Port 443 is already in use'
     )
   })
 

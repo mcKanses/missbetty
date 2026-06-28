@@ -7,7 +7,7 @@ import {
   getSystemPortOwners,
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners'
-import { printError, printHint } from '../cli/ui/output'
+import { printHint } from '../cli/ui/output'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -75,16 +75,10 @@ describe('serve command', () => {
     logSpy.mockRestore()
   })
 
-  test('exits when HTTPS port is occupied by another container', () => {
+  test('throws when HTTPS port is occupied by another container', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue(['other-container'])
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
 
-    expect(() => { serveCommand() }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith('Port 443 is already in use.')
-
-    exitSpy.mockRestore()
+    expect(() => { serveCommand() }).toThrow('Port 443 is already in use')
   })
 
   test('prints user hint when proxy start fails due to port 80 conflict', () => {
