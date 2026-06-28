@@ -14,7 +14,7 @@ import {
 } from '../utils/docker'
 import { ensureHostsEntry } from '../utils/hosts'
 import { findDomainConflict, writeRouteConfig } from '../utils/routes'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from '../utils/proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
 import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
 import { BettyError } from '../utils/errors'
 
@@ -26,8 +26,7 @@ const ensureProxyRunning = (traefikComposePath: string): void => {
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    printProxyStartError(message, 'link')
-    process.exit(1)
+    throw proxyStartError(message, 'link')
   }
 }
 

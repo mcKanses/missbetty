@@ -46,9 +46,9 @@ jest.mock('./config', () => ({
 
 import fs from 'fs'
 import { execSync } from 'child_process'
-import { printError, printHint } from '../cli/ui/output'
+import { printError } from '../cli/ui/output'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from './proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from './proxy'
 import { BettyError } from './errors'
 
 const captureBettyError = (fn: () => void): BettyError => {
@@ -210,37 +210,37 @@ describe('ensureProxyNetwork', () => {
   })
 })
 
-describe('printProxyStartError', () => {
-  it('prints generic error with the raw message as fallback', () => {
-    printProxyStartError('some unknown error', 'serve')
+describe('proxyStartError', () => {
+  it('returns a BettyError with the raw message as a hint fallback', () => {
+    const error = proxyStartError('some unknown error', 'serve')
 
-    expect(printError).toHaveBeenCalledWith("Betty's proxy could not be started.")
-    expect(printHint).toHaveBeenCalledWith('some unknown error')
+    expect(error.message).toBe("Betty's proxy could not be started.")
+    expect(error.hints).toContain('some unknown error')
   })
 
-  it('handles docker.sock permission denied with correct command', () => {
-    printProxyStartError('permission denied while connecting to /var/run/docker.sock', 'serve')
+  it('handles docker.sock permission denied with the correct command', () => {
+    const error = proxyStartError('permission denied while connecting to /var/run/docker.sock', 'serve')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('newgrp docker'))
-    expect(printHint).toHaveBeenCalledWith('Then run: betty serve')
+    expect(error.hints.join('\n')).toContain('newgrp docker')
+    expect(error.hints).toContain('Then run: betty serve')
   })
 
   it('handles port 80 conflict with the given command name', () => {
-    printProxyStartError('Bind for 0.0.0.0:80 failed: port is already allocated', 'link')
+    const error = proxyStartError('Bind for 0.0.0.0:80 failed: port is already allocated', 'link')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('betty link'))
+    expect(error.hints.join('\n')).toContain('betty link')
   })
 
   it('handles port 443 conflict', () => {
-    printProxyStartError('Bind for 0.0.0.0:443 failed: port is already allocated', 'serve')
+    const error = proxyStartError('Bind for 0.0.0.0:443 failed: port is already allocated', 'serve')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('betty serve'))
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('docker ps'))
+    expect(error.hints.join('\n')).toContain('betty serve')
+    expect(error.hints.join('\n')).toContain('docker ps')
   })
 
   it('handles "port is already allocated" message for 443', () => {
-    printProxyStartError('port is already allocated', 'serve')
+    const error = proxyStartError('port is already allocated', 'serve')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('betty serve'))
+    expect(error.hints.join('\n')).toContain('betty serve')
   })
 })
