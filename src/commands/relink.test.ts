@@ -210,16 +210,7 @@ describe('relink command', () => {
       port: '3000',
     }))
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(relinkCommand('app')).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No container provided.'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(relinkCommand('app')).rejects.toThrow('No container provided.')
   })
 
   test('exits when port is invalid', async () => {
@@ -234,18 +225,9 @@ describe('relink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
     await expect(
       relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: 'notanumber' })
-    ).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid port. Example: --port 3000'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    ).rejects.toThrow('Invalid port. Example: --port 3000')
   })
 
   test('exits when target domain is already linked by another route', async () => {
@@ -265,16 +247,7 @@ describe('relink command', () => {
       return YAML_APP_ROUTE
     })
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(relinkCommand('app', { container: 'app', domain: 'used.localhost', port: '80' })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Domain 'used.localhost' is already linked"))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(relinkCommand('app', { container: 'app', domain: 'used.localhost', port: '80' })).rejects.toThrow("Domain 'used.localhost' is already linked")
   })
 
   test('shows route selection prompt when multiple routes exist and no target is given', async () => {
@@ -369,18 +342,9 @@ describe('relink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
     await expect(
       relinkCommand('app', { container: 'myapp', domain: '', port: '3000' })
-    ).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No domain provided.'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    ).rejects.toThrow('No domain provided.')
   })
 
   test('logs HTTPS confirmation when certificate exists for the domain', async () => {
