@@ -34,14 +34,32 @@ jest.mock('./constants', () => ({
   BETTY_CERTS_DIR: '/home/test-user/.betty/certs',
   BETTY_PROXY_COMPOSE: '/home/test-user/.betty/docker-compose.yml',
   BETTY_PROXY_NETWORK: 'betty_proxy',
-  TRAEFIK_COMPOSE: 'traefik-compose-content',
+  // Plain function (not jest.fn) so resetAllMocks does not clear it.
+  renderTraefikCompose: (httpPort: number, httpsPort: number) =>
+    `traefik-compose-${String(httpPort)}-${String(httpsPort)}`,
+}))
+
+jest.mock('./config', () => ({
+  getHttpPort: () => 80,
+  getHttpsPort: () => 443,
 }))
 
 import fs from 'fs'
 import { execSync } from 'child_process'
-import { printError, printHint } from '../cli/ui/output'
+import { printError } from '../cli/ui/output'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from './proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from './proxy'
+import { BettyError } from './errors'
+
+const captureBettyError = (fn: () => void): BettyError => {
+  try {
+    fn()
+  } catch (err) {
+    if (err instanceof BettyError) return err
+    throw err
+  }
+  throw new Error('expected a BettyError to be thrown')
+}
 
 beforeEach(() => {
   jest.resetAllMocks()
@@ -67,42 +85,42 @@ describe('ensureHttpsPortAvailable', () => {
     expect(printError).not.toHaveBeenCalled()
   })
 
-  it('exits when another docker container occupies port 443', () => {
+  it('throws a BettyError when another docker container occupies port 443', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue(['nginx-proxy-1'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith('Port 443 is already in use.')
+    const error = captureBettyError(() => { ensureHttpsPortAvailable() })
+    expect(error.message).toBe('Port 443 is already in use.')
   })
 
-  it('exits when a system process occupies port 443', () => {
+  it('throws a BettyError when a system process occupies port 443', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue([])
     ;(filterSystemOwnersForBettyPort as unknown as jest.Mock).mockReturnValue(['nginx (pid 1234)'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow('process-exit-1')
-    expect(printError).toHaveBeenCalledWith('Port 443 is already in use.')
+    const error = captureBettyError(() => { ensureHttpsPortAvailable() })
+    expect(error.message).toBe('Port 443 is already in use.')
   })
 
-  it('lists conflicting docker containers in output', () => {
+  it('lists conflicting docker containers in the error hints', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue(['nginx-1', 'apache-1'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow()
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('nginx-1'))
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('apache-1'))
+    const hints = captureBettyError(() => { ensureHttpsPortAvailable() }).hints.join('\n')
+    expect(hints).toContain('nginx-1')
+    expect(hints).toContain('apache-1')
   })
 
-  it('lists conflicting system processes in output', () => {
+  it('lists conflicting system processes in the error hints', () => {
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue([])
     ;(filterSystemOwnersForBettyPort as unknown as jest.Mock).mockReturnValue(['caddy (pid 999)'])
 
-    expect(() => { ensureHttpsPortAvailable() }).toThrow()
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('caddy (pid 999)'))
+    const hints = captureBettyError(() => { ensureHttpsPortAvailable() }).hints.join('\n')
+    expect(hints).toContain('caddy (pid 999)')
   })
 })
 
 describe('ensureProxySetup', () => {
   beforeEach(() => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('traefik-compose-content')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('traefik-compose-80-443')
   })
 
   it('does nothing when all dirs and compose file already exist and are current', () => {
@@ -156,7 +174,7 @@ describe('ensureProxySetup', () => {
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/home/test-user/.betty/docker-compose.yml',
-      'traefik-compose-content',
+      'traefik-compose-80-443',
       'utf8'
     )
   })
@@ -192,37 +210,37 @@ describe('ensureProxyNetwork', () => {
   })
 })
 
-describe('printProxyStartError', () => {
-  it('prints generic error with the raw message as fallback', () => {
-    printProxyStartError('some unknown error', 'serve')
+describe('proxyStartError', () => {
+  it('returns a BettyError with the raw message as a hint fallback', () => {
+    const error = proxyStartError('some unknown error', 'serve')
 
-    expect(printError).toHaveBeenCalledWith("Betty's proxy could not be started.")
-    expect(printHint).toHaveBeenCalledWith('some unknown error')
+    expect(error.message).toBe("Betty's proxy could not be started.")
+    expect(error.hints).toContain('some unknown error')
   })
 
-  it('handles docker.sock permission denied with correct command', () => {
-    printProxyStartError('permission denied while connecting to /var/run/docker.sock', 'serve')
+  it('handles docker.sock permission denied with the correct command', () => {
+    const error = proxyStartError('permission denied while connecting to /var/run/docker.sock', 'serve')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('newgrp docker'))
-    expect(printHint).toHaveBeenCalledWith('Then run: betty serve')
+    expect(error.hints.join('\n')).toContain('newgrp docker')
+    expect(error.hints).toContain('Then run: betty serve')
   })
 
   it('handles port 80 conflict with the given command name', () => {
-    printProxyStartError('Bind for 0.0.0.0:80 failed: port is already allocated', 'link')
+    const error = proxyStartError('Bind for 0.0.0.0:80 failed: port is already allocated', 'link')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('betty link'))
+    expect(error.hints.join('\n')).toContain('betty link')
   })
 
   it('handles port 443 conflict', () => {
-    printProxyStartError('Bind for 0.0.0.0:443 failed: port is already allocated', 'serve')
+    const error = proxyStartError('Bind for 0.0.0.0:443 failed: port is already allocated', 'serve')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('betty serve'))
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('docker ps'))
+    expect(error.hints.join('\n')).toContain('betty serve')
+    expect(error.hints.join('\n')).toContain('docker ps')
   })
 
   it('handles "port is already allocated" message for 443', () => {
-    printProxyStartError('port is already allocated', 'serve')
+    const error = proxyStartError('port is already allocated', 'serve')
 
-    expect(printHint).toHaveBeenCalledWith(expect.stringContaining('betty serve'))
+    expect(error.hints.join('\n')).toContain('betty serve')
   })
 })

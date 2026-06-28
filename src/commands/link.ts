@@ -1,7 +1,7 @@
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import path from 'path'
 import inquirer from 'inquirer'
-import { printError, printHint } from '../cli/ui/output'
+import { printHint } from '../cli/ui/output'
 import { getDomainSuffix } from '../utils/config'
 import type { DockerInspectEntry } from '../types'
 import {
@@ -14,19 +14,20 @@ import {
 } from '../utils/docker'
 import { ensureHostsEntry } from '../utils/hosts'
 import { findDomainConflict, writeRouteConfig } from '../utils/routes'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, printProxyStartError } from '../utils/proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
 import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
+import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 
 const ensureProxyRunning = (traefikComposePath: string): void => {
   try {
-    execSync(`docker compose -f "${traefikComposePath}" up -d`, {
+    execFileSync('docker', ['compose', '-f', traefikComposePath, 'up', '-d'], {
       cwd: path.dirname(traefikComposePath),
       stdio: 'inherit',
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    printProxyStartError(message, 'link')
-    process.exit(1)
+    throw proxyStartError(message, 'link')
   }
 }
 
@@ -62,7 +63,7 @@ interface DockerInspectComposeLabelsEntry extends DockerInspectEntry {
 export const readExposedPorts = (containerName: string): number[] => {
   try {
     const info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectComposeLabelsEntry[]
     const exposed = info[0]?.Config?.ExposedPorts ?? {}
     return Object.keys(exposed)
@@ -77,7 +78,7 @@ export const readExposedPorts = (containerName: string): number[] => {
 const readComposeLabels = (containerName: string): { project: string; service: string } | null => {
   try {
     const info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectComposeLabelsEntry[]
     const labels = info[0]?.Config?.Labels ?? {}
     const project = normalizeDomainLabel(labels['com.docker.compose.project'] ?? '')
@@ -99,7 +100,7 @@ export const suggestDomain = (containerName: string): string => {
   return `${cleaned}${suffix}`
 }
 
-const linkCommand = async (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> => {
+const linkCommandImpl = async (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> => {
   let resolvedContainer = containerName
   let resolvedDomain = opts.domain
   let resolvedPort = opts.port
@@ -107,11 +108,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   if (resolvedContainer === undefined || resolvedDomain === undefined) {
     const runningContainers = getRunningContainers()
 
-    if (resolvedContainer === undefined && runningContainers.length === 0) {
-      printError('No containers are currently running.')
-      printHint('Start a container first, then run: betty link')
-      process.exit(1)
-    }
+    if (resolvedContainer === undefined && runningContainers.length === 0) throw new BettyError('No containers are currently running.', { hints: ['Start a container first, then run: betty link'] })
 
     const answers = await inquirer.prompt([
       ...(resolvedContainer === undefined ? [{
@@ -124,7 +121,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
         type: 'input',
         name: 'domain',
         message: 'Domain:',
-        default: (answers: { container?: string }) => suggestDomain(resolvedContainer ?? answers.container ?? ''),
+        default: (current: { container?: string }) => suggestDomain(resolvedContainer ?? current.container ?? ''),
         validate: validateLocalDomain,
       }] : []),
     ]) as LinkPromptAnswers
@@ -166,37 +163,21 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
     }
   }
 
-  if (resolvedContainer === undefined || resolvedContainer === '') {
-    printError('No container provided.')
-    process.exit(1)
-  }
+  if (resolvedContainer === undefined || resolvedContainer === '') throw new BettyError('No container provided.')
 
-  if (resolvedDomain === undefined || resolvedDomain === '') {
-    printError('No domain provided.')
-    process.exit(1)
-  }
+  if (resolvedDomain === undefined || resolvedDomain === '') throw new BettyError('No domain provided.')
 
   const domainValidation = validateLocalDomain(resolvedDomain)
-  if (domainValidation !== true) {
-    printError(domainValidation)
-    process.exit(1)
-  }
+  if (domainValidation !== true) throw new BettyError(domainValidation)
 
   const port = parseInt(resolvedPort, 10)
-  if (!Number.isFinite(port) || port <= 0) {
-    printError('Invalid port. Example: --port 3000')
-    process.exit(1)
-  }
+  if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()
-  const routeFileName = `${normalizeServiceName(containerNameResolved)}.yml`
+  const routeFileName = `${normalizeServiceName(domainResolved)}.yml`
   const conflict = findDomainConflict(domainResolved)
-  if (conflict !== null) {
-    printError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
-    printHint('Use `betty relink` to move an existing domain to another container.')
-    process.exit(1)
-  }
+  if (conflict !== null) throw new BettyError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`, { hints: ['Use `betty relink` to move an existing domain to another container.'] })
 
   if (opts.dryRun === true) {
     console.log('Dry run: no changes were applied.')
@@ -231,7 +212,7 @@ const linkCommand = async (containerName: string | undefined, opts: LinkCommandO
   connectContainerToNetwork(containerNameResolved)
   const ip = getContainerIp(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
-  writeRouteConfig(normalizeServiceName(containerNameResolved), domainResolved, ip, port, certificate)
+  writeRouteConfig(containerNameResolved, domainResolved, ip, port, certificate)
   restartTraefik(traefikComposePath)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)
@@ -268,5 +249,8 @@ const openInBrowser = (url: string): void => {
     printHint(`Could not open browser. Visit manually: ${url}`)
   }
 }
+
+const linkCommand = (containerName: string | undefined, opts: LinkCommandOptions): Promise<void> =>
+  withLockAsync(() => linkCommandImpl(containerName, opts))
 
 export default linkCommand

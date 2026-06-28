@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
-import { printError, printHint, printWarn } from '../cli/ui/output'
+import { printHint, printWarn } from '../cli/ui/output'
 import { checkDockerRunning, checkMkcertInstalled, hasHostsEntry, runMkcertInstall } from '../utils/setup'
 import { ensureHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
@@ -15,6 +15,8 @@ import {
 } from '../utils/constants'
 import { sanitizeName, certificatePaths } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { BettyError } from '../utils/errors'
+import { withLockAsync } from '../utils/lock'
 import { findDomainConflict } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
@@ -290,7 +292,7 @@ export const linkProject = async (config: DevProjectConfig, opts: { yes?: boolea
   execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
 }
 
-const devCommand = async (opts: DevCommandOptions): Promise<void> => {
+const devCommandImpl = async (opts: DevCommandOptions): Promise<void> => {
   let cleanExit = false
   try {
     const configPath = resolveConfigPath(opts.config)
@@ -317,11 +319,13 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
     }
     if (!cleanExit) printUrls(config)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    printError(message)
-    process.exit(1)
+    if (err instanceof BettyError) throw err
+    throw new BettyError(err instanceof Error ? err.message : String(err))
   }
   if (cleanExit) process.exit(0)
 }
+
+const devCommand = (opts: DevCommandOptions): Promise<void> =>
+  withLockAsync(() => devCommandImpl(opts))
 
 export default devCommand

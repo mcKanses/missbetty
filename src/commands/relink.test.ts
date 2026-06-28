@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import relinkCommand from './relink'
@@ -13,7 +13,17 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
+
+// docker.ts/link.ts call execFileSync for Betty-built docker/mkcert commands.
+// Route those through the per-test execSync mock by reconstructing the command
+// string, so existing string-based routing and assertions keep working.
+const wireExecFileSyncToExecSync = (): void => {
+  ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+    (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
+  )
+}
 
 jest.mock('fs', () => ({
   __esModule: true,
@@ -39,6 +49,12 @@ jest.mock('inquirer', () => ({
   __esModule: true,
   default: { prompt: jest.fn() },
   prompt: jest.fn(),
+}))
+
+jest.mock('../utils/lock', () => ({
+  __esModule: true,
+  withLock: (fn: () => unknown) => fn(),
+  withLockAsync: (fn: () => unknown) => fn(),
 }))
 
 const YAML_APP_ROUTE = [
@@ -82,21 +98,13 @@ const DOCKER_INSPECT_WITH_NETWORK = JSON.stringify([{
 describe('relink command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    wireExecFileSyncToExecSync()
   })
 
-  test('logs error and exits when Betty proxy is not set up', async () => {
+  test('throws a BettyError when Betty proxy is not set up', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(relinkCommand()).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Betty's proxy is not set up yet. Run: betty serve"))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(relinkCommand()).rejects.toThrow("Betty's proxy is not set up yet. Run: betty serve")
   })
 
   test('logs "No links found." when dynamic dir has no routes', async () => {
@@ -142,7 +150,7 @@ describe('relink command', () => {
     // prompt is called with empty array when all opts are provided (no interactive fields)
     expect(inquirer.prompt).toHaveBeenCalledWith([])
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('myapp.yml'),
+      expect.stringContaining('newapp-localhost.yml'),
       expect.any(String),
       'utf8'
     )
@@ -208,16 +216,7 @@ describe('relink command', () => {
       port: '3000',
     }))
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(relinkCommand('app')).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No container provided.'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(relinkCommand('app')).rejects.toThrow('No container provided.')
   })
 
   test('exits when port is invalid', async () => {
@@ -232,18 +231,9 @@ describe('relink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
     await expect(
       relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: 'notanumber' })
-    ).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid port. Example: --port 3000'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    ).rejects.toThrow('Invalid port. Example: --port 3000')
   })
 
   test('exits when target domain is already linked by another route', async () => {
@@ -263,16 +253,7 @@ describe('relink command', () => {
       return YAML_APP_ROUTE
     })
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(relinkCommand('app', { container: 'app', domain: 'used.localhost', port: '80' })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("Domain 'used.localhost' is already linked"))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    await expect(relinkCommand('app', { container: 'app', domain: 'used.localhost', port: '80' })).rejects.toThrow("Domain 'used.localhost' is already linked")
   })
 
   test('shows route selection prompt when multiple routes exist and no target is given', async () => {
@@ -313,7 +294,7 @@ describe('relink command', () => {
       expect.arrayContaining([expect.objectContaining({ name: 'route' })])
     )
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('myapp.yml'),
+      expect.stringContaining('newapp-localhost.yml'),
       expect.any(String),
       'utf8'
     )
@@ -367,18 +348,9 @@ describe('relink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
     await expect(
       relinkCommand('app', { container: 'myapp', domain: '', port: '3000' })
-    ).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('No domain provided.'))
-
-    errorSpy.mockRestore()
-    exitSpy.mockRestore()
+    ).rejects.toThrow('No domain provided.')
   })
 
   test('logs HTTPS confirmation when certificate exists for the domain', async () => {
@@ -501,13 +473,7 @@ describe('relink command', () => {
       return Buffer.from('')
     })
 
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
-
-    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
-
-    exitSpy.mockRestore()
+    await expect(relinkCommand('app', { container: 'myapp', domain: 'newapp.dev', port: '3000', yes: true })).rejects.toThrow('mkcert is not installed')
   })
 })
 
@@ -521,6 +487,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
   beforeEach(() => {
     jest.resetAllMocks()
+    wireExecFileSyncToExecSync()
   })
 
   afterEach(() => {
