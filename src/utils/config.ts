@@ -79,3 +79,21 @@ export const getHttpPort = (): number =>
 
 export const getHttpsPort = (): number =>
   normalizePort(process.env.BETTY_HTTPS_PORT) ?? normalizePort(readBettyConfig().httpsPort) ?? DEFAULT_HTTPS_PORT
+
+export const setHttpPort = (value: string): number => {
+  const port = normalizePort(value)
+  if (port === null) throw new Error('Invalid port. Example: betty config set httpPort 8080')
+
+  const current = readBettyConfig()
+  writeBettyConfig({ ...current, httpPort: port })
+  return port
+}
+
+export const setHttpsPort = (value: string): number => {
+  const port = normalizePort(value)
+  if (port === null) throw new Error('Invalid port. Example: betty config set httpsPort 8443')
+
+  const current = readBettyConfig()
+  writeBettyConfig({ ...current, httpsPort: port })
+  return port
+}

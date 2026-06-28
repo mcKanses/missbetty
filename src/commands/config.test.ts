@@ -1,18 +1,32 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import configCommand from './config'
-import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix } from '../utils/config'
+import {
+  getDomainSuffix,
+  getStoredDomainSuffix,
+  setDomainSuffix,
+  getHttpPort,
+  getHttpsPort,
+  setHttpPort,
+  setHttpsPort,
+} from '../utils/config'
 
 jest.mock('../utils/config', () => ({
   __esModule: true,
   getDomainSuffix: jest.fn(),
   getStoredDomainSuffix: jest.fn(),
   setDomainSuffix: jest.fn(),
+  getHttpPort: jest.fn(),
+  getHttpsPort: jest.fn(),
+  setHttpPort: jest.fn(),
+  setHttpsPort: jest.fn(),
 }))
 
 describe('config command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     delete process.env.BETTY_DOMAIN_SUFFIX
+    ;(getHttpPort as unknown as jest.Mock).mockReturnValue(80)
+    ;(getHttpsPort as unknown as jest.Mock).mockReturnValue(443)
     ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
       throw new Error(`process-exit-${String(code)}`)
     })
@@ -141,7 +155,53 @@ describe('config command', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
     expect(() => { configCommand('bogus') }).toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: betty config [get|set] domainSuffix [value]'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: betty config [get|set] <key> [value]'))
+
+    errorSpy.mockRestore()
+  })
+
+  test('list shows the configured http and https ports', () => {
+    ;(getDomainSuffix as unknown as jest.Mock).mockReturnValue('.dev')
+    ;(getStoredDomainSuffix as unknown as jest.Mock).mockReturnValue(null)
+    ;(getHttpPort as unknown as jest.Mock).mockReturnValue(8080)
+    ;(getHttpsPort as unknown as jest.Mock).mockReturnValue(8443)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    configCommand('list')
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('httpPort'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('8080'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('8443'))
+    logSpy.mockRestore()
+  })
+
+  test('get returns the configured http port', () => {
+    ;(getHttpPort as unknown as jest.Mock).mockReturnValue(8080)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    configCommand('get', 'httpPort')
+
+    expect(logSpy).toHaveBeenCalledWith('8080')
+    logSpy.mockRestore()
+  })
+
+  test('set saves the https port', () => {
+    ;(setHttpsPort as unknown as jest.Mock).mockReturnValue(8443)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    configCommand('set', 'httpsPort', '8443')
+
+    expect(setHttpsPort).toHaveBeenCalledWith('8443')
+    expect(logSpy).toHaveBeenCalledWith('Saved: httpsPort=8443')
+    logSpy.mockRestore()
+  })
+
+  test('set rejects an invalid port via the thrown error', () => {
+    ;(setHttpPort as unknown as jest.Mock).mockImplementation(() => { throw new Error('Invalid port. Example: betty config set httpPort 8080') })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect(() => { configCommand('set', 'httpPort', 'abc') }).toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid port'))
 
     errorSpy.mockRestore()
   })
