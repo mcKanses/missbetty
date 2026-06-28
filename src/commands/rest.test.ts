@@ -106,19 +106,12 @@ describe('rest command', () => {
     logSpy.mockRestore()
   })
 
-  test('prints error and exits with code 1 when stopping fails', async () => {
+  test('throws when stopping fails', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(execSync as unknown as jest.Mock).mockImplementation(() => {
       throw new Error('compose down failed')
     })
 
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    await expect(restCommand({ yes: true })).rejects.toThrow('process-exit-1')
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Betty's switchboard service could not be stopped: compose down failed")
-    )
-
-    errorSpy.mockRestore()
+    await expect(restCommand({ yes: true })).rejects.toThrow("Betty's switchboard service could not be stopped: compose down failed")
   })
 })
