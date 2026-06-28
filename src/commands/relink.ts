@@ -1,6 +1,6 @@
 import path from 'path'
 import inquirer from 'inquirer'
-import { printError } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
@@ -96,26 +96,14 @@ const relinkCommand = async (target?: string, opts?: RelinkOptions): Promise<voi
   const domain = (opts?.domain ?? answers.domain ?? route.domain).trim()
   const port = parseInt((opts?.port ?? answers.port ?? route.port) || '80', 10)
 
-  if (!containerName) {
-    printError('No container provided.')
-    process.exit(1)
-  }
+  if (!containerName) throw new BettyError('No container provided.')
 
-  if (!domain) {
-    printError('No domain provided.')
-    process.exit(1)
-  }
+  if (!domain) throw new BettyError('No domain provided.')
 
   const conflict = findDomainConflict(domain, route.filePath)
-  if (conflict !== null) {
-    printError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
-    process.exit(1)
-  }
+  if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
 
-  if (!Number.isFinite(port) || port <= 0) {
-    printError('Invalid port. Example: --port 3000')
-    process.exit(1)
-  }
+  if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
 
   if (opts?.yes !== true) {
     const { confirm } = await inquirer.prompt([{
