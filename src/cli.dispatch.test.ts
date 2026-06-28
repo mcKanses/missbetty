@@ -207,6 +207,14 @@ describe('run', () => {
     expect(printHelp).toHaveBeenCalled()
   })
 
+  test('help lists exactly the registered top-level commands (drift guard)', async () => {
+    await expect(run(argv('help'))).rejects.toThrow('process-exit-0')
+
+    const passed = (printHelp as unknown as jest.Mock).mock.calls[0][0] as { name: string }[]
+    const expectedNames = createProgram().commands.map((command) => command.name())
+    expect(passed.map((command) => command.name)).toEqual(expectedNames)
+  })
+
   test('parses and dispatches a real command', async () => {
     await run(argv('status', '--json'))
 
