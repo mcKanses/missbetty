@@ -177,6 +177,28 @@ describe('removeHostsEntry', () => {
     )
   })
 
+  it('keeps user-added lines without the betty marker and does not write', () => {
+    setPlatform('linux')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      '127.0.0.1 myapp.dev\n'
+    )
+
+    expect(removeHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
+  it('removes only the betty-marked line and keeps a user line for the same domain', () => {
+    setPlatform('linux')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      '127.0.0.1 myapp.dev\n127.0.0.1 myapp.dev # added by betty\n'
+    )
+
+    expect(removeHostsEntry('myapp.dev')).toBe(true)
+    const written = (fs.writeFileSync as unknown as jest.Mock).mock.calls[0][1] as string
+    expect(written).toContain('127.0.0.1 myapp.dev\n')
+    expect(written).not.toContain('# added by betty')
+  })
+
   it('returns false when readFileSync fails on linux', () => {
     setPlatform('linux')
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })

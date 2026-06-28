@@ -142,7 +142,7 @@ describe('relink command', () => {
     // prompt is called with empty array when all opts are provided (no interactive fields)
     expect(inquirer.prompt).toHaveBeenCalledWith([])
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('myapp.yml'),
+      expect.stringContaining('newapp-localhost.yml'),
       expect.any(String),
       'utf8'
     )
@@ -313,7 +313,7 @@ describe('relink command', () => {
       expect.arrayContaining([expect.objectContaining({ name: 'route' })])
     )
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('myapp.yml'),
+      expect.stringContaining('newapp-localhost.yml'),
       expect.any(String),
       'utf8'
     )
