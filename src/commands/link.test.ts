@@ -242,7 +242,7 @@ describe('link command', () => {
       return Buffer.from('')
     })
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow("Betty's proxy could not be started")
   })
 
   test('shows confirmation prompt and cancels on decline', async () => {

@@ -7,7 +7,7 @@ import {
   getSystemPortOwners,
   filterSystemOwnersForBettyPort,
 } from '../utils/portOwners'
-import { printHint } from '../cli/ui/output'
+import { BettyError } from '../utils/errors'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -81,21 +81,20 @@ describe('serve command', () => {
     expect(() => { serveCommand() }).toThrow('Port 443 is already in use')
   })
 
-  test('prints user hint when proxy start fails due to port 80 conflict', () => {
+  test('throws a proxy-start error with a port 80 hint', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const command = String(cmd)
       if (command.includes('docker network inspect')) return Buffer.from('[]')
       if (command.includes('docker compose -f')) throw new Error('Bind for 0.0.0.0:80 failed')
       return Buffer.from('ok')
     })
-    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => {
-      throw new Error(`process-exit-${String(code)}`)
-    })
 
-    expect(() => { serveCommand() }).toThrow('process-exit-1')
-    expect(printHint).toHaveBeenCalledWith('Port 80 is already in use by another service.')
+    let thrown: unknown
+    try { serveCommand() } catch (err) { thrown = err }
 
-    exitSpy.mockRestore()
+    expect(thrown).toBeInstanceOf(BettyError)
+    expect((thrown as BettyError).message).toContain("Betty's proxy could not be started")
+    expect((thrown as BettyError).hints.join('\n')).toContain('Port 80 is already in use by another service.')
   })
 
   test('creates Betty home directory when it does not exist', () => {
