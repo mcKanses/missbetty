@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import unlinkCommand from './unlink'
@@ -12,6 +12,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -119,6 +120,12 @@ const normalizePath = (p: string) => p.replace(/\\/g, '/')
 describe('unlink command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    // docker.ts restartTraefik now uses execFileSync; route it through the
+    // execSync mock by reconstructing the command string so string-based
+    // assertions keep working.
+    ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+      (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
+    )
   })
 
   test('logs error and exits when Betty proxy is not set up', async () => {

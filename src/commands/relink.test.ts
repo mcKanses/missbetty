@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import relinkCommand from './relink'
@@ -13,7 +13,17 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
+
+// docker.ts/link.ts call execFileSync for Betty-built docker/mkcert commands.
+// Route those through the per-test execSync mock by reconstructing the command
+// string, so existing string-based routing and assertions keep working.
+const wireExecFileSyncToExecSync = (): void => {
+  ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+    (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
+  )
+}
 
 jest.mock('fs', () => ({
   __esModule: true,
@@ -82,6 +92,7 @@ const DOCKER_INSPECT_WITH_NETWORK = JSON.stringify([{
 describe('relink command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    wireExecFileSyncToExecSync()
   })
 
   test('logs error and exits when Betty proxy is not set up', async () => {
@@ -521,6 +532,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
   beforeEach(() => {
     jest.resetAllMocks()
+    wireExecFileSyncToExecSync()
   })
 
   afterEach(() => {
