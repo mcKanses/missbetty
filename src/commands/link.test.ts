@@ -104,14 +104,14 @@ describe('link command', () => {
     )
 
     await expect(linkCommand(undefined, { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow(
-      'process-exit-1'
+      'No containers are currently running'
     )
   })
 
   test('exits early when no containers are currently running', async () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand(undefined, {})).rejects.toThrow('process-exit-1')
+    await expect(linkCommand(undefined, {})).rejects.toThrow('No containers are currently running')
     expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
@@ -121,7 +121,7 @@ describe('link command', () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
     await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: 'abc' })).rejects.toThrow(
-      'process-exit-1'
+      'Invalid port'
     )
   })
 
@@ -140,7 +140,7 @@ describe('link command', () => {
       '      service: existing',
     ].join('\n'))
 
-    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('already linked')
   })
 
   test('writes route config and restarts traefik on success', async () => {
@@ -457,7 +457,7 @@ describe('link command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand('', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('', { domain: 'myapp.localhost', port: '3000' })).rejects.toThrow('No container provided')
   })
 
   test('exits when domain arg is empty string', async () => {
@@ -465,7 +465,7 @@ describe('link command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand('myapp', { domain: '', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: '', port: '3000' })).rejects.toThrow('No domain provided')
   })
 
   test('exits when domain arg is whitespace only', async () => {
@@ -473,7 +473,7 @@ describe('link command', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
-    await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('process-exit-1')
+    await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('Domain cannot be empty')
   })
 
   test('opens browser after successful link when open flag is set', async () => {
