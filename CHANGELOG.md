@@ -1,3 +1,22 @@
+# [1.7.0](https://github.com/mcKanses/missbetty/compare/v1.6.1...v1.7.0) (2026-06-28)
+
+
+### Bug Fixes
+
+* Address code review findings across routing, hosts and CI ([b71b747](https://github.com/mcKanses/missbetty/commit/b71b7474e9f06add0b819250ed73ccf43db6f346))
+* Detect domain conflicts on the normalized route name ([a3a5e08](https://github.com/mcKanses/missbetty/commit/a3a5e08b8653d2404a85741a1e77ecf56d302ed8))
+
+
+### Features
+
+* Add a file lock for Betty's shared state ([6521f54](https://github.com/mcKanses/missbetty/commit/6521f5488bdd6ed5ffed9a3a37e3c4c95fac2057))
+* Lock the route-mutating commands against concurrent runs ([c589414](https://github.com/mcKanses/missbetty/commit/c589414b04916eb8ac50994c11d59bb11238535f))
+* Make the proxy HTTP/HTTPS host ports configurable ([5e8b8fb](https://github.com/mcKanses/missbetty/commit/5e8b8fb13e20926013ad20157953ae5dcb5aa90a))
+* Prune the link state store on unlink ([37e90cd](https://github.com/mcKanses/missbetty/commit/37e90cd0a8275e7e77927a459d17a350f518442e))
+* Support httpPort and httpsPort in the config command ([f810cf6](https://github.com/mcKanses/missbetty/commit/f810cf6c2dce708a52b2e0be0c06b6076a2d7bed))
+* Track route containers in a links.json state store ([9e44446](https://github.com/mcKanses/missbetty/commit/9e4444689a462fc1393aa671127aa30fe9fb2670))
+* Write the Windows hosts file directly under WSL ([da3030e](https://github.com/mcKanses/missbetty/commit/da3030e0e62f98a20dc53621a8d38f373f274bf6))
+
 # Changelog
 
 ## [1.6.0](https://github.com/mcKanses/missbetty/compare/v1.5.2...v1.6.0) (2026-05-13)
