@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { printError } from '../cli/ui/output'
@@ -19,7 +19,7 @@ export const resolveTraefikComposePath = (): string => {
 
 export const getRunningContainers = (): string[] => {
   try {
-    return execSync('docker ps --format {{.Names}}', { stdio: 'pipe' })
+    return execFileSync('docker', ['ps', '--format', '{{.Names}}'], { stdio: 'pipe' })
       .toString()
       .split(/\r?\n/)
       .map((name) => name.trim())
@@ -32,7 +32,7 @@ export const getRunningContainers = (): string[] => {
 export const connectContainerToNetwork = (containerName: string): void => {
   try {
     const info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectEntry[]
     const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
     if (networkKeys.includes(BETTY_PROXY_NETWORK)) return
@@ -42,7 +42,7 @@ export const connectContainerToNetwork = (containerName: string): void => {
   }
 
   try {
-    execSync(`docker network connect ${BETTY_PROXY_NETWORK} ${containerName}`, { stdio: 'inherit' })
+    execFileSync('docker', ['network', 'connect', BETTY_PROXY_NETWORK, containerName], { stdio: 'inherit' })
     console.log(`Connected container '${containerName}' to network '${BETTY_PROXY_NETWORK}'.`)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -56,7 +56,7 @@ export const getContainerIp = (containerName: string): string => {
   let info: DockerInspectEntry[]
   try {
     info = JSON.parse(
-      execSync(`docker inspect ${containerName}`, { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectEntry[]
   } catch {
     printError(`Container '${containerName}' not found. Make sure it is running: docker ps`)
@@ -76,7 +76,7 @@ export const getContainerIp = (containerName: string): string => {
 // Windows bind mounts do not trigger inotify events in the container.
 export const restartTraefik = (composePath: string): void => {
   try {
-    execSync(`docker compose -f "${composePath}" restart traefik`, {
+    execFileSync('docker', ['compose', '-f', composePath, 'restart', 'traefik'], {
       cwd: path.dirname(composePath),
       stdio: 'inherit',
     })
@@ -113,8 +113,8 @@ export const ensureCertificate = (domain: string): { certFile: string; keyFile: 
   }
 
   try {
-    execSync('mkcert -install', { stdio: 'inherit' })
-    execSync(`mkcert -cert-file "${certPath}" -key-file "${keyPath}" "${domain}"`, { stdio: 'inherit' })
+    execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
+    execFileSync('mkcert', ['-cert-file', certPath, '-key-file', keyPath, domain], { stdio: 'inherit' })
     return {
       certFile: `/certs/${baseName}.pem`,
       keyFile: `/certs/${baseName}-key.pem`,

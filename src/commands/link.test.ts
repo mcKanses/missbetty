@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import linkCommand, { suggestDomain, readExposedPorts } from './link'
@@ -13,6 +13,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -62,6 +63,13 @@ beforeEach(() => {
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
+  // docker.ts and link.ts now call execFileSync for Betty-built docker/mkcert
+  // commands. Route those through the per-test execSync mock by reconstructing
+  // the command string, so existing string-based routing and assertions keep
+  // working regardless of which child_process API the source uses.
+  ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+    (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
+  )
 })
 
 describe('link command', () => {
