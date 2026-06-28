@@ -6,8 +6,9 @@ import {
 } from '../utils/constants'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
 import { BettyError } from '../utils/errors'
+import { withLock } from '../utils/lock'
 
-const serveCommand = (): void => {
+const serveCommand = (): void => { withLock(() => {
   try {
     ensureProxySetup({ certs: true })
     ensureProxyNetwork()
@@ -26,6 +27,6 @@ const serveCommand = (): void => {
     const message = err instanceof Error ? err.message : String(err)
     throw proxyStartError(message, 'serve')
   }
-}
+}) }
 
 export default serveCommand
