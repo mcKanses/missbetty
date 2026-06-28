@@ -443,6 +443,17 @@ betty config get <key>
 betty config set <key> <value>
 ```
 
+Supported keys: `domainSuffix`, `httpPort`, `httpsPort`.
+
+```sh
+betty config set domainSuffix .localhost
+betty config set httpPort 8080
+betty config set httpsPort 8443
+```
+
+Ports set here are also overridable per shell via the `BETTY_HTTP_PORT` /
+`BETTY_HTTPS_PORT` environment variables, which take precedence.
+
 ## Development
 
 ```sh
