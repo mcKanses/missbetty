@@ -7,7 +7,6 @@ import type { DockerInspectEntry } from '../types'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
-  getContainerIp,
   getRunningContainers,
   restartTraefik,
   ensureCertificate,
@@ -210,9 +209,8 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   ensureProxyRunning(traefikComposePath)
   ensureProxyNetwork()
   connectContainerToNetwork(containerNameResolved)
-  const ip = getContainerIp(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
-  writeRouteConfig(containerNameResolved, domainResolved, ip, port, certificate)
+  writeRouteConfig(containerNameResolved, domainResolved, port, certificate)
   restartTraefik(traefikComposePath)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)

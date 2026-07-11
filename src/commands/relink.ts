@@ -5,7 +5,6 @@ import { withLockAsync } from '../utils/lock'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
-  getContainerIp,
   getRunningContainers,
   restartTraefik,
   ensureCertificate,
@@ -117,10 +116,9 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   }
 
   connectContainerToNetwork(containerName)
-  const ip = getContainerIp(containerName)
   const certificate = ensureCertificate(domain)
   const routeFileName = `${normalizeServiceName(domain)}.yml`
-  writeRouteConfig(containerName, domain, ip, port, certificate, route.filePath)
+  writeRouteConfig(containerName, domain, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 
