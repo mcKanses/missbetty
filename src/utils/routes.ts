@@ -74,7 +74,6 @@ export const findDomainConflict = (domain: string, ignoreFilePath?: string): { f
 export const writeRouteConfig = (
   container: string,
   domain: string,
-  ip: string,
   port: number,
   certificate: { certFile: string; keyFile: string } | null,
   oldFilePath?: string
@@ -98,13 +97,18 @@ export const writeRouteConfig = (
     tls: {},
   }
 
+  // Target the container by name, not by an IP captured at link time. Traefik and
+  // the container share the betty_proxy network, so Docker's embedded DNS resolves
+  // the name to the current IP on every dial. A restart that reassigns the IP keeps
+  // working without a relink. A recreated container is a new instance that is not
+  // attached to betty_proxy, so it still needs `betty relink`.
   const config: TraefikDynamicConfig = {
     http: {
       routers,
       services: {
         [name]: {
           loadBalancer: {
-            servers: [{ url: `http://${ip}:${String(port)}` }],
+            servers: [{ url: `http://${container}:${String(port)}` }],
           },
         },
       },

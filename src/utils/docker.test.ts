@@ -36,7 +36,6 @@ import {
   resolveTraefikComposePath,
   getRunningContainers,
   connectContainerToNetwork,
-  getContainerIp,
   restartTraefik,
   ensureCertificate,
 } from './docker'
@@ -131,26 +130,6 @@ describe('connectContainerToNetwork', () => {
       .mockImplementationOnce(() => { throw new Error('network error') })
 
     expect(() => { connectContainerToNetwork('myapp-1') }).toThrow('Failed to connect')
-  })
-})
-
-describe('getContainerIp', () => {
-  it('returns the container IP from the betty network', () => {
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy'], '172.20.0.5'))
-
-    expect(getContainerIp('myapp-1')).toBe('172.20.0.5')
-  })
-
-  it('exits when the container is not found', () => {
-    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('No such container') })
-
-    expect(() => { getContainerIp('myapp-1') }).toThrow("Container 'myapp-1' not found")
-  })
-
-  it('exits when the container has no IP in the betty network', () => {
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy'], ''))
-
-    expect(() => { getContainerIp('myapp-1') }).toThrow('Could not determine IP')
   })
 })
 

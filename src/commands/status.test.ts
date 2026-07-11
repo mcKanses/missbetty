@@ -33,7 +33,7 @@ describe('status command', () => {
       const command = String(args[0])
       if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
       if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\n')
-      if (command === 'docker inspect abc123') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
+      if (command === 'docker inspect abc123') return Buffer.from('[{"Name":"/myapp","NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":1}]')
       throw new Error(`Unexpected command: ${command}`)
     })
   }
@@ -102,6 +102,25 @@ describe('status command', () => {
     expect(payload.projects[0].restarts).toBe('1')
 
     nowSpy.mockRestore()
+    logSpy.mockRestore()
+  })
+
+  test('resolves container metadata when the route targets the container by name', () => {
+    mockRouteFile('http://myapp:5173')
+    mockRunningProxy()
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as {
+      projects: { port: string; target: string; health: string; restarts: string }[];
+    }
+    expect(payload.projects[0].target).toBe('http://myapp:5173')
+    expect(payload.projects[0].port).toBe('5173')
+    expect(payload.projects[0].health).toBe('running')
+    expect(payload.projects[0].restarts).toBe('1')
+
     logSpy.mockRestore()
   })
 
