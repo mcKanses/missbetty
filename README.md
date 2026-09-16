@@ -1,6 +1,6 @@
 # Betty
 
-![Betty Logo](https://raw.githubusercontent.com/mcKanses/getbetty.dev/main/assets/logo/betty-logo.svg)
+![Betty Logo](https://raw.githubusercontent.com/mcKanses/missbetty/main/assets/logo/betty-logo.svg)
 
 Betty is a lightweight CLI for local Docker development domains. It links
 running Docker containers to local domains through one global Traefik reverse
