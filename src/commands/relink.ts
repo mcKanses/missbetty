@@ -11,7 +11,7 @@ import {
   ensureCertificate,
 } from '../utils/docker'
 import { ensureHostsEntry, removeHostsEntry } from '../utils/hosts'
-import { readRoutes, findDomainConflict, writeRouteConfig, type RouteEntry } from '../utils/routes'
+import { readRoutes, findDomainConflict, removeRouteFromFile, writeRouteConfig, type RouteEntry } from '../utils/routes'
 import { normalizeServiceName, validateDomain } from '../utils/names'
 
 interface RelinkOptions {
@@ -129,7 +129,13 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   const linkedContainer = connectContainerToNetwork(containerName)
   const certificate = ensureCertificate(domain)
   const routeFileName = `${normalizeServiceName(domain)}.yml`
-  writeRouteConfig(linkedContainer, domain, port, certificate, route.filePath)
+  // A project file holds several domains. Replacing it would drop the others, so
+  // only this route is taken out and the new one is written as its own file.
+  const sharesFile = routes.some((r) => r.filePath === route.filePath && r.routerName !== route.routerName)
+  if (sharesFile) {
+    removeRouteFromFile(route)
+    writeRouteConfig(linkedContainer, domain, port, certificate)
+  } else writeRouteConfig(linkedContainer, domain, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 

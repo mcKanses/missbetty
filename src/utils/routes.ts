@@ -3,7 +3,7 @@ import fs from 'fs'
 import yaml from 'yaml'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import { BETTY_DYNAMIC_DIR } from './constants'
-import { normalizeServiceName } from './names'
+import { normalizeServiceName, sanitizeName } from './names'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 // Betty stores the source container name in a leading YAML comment so relink can
@@ -69,6 +69,39 @@ export const findDomainConflict = (domain: string, ignoreFilePath?: string): { f
     return { fileName: route.fileName, routerName: route.routerName }
   }
   return null
+}
+
+// Removes one route (router, its -secure twin, service and certificate) from its
+// file, and deletes the file once no router is left. Returns true when deleted.
+// Project files hold several domains, so the other routes must survive.
+export const removeRouteFromFile = (route: RouteEntry): boolean => {
+  const doc = yaml.parse(fs.readFileSync(route.filePath, 'utf8')) as TraefikDynamicConfig
+
+  if (doc.http?.routers !== undefined) {
+    const secureKey = `${route.routerName}-secure`
+    doc.http.routers = Object.fromEntries(
+      Object.entries(doc.http.routers).filter(([k]) => k !== route.routerName && k !== secureKey)
+    )
+  }
+  if (doc.http?.services !== undefined) doc.http.services = Object.fromEntries(
+    Object.entries(doc.http.services).filter(([k]) => k !== route.routerName)
+  )
+
+  if (doc.tls?.certificates !== undefined) {
+    const certFileName = `${sanitizeName(route.domain)}.pem`
+    doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
+    if (doc.tls.certificates.length === 0) delete doc.tls
+  }
+
+  const hasRouters = doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0
+  if (!hasRouters) {
+    fs.unlinkSync(route.filePath)
+    removeLinkContainer(route.fileName)
+    return true
+  }
+
+  fs.writeFileSync(route.filePath, yaml.stringify(doc), 'utf8')
+  return false
 }
 
 export const writeRouteConfig = (
