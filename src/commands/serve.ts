@@ -5,6 +5,7 @@ import {
   BETTY_PROXY_COMPOSE,
 } from '../utils/constants'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
+import { getHttpPort, getHttpsPort } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock } from '../utils/lock'
 
@@ -19,7 +20,7 @@ const serveCommand = (): void => { withLock(() => {
       cwd: BETTY_HOME_DIR,
       stdio: 'inherit',
     })
-    console.log(`Traefik proxy is running as '${BETTY_TRAEFIK_CONTAINER}' on port 443.`)
+    console.log(`Traefik proxy is running as '${BETTY_TRAEFIK_CONTAINER}' on ports ${String(getHttpPort())} (HTTP) and ${String(getHttpsPort())} (HTTPS).`)
   } catch (err) {
     // BettyError already carries a user-facing message and hints; let it reach
     // the central handler instead of relabeling it as a proxy-start failure.

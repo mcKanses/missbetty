@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
-import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort } from './config'
+import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort, domainUrl } from './config'
 
 jest.mock('./constants', () => ({
   BETTY_HOME_DIR: '/home/test-user/.betty',
@@ -175,6 +175,23 @@ describe('getHttpPort / getHttpsPort', () => {
 
     expect(getHttpPort()).toBe(80)
     expect(getHttpsPort()).toBe(443)
+  })
+})
+
+describe('domainUrl', () => {
+  test('omits the port when the default ports are in use', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+
+    expect(domainUrl('app.dev', true)).toBe('https://app.dev')
+    expect(domainUrl('app.dev', false)).toBe('http://app.dev')
+  })
+
+  test('includes the configured port when it differs from the default', () => {
+    process.env.BETTY_HTTP_PORT = '8080'
+    process.env.BETTY_HTTPS_PORT = '8443'
+
+    expect(domainUrl('app.dev', true)).toBe('https://app.dev:8443')
+    expect(domainUrl('app.dev', false)).toBe('http://app.dev:8080')
   })
 })
 
