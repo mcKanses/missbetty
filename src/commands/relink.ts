@@ -1,5 +1,6 @@
 import path from 'path'
 import inquirer from 'inquirer'
+import { domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 import {
@@ -154,7 +155,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   console.log('- traefik: restarted')
 
   console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`)
-  if (certificate) console.log(`✅ HTTPS is available at https://${domain}`)
+  if (certificate) console.log(`✅ HTTPS is available at ${domainUrl(domain, true)}`)
 }
 
 const relinkCommand = (target?: string, opts?: RelinkOptions): Promise<void> =>
