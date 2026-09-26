@@ -5,13 +5,44 @@ import { BettyError } from './errors'
 
 // A best-effort exclusive lock over Betty's shared ~/.betty state, so two
 // concurrent betty processes don't corrupt the routing files or hosts entries.
-// The lock is a single file created with O_EXCL; a lock older than STALE_MS is
-// treated as abandoned (e.g. a crashed process) and reclaimed.
+// The lock is a single file created with O_EXCL that holds the owner's PID. A
+// lock whose owner is no longer running (a crash, or Ctrl+C at a prompt) is
+// reclaimed right away; a live owner keeps it however long it takes.
 const LOCK_PATH = path.join(BETTY_HOME_DIR, '.lock')
-const STALE_MS = 60_000
+// Only for a lock file without a readable PID (e.g. caught mid-write).
+const UNREADABLE_STALE_MS = 60_000
+
+const busyError = (): BettyError => new BettyError('Another betty command is already running. Please retry in a moment.')
 
 const writeLockFile = (): void => {
   fs.writeFileSync(LOCK_PATH, String(process.pid), { flag: 'wx' })
+}
+
+const readOwner = (): number | null => {
+  try {
+    const pid = parseInt(fs.readFileSync(LOCK_PATH, 'utf8'), 10)
+    return Number.isInteger(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
+const isRunning = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    // EPERM: the process exists but belongs to another user.
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+const isFresh = (): boolean => {
+  try {
+    return Date.now() - fs.statSync(LOCK_PATH).mtimeMs < UNREADABLE_STALE_MS
+  } catch {
+    return false
+  }
 }
 
 const acquire = (): void => {
@@ -21,25 +52,26 @@ const acquire = (): void => {
     writeLockFile()
     return
   } catch {
-    // Lock already exists — reclaim it only if it is stale.
+    // Lock already exists — reclaim it only if its owner is gone.
   }
 
-  let mtimeMs = 0
-  try {
-    mtimeMs = fs.statSync(LOCK_PATH).mtimeMs
-  } catch {
-    // Lock vanished between the failed create and the stat; fall through to retry.
-  }
-
-  if (mtimeMs !== 0 && Date.now() - mtimeMs < STALE_MS) throw new BettyError('Another betty command is already running. Please retry in a moment.')
+  const owner = readOwner()
+  if (owner !== null ? isRunning(owner) : isFresh()) throw busyError()
 
   fs.rmSync(LOCK_PATH, { force: true })
-  writeLockFile()
+  try {
+    writeLockFile()
+  } catch {
+    // Another process reclaimed it between our remove and create.
+    throw busyError()
+  }
 }
 
+// Removes the lock only if this process still owns it, so a lock another
+// process has taken over is never deleted from under it.
 const release = (): void => {
   try {
-    fs.rmSync(LOCK_PATH, { force: true })
+    if (readOwner() === process.pid) fs.rmSync(LOCK_PATH, { force: true })
   } catch {
     // Best effort: a missing lock file is fine.
   }
