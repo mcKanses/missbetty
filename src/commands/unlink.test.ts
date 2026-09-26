@@ -321,6 +321,25 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
+  test('--all --yes removes every link without prompting', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ all: true, yes: true })
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
+  })
+
   test('--all cancels without removing when user declines', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
