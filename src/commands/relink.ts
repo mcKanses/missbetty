@@ -1,18 +1,18 @@
 import path from 'path'
 import inquirer from 'inquirer'
+import { domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
-  getContainerIp,
   getRunningContainers,
   restartTraefik,
   ensureCertificate,
 } from '../utils/docker'
-import { ensureHostsEntry } from '../utils/hosts'
+import { ensureHostsEntry, removeHostsEntry } from '../utils/hosts'
 import { readRoutes, findDomainConflict, writeRouteConfig, type RouteEntry } from '../utils/routes'
-import { normalizeServiceName } from '../utils/names'
+import { normalizeServiceName, validateDomain } from '../utils/names'
 
 interface RelinkOptions {
   container?: string;
@@ -25,25 +25,32 @@ interface SelectRouteAnswer {
   route: string;
 }
 
-const selectRoute = async (routes: RouteEntry[], target?: string): Promise<RouteEntry> => {
-  if (target === undefined && routes.length === 1) return routes[0]
-
+const selectRoute = async (routes: RouteEntry[], target?: string, yes?: boolean): Promise<RouteEntry> => {
+  let candidates = routes
   if (target !== undefined) {
     const normalized = target.toLowerCase()
-    const matches = routes.filter((route) =>
+    candidates = routes.filter((route) =>
       route.routerName.toLowerCase() === normalized ||
       route.container.toLowerCase() === normalized ||
       route.domain.toLowerCase() === normalized ||
       path.basename(route.fileName, path.extname(route.fileName)).toLowerCase() === normalized
     )
-    if (matches.length === 1) return matches[0]
+    if (candidates.length === 0) throw new BettyError(`No link matches '${target}'.`, { hints: ['Run `betty status` to list the linked domains.'] })
   }
+
+  if (candidates.length === 1) return candidates[0]
+
+  // -y must never fall back to an interactive picker: without a TTY the prompt
+  // crashes, and silently picking one of several links would be a guess.
+  if (yes === true) throw new BettyError(target !== undefined ? `'${target}' matches ${String(candidates.length)} links.` : 'Multiple links found.', {
+    hints: ['Pass the domain to pick one: betty relink <domain>', ...candidates.map((route) => ` - ${route.domain}`)],
+  })
 
   const answer = await inquirer.prompt([{
     type: 'list',
     name: 'route',
     message: 'Which link should be updated?',
-    choices: routes.map((route) => ({
+    choices: candidates.map((route) => ({
       name: `${route.routerName} -> ${route.domain} (${route.target || 'n/a'})`,
       value: route.filePath,
     })),
@@ -65,7 +72,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     return
   }
 
-  const route = await selectRoute(routes, target)
+  const route = await selectRoute(routes, target, opts?.yes)
   const runningContainers = getRunningContainers()
   const shouldPromptValues = opts?.yes !== true && opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined
 
@@ -82,7 +89,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
       name: 'domain',
       message: 'Domain:',
       default: route.domain,
-      validate: (value: string) => !!value.trim() || 'Domain cannot be empty',
+      validate: validateDomain,
     }] : []),
     ...(shouldPromptValues ? [{
       type: 'input',
@@ -101,6 +108,9 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
 
   if (!domain) throw new BettyError('No domain provided.')
 
+  const domainValidation = validateDomain(domain)
+  if (domainValidation !== true) throw new BettyError(domainValidation)
+
   const conflict = findDomainConflict(domain, route.filePath)
   if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
 
@@ -116,13 +126,20 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     if (!confirm) { console.log('Cancelled.'); return }
   }
 
-  connectContainerToNetwork(containerName)
-  const ip = getContainerIp(containerName)
+  const linkedContainer = connectContainerToNetwork(containerName)
   const certificate = ensureCertificate(domain)
   const routeFileName = `${normalizeServiceName(domain)}.yml`
-  writeRouteConfig(containerName, domain, ip, port, certificate, route.filePath)
+  writeRouteConfig(linkedContainer, domain, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
+
+  // Moving a link to a new domain would otherwise leave the old hosts entry behind.
+  // The old route file is being replaced, so only other files can still need it.
+  const previousDomain = route.domain
+  if (previousDomain !== '' && previousDomain.toLowerCase() !== domain.toLowerCase()) {
+    const stillUsed = readRoutes().some((r) => r.filePath !== route.filePath && r.domain.toLowerCase() === previousDomain.toLowerCase())
+    if (!stillUsed) removeHostsEntry(previousDomain)
+  }
 
   restartTraefik(composePath)
 
@@ -132,13 +149,13 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
 
   console.log('\nSummary:')
   console.log(`- domain: ${domain}`)
-  console.log(`- target: ${containerName}:${String(port)}`)
+  console.log(`- target: ${linkedContainer}:${String(port)}`)
   console.log(`- route: ${routeFileName}`)
   console.log(`- hosts: ${hostsStatus}`)
   console.log('- traefik: restarted')
 
-  console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`)
-  if (certificate) console.log(`✅ HTTPS is available at https://${domain}`)
+  console.log(`\n✅ Updated link: ${linkedContainer} -> ${domain}:${String(port)}`)
+  if (certificate) console.log(`✅ HTTPS is available at ${domainUrl(domain, true)}`)
 }
 
 const relinkCommand = (target?: string, opts?: RelinkOptions): Promise<void> =>

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, it } from '@jest/globals'
 
-jest.mock('child_process', () => ({ execSync: jest.fn() }))
+jest.mock('child_process', () => ({ execSync: jest.fn(), execFileSync: jest.fn() }))
 
 jest.mock('fs', () => ({
   __esModule: true,
@@ -15,8 +15,8 @@ jest.mock('fs', () => ({
 }))
 
 import fs from 'fs'
-import { execSync } from 'child_process'
-import { ensureHostsEntry, removeHostsEntry } from './hosts'
+import { execFileSync, execSync } from 'child_process'
+import { ensureHostsEntry, hasHostsEntry, removeHostsEntry } from './hosts'
 
 const originalPlatform = process.platform
 const originalEnv = { ...process.env }
@@ -38,6 +38,45 @@ afterEach(() => {
 const setPlatform = (platform: string): void => {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true })
 }
+
+describe('hasHostsEntry', () => {
+  it('treats .localhost domains as present without reading hosts', () => {
+    expect(hasHostsEntry('myapp.localhost')).toBe(true)
+    expect(fs.readFileSync).not.toHaveBeenCalled()
+  })
+
+  it('reads /etc/hosts on Linux', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 myapp.dev # added by betty\n')
+
+    expect(hasHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.readFileSync).toHaveBeenCalledWith('/etc/hosts', 'utf8')
+  })
+
+  it('reads the Windows hosts file under WSL, where Betty writes the entry', () => {
+    setPlatform('linux')
+    process.env.WSL_DISTRO_NAME = 'Ubuntu'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 myapp.dev # added by betty\n')
+
+    expect(hasHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.readFileSync).toHaveBeenCalledWith('/mnt/c/Windows/System32/drivers/etc/hosts', 'utf8')
+  })
+
+  it('does not match a domain that only shares a prefix', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 myapp.dev.example # added by betty\n')
+
+    expect(hasHostsEntry('myapp.dev')).toBe(false)
+  })
+
+  it('returns false when the hosts file cannot be read', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+
+    expect(hasHostsEntry('myapp.dev')).toBe(false)
+  })
+})
 
 describe('ensureHostsEntry', () => {
   it('returns true without reading hosts for .localhost domains', () => {
@@ -102,12 +141,13 @@ describe('ensureHostsEntry', () => {
       .mockReturnValueOnce('127.0.0.1 other.dev\n')
       .mockReturnValueOnce('127.0.0.1 myapp.dev # added by betty\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('sudo sh -c'),
-      expect.anything()
+    expect(execFileSync).toHaveBeenCalledWith(
+      'sudo',
+      ['tee', '-a', '/etc/hosts'],
+      expect.objectContaining({ input: '\n127.0.0.1 myapp.dev # added by betty\n' })
     )
   })
 
@@ -116,7 +156,7 @@ describe('ensureHostsEntry', () => {
     delete process.env.WSL_DISTRO_NAME
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })

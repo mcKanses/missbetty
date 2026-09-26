@@ -2,12 +2,11 @@ import { execSync, execFileSync } from 'child_process'
 import path from 'path'
 import inquirer from 'inquirer'
 import { printHint } from '../cli/ui/output'
-import { getDomainSuffix } from '../utils/config'
+import { domainUrl, getDomainSuffix } from '../utils/config'
 import type { DockerInspectEntry } from '../types'
 import {
   resolveTraefikComposePath,
   connectContainerToNetwork,
-  getContainerIp,
   getRunningContainers,
   restartTraefik,
   ensureCertificate,
@@ -15,7 +14,7 @@ import {
 import { ensureHostsEntry } from '../utils/hosts'
 import { findDomainConflict, writeRouteConfig } from '../utils/routes'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
-import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
+import { normalizeDomainLabel, normalizeServiceName, validateDomain } from '../utils/names'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 
@@ -29,12 +28,6 @@ const ensureProxyRunning = (traefikComposePath: string): void => {
     const message = err instanceof Error ? err.message : String(err)
     throw proxyStartError(message, 'link')
   }
-}
-
-const validateLocalDomain = (domain: string): true | string => {
-  const normalized = domain.trim()
-  if (!normalized) return 'Domain cannot be empty'
-  return true
 }
 
 interface LinkPromptAnswers {
@@ -122,7 +115,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
         name: 'domain',
         message: 'Domain:',
         default: (current: { container?: string }) => suggestDomain(resolvedContainer ?? current.container ?? ''),
-        validate: validateLocalDomain,
+        validate: validateDomain,
       }] : []),
     ]) as LinkPromptAnswers
 
@@ -167,7 +160,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
 
   if (resolvedDomain === undefined || resolvedDomain === '') throw new BettyError('No domain provided.')
 
-  const domainValidation = validateLocalDomain(resolvedDomain)
+  const domainValidation = validateDomain(resolvedDomain)
   if (domainValidation !== true) throw new BettyError(domainValidation)
 
   const port = parseInt(resolvedPort, 10)
@@ -209,10 +202,9 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   ensureHttpsPortAvailable()
   ensureProxyRunning(traefikComposePath)
   ensureProxyNetwork()
-  connectContainerToNetwork(containerNameResolved)
-  const ip = getContainerIp(containerNameResolved)
+  const linkedContainer = connectContainerToNetwork(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
-  writeRouteConfig(containerNameResolved, domainResolved, ip, port, certificate)
+  writeRouteConfig(linkedContainer, domainResolved, port, certificate)
   restartTraefik(traefikComposePath)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)
@@ -223,18 +215,18 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
 
   console.log('\nSummary:')
   console.log(`- domain: ${domainResolved}`)
-  console.log(`- target: ${containerNameResolved}:${String(port)}`)
+  console.log(`- target: ${linkedContainer}:${String(port)}`)
   console.log(`- route: ${routeFileName}`)
   console.log(`- hosts: ${hostsStatus}`)
   console.log('- traefik: restarted')
 
   if (certificate) {
-    console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`)
-    if (opts.open === true) openInBrowser(`https://${domainResolved}`)
+    console.log(`\n✅ '${linkedContainer}' is now available at ${domainUrl(domainResolved, true)}`)
+    if (opts.open === true) openInBrowser(domainUrl(domainResolved, true))
   } else {
     console.log(`\n⚠️  Routing was written without TLS certificate for ${domainResolved}.`)
-    console.log('   Using HTTP fallback on port 80.')
-    if (opts.open === true) openInBrowser(`http://${domainResolved}`)
+    console.log(`   Using the HTTP fallback: ${domainUrl(domainResolved, false)}`)
+    if (opts.open === true) openInBrowser(domainUrl(domainResolved, false))
   }
 }
 

@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import yaml from 'yaml'
 import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import { domainUrl } from '../utils/config'
 import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 
 interface ProjectStatus {
@@ -49,7 +50,9 @@ const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolea
   return { proxyRunning, proxyInfo, proxyUptime, traefikContainer }
 }
 
-const getContainerMetaByIp = (ip: string): { uptime: string; health: string; restarts: string } => {
+// Route targets name the container (current format) or hold the IP captured at
+// link time (older route files), so match either.
+const getContainerMetaByTarget = (host: string): { uptime: string; health: string; restarts: string } => {
   try {
     const idsOutput = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().trim()
     if (!idsOutput) return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
@@ -60,9 +63,9 @@ const getContainerMetaByIp = (ip: string): { uptime: string; health: string; res
         const inspectJson = JSON.parse(inspectOut) as DockerInspectEntry[]
         const container = inspectJson.length > 0 ? inspectJson[0] : null
         if (!container) continue
-        const networks = container.NetworkSettings.Networks
-        const networkMatch = Object.values(networks).find((n) => n.IPAddress === ip)
-        if (!networkMatch) continue
+        const nameMatch = container.Name?.replace(/^\//, '') === host
+        const ipMatch = Object.values(container.NetworkSettings.Networks).some((n) => n.IPAddress === host)
+        if (!nameMatch && !ipMatch) continue
 
         const startedAt = container.State.StartedAt
         const uptime = startedAt !== '0001-01-01T00:00:00Z'
@@ -115,13 +118,12 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
           || url.startsWith('https://')
           || port === '443'
         const domainWithProtocol = domain !== 'n/a'
-          ? `${isHttps ? 'https' : 'http'}://${domain}`
+          ? domainUrl(domain, isHttps)
           : domain
 
         const target = url !== '' ? url : 'n/a'
-        const ipMatch = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)
-        const ip = ipMatch?.[1] ?? ''
-        const meta = ip !== '' ? getContainerMetaByIp(ip) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
+        const host = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)?.[1] ?? ''
+        const meta = host !== '' ? getContainerMetaByTarget(host) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 
         projects.push({
           name: projectName,

@@ -236,6 +236,23 @@ describe('relink command', () => {
     ).rejects.toThrow('Invalid port. Example: --port 3000')
   })
 
+  test('rejects a new domain that is not a valid hostname', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    await expect(
+      relinkCommand('app', { container: 'myapp', domain: 'a"b.dev', port: '3000', yes: true })
+    ).rejects.toThrow("Invalid domain 'a\"b.dev'")
+  })
+
   test('exits when target domain is already linked by another route', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
@@ -336,6 +353,32 @@ describe('relink command', () => {
     expect(fs.writeFileSync).toHaveBeenCalled()
 
     logSpy.mockRestore()
+  })
+
+  const mockTwoRoutes = (): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      normalizePath(String(p)).endsWith('/other.yml') ? YAML_OTHER_ROUTE : YAML_APP_ROUTE
+    )
+  }
+
+  test('throws instead of prompting when the target matches no link', async () => {
+    mockTwoRoutes()
+
+    await expect(relinkCommand('missing.localhost', { yes: true })).rejects.toThrow("No link matches 'missing.localhost'.")
+    await expect(relinkCommand('missing.localhost')).rejects.toThrow("No link matches 'missing.localhost'.")
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
+  test('throws instead of prompting when --yes is set and several links exist', async () => {
+    mockTwoRoutes()
+
+    await expect(relinkCommand(undefined, { yes: true })).rejects.toThrow('Multiple links found.')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
   test('exits when domain resolves to empty string', async () => {
@@ -532,6 +575,39 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     expect(output).not.toContain('only reachable after the hosts entry')
 
     logSpy.mockRestore()
+  })
+
+  const YAML_APP_TEST_ROUTE = YAML_APP_ROUTE.replace('app.localhost', 'app.test')
+
+  test('removes the previous domain from hosts when relink changes the domain', async () => {
+    setPlatform('linux')
+    mockBaseSetup()
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('/etc/hosts')) return '127.0.0.1 app.test # added by betty\n127.0.0.1 myapp.test # added by betty\n'
+      return YAML_APP_TEST_ROUTE
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 myapp.test # added by betty\n\n', 'utf8')
+  })
+
+  test('keeps the previous hosts entry when another link still uses the domain', async () => {
+    setPlatform('linux')
+    mockBaseSetup()
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/etc/hosts')) return '127.0.0.1 app.test # added by betty\n127.0.0.1 myapp.test # added by betty\n'
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE.replace('used.localhost', 'app.test')
+      return YAML_APP_TEST_ROUTE
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
+
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith('/etc/hosts', expect.anything(), 'utf8')
   })
 
   test('adds hosts entry via appendFileSync when entry is missing on Linux', async () => {
