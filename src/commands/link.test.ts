@@ -177,6 +177,43 @@ describe('link command', () => {
     logSpy.mockRestore()
   })
 
+  test('writes the canonical container name into the route when linked by ID', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      if (c.includes('docker inspect')) return Buffer.from(JSON.stringify([{ Name: '/shop-web-1', State: { Running: true }, NetworkSettings: { Networks: { betty_proxy: {} } } }]))
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('3f2a', { domain: 'shop.localhost', port: '3000', yes: true })
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('shop-localhost.yml'),
+      expect.stringContaining('http://shop-web-1:3000'),
+      'utf8'
+    )
+  })
+
+  test('refuses to link a stopped container', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      if (c.includes('docker inspect')) return Buffer.from(JSON.stringify([{ Name: '/myapp', State: { Running: false }, NetworkSettings: { Networks: { bridge: {} } } }]))
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })).rejects.toThrow("Container 'myapp' is not running.")
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.anything(), 'utf8')
+  })
+
   test('hard fails when mkcert is missing for .dev domains', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
@@ -480,6 +517,15 @@ describe('link command', () => {
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
     await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('Domain cannot be empty')
+  })
+
+  test('rejects a domain that is not a valid hostname before touching the proxy', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('myapp', { domain: 'bad domain.dev', port: '3000', yes: true })).rejects.toThrow("Invalid domain 'bad domain.dev'")
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
   })
 
   test('opens browser after successful link when open flag is set', async () => {

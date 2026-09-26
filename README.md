@@ -1,6 +1,6 @@
 # Betty
 
-![Betty Logo](https://raw.githubusercontent.com/mcKanses/getbetty.dev/main/assets/logo/betty-logo.svg)
+![Betty Logo](https://raw.githubusercontent.com/mcKanses/missbetty/main/assets/logo/betty-logo.svg)
 
 Betty is a lightweight CLI for local Docker development domains. It links
 running Docker containers to local domains through one global Traefik reverse
@@ -86,11 +86,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.6.0 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+BETTY_VERSION=v1.7.0 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.6.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.7.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Windows installer options:

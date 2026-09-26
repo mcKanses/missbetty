@@ -96,40 +96,40 @@ export const createProgram = (): Command => {
     .option('--file <path>', 'Path to .betty.yml')
     .option('--dry-run', 'Preview configuration without applying changes')
     .option('-y, --yes', 'Accept all prompts automatically')
-    .action((opts: ProjectLoadOptions) => { void projectLoadCommand(opts) })
+    .action((opts: ProjectLoadOptions) => projectLoadCommand(opts))
 
   projectCmd
     .command('create')
     .description('Create a new .betty.yml interactively')
     .option('--name <name>', 'Project name')
-    .action((opts: ProjectCreateOptions) => { void projectCreateCommand(opts) })
+    .action((opts: ProjectCreateOptions) => projectCreateCommand(opts))
 
   projectCmd
     .command('unlink <name>')
     .description('Remove all domain links for a project')
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((name: string, opts: { yes?: boolean }) => { void unlinkCommand({ project: name, yes: opts.yes }) })
+    .action((name: string, opts: { yes?: boolean }) => unlinkCommand({ project: name, yes: opts.yes }))
 
   projectCmd
     .command('link')
     .description('Link project domains without starting services (auto-detects local .betty.yml)')
     .option('--file <path>', 'Path to .betty.yml')
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action((opts: ProjectActionOptions) => { void projectLinkCommand(opts) })
+    .action((opts: ProjectActionOptions) => projectLinkCommand(opts))
 
   projectCmd
     .command('stop')
     .description('Run down command and remove domain links')
     .option('--file <path>', 'Path to .betty.yml')
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((opts: ProjectActionOptions) => { void projectStopCommand(opts) })
+    .action((opts: ProjectActionOptions) => projectStopCommand(opts))
 
   projectCmd
     .command('status')
     .description('Show linked status for project domains (auto-detects local .betty.yml)')
     .option('--file <path>', 'Path to .betty.yml')
     .option('--name <name>', 'Project name to look up from linked routes')
-    .action((opts: { file?: string; name?: string }) => { void projectStatusCommand(opts) })
+    .action((opts: { file?: string; name?: string }) => projectStatusCommand(opts))
 
   projectCmd
     .command('serve', { hidden: true })
@@ -142,7 +142,7 @@ export const createProgram = (): Command => {
     .option('--config <path>', 'Path to .betty.yml')
     .option('--dry-run', 'Preview project configuration without applying changes')
     .option('-y, --yes', 'Accept all prompts automatically')
-    .action((opts: DevOptions) => { void devCommand(opts) })
+    .action((opts: DevOptions) => devCommand(opts))
 
   program
     .command('serve')
@@ -153,13 +153,13 @@ export const createProgram = (): Command => {
     .command('stop')
     .description("Stop Betty's local switchboard service")
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((opts: { yes?: boolean }) => { void restCommand(opts) })
+    .action((opts: { yes?: boolean }) => restCommand(opts))
 
   program
     .command('rest')
     .description("Alias for 'stop'")
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((opts: { yes?: boolean }) => { void restCommand(opts) })
+    .action((opts: { yes?: boolean }) => restCommand(opts))
 
   program
     .command('status')
@@ -178,7 +178,7 @@ export const createProgram = (): Command => {
     .option('--dry-run', 'Preview planned changes without applying them')
     .option('--open', 'Open the linked domain in the browser after linking')
     .option('-y, --yes', 'Auto-select first available port, skip prompts')
-    .action((container: string | undefined, opts: LinkOptions) => { void linkCommand(container, opts) })
+    .action((container: string | undefined, opts: LinkOptions) => linkCommand(container, opts))
 
   program
     .command('relink [target]')
@@ -187,7 +187,7 @@ export const createProgram = (): Command => {
     .option('--domain <domain>', 'New linked domain')
     .option('--port <port>', 'New internal container port')
     .option('-y, --yes', 'Keep current values without prompting')
-    .action((target: string | undefined, opts: RelinkOptions) => { void relinkCommand(target, opts) })
+    .action((target: string | undefined, opts: RelinkOptions) => relinkCommand(target, opts))
 
   program
     .command('unlink')
@@ -196,7 +196,7 @@ export const createProgram = (): Command => {
     .option('--project <name>', 'Project name to unlink all domains for')
     .option('--all', 'Remove all links at once')
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((opts: UnlinkOptions) => { void unlinkCommand(opts) })
+    .action((opts: UnlinkOptions) => unlinkCommand(opts))
 
   program
     .command('config [action] [key] [value]')
@@ -213,7 +213,7 @@ export const createProgram = (): Command => {
     .description('Guide local dependency setup and safe repairs')
     .option('--fix', 'Apply safe automatic fixes without interactive confirmations')
     .option('-y, --yes', 'Auto-confirm all prompts')
-    .action((opts: SetupOptions) => { void setupCommand(opts) })
+    .action((opts: SetupOptions) => setupCommand(opts))
 
   return program
 }

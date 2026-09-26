@@ -1,9 +1,10 @@
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
+import { getHttpPort } from './config'
 import { BettyError } from './errors'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
-import type { DockerInspectEntry, DockerNetworkEntry } from '../types'
+import type { DockerInspectEntry } from '../types'
 import {
   BETTY_PROXY_COMPOSE,
   BETTY_CERTS_DIR,
@@ -28,16 +29,27 @@ export const getRunningContainers = (): string[] => {
   }
 }
 
-export const connectContainerToNetwork = (containerName: string): void => {
+// Connects a running container to Betty's network and returns its canonical name.
+// Routes must use that name: Docker's DNS resolves container names, not the ID or
+// ID prefix a user may have passed to `betty link`.
+export const connectContainerToNetwork = (containerRef: string): string => {
+  let entry: DockerInspectEntry | undefined
   try {
-    const info = JSON.parse(
-      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
-    ) as DockerInspectEntry[]
-    const networkKeys = Object.keys(info[0].NetworkSettings.Networks)
-    if (networkKeys.includes(BETTY_PROXY_NETWORK)) return
+    entry = (JSON.parse(
+      execFileSync('docker', ['inspect', containerRef], { stdio: 'pipe' }).toString()
+    ) as DockerInspectEntry[])[0]
   } catch {
-    throw new BettyError(`Container '${containerName}' not found. Make sure it is running: docker ps`)
+    entry = undefined
   }
+  if (entry === undefined) throw new BettyError(`Container '${containerRef}' not found. Make sure it is running: docker ps`)
+
+  // A stopped container can be attached to the network, but Traefik cannot reach it.
+  const state = entry.State as DockerInspectEntry['State'] | undefined
+  if (state?.Running === false) throw new BettyError(`Container '${containerRef}' is not running.`, { hints: [`Start it first, then run the command again: docker start ${containerRef}`] })
+
+  const inspectedName = entry.Name?.replace(/^\//, '') ?? ''
+  const containerName = inspectedName !== '' ? inspectedName : containerRef
+  if (Object.keys(entry.NetworkSettings.Networks).includes(BETTY_PROXY_NETWORK)) return containerName
 
   try {
     execFileSync('docker', ['network', 'connect', BETTY_PROXY_NETWORK, containerName], { stdio: 'inherit' })
@@ -46,21 +58,7 @@ export const connectContainerToNetwork = (containerName: string): void => {
     const message = err instanceof Error ? err.message : String(err)
     throw new BettyError(`Failed to connect '${containerName}' to Betty's network.\n${message}`)
   }
-}
-
-export const getContainerIp = (containerName: string): string => {
-  let info: DockerInspectEntry[]
-  try {
-    info = JSON.parse(
-      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
-    ) as DockerInspectEntry[]
-  } catch {
-    throw new BettyError(`Container '${containerName}' not found. Make sure it is running: docker ps`)
-  }
-  const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
-  const ip = networks[BETTY_PROXY_NETWORK]?.IPAddress ?? ''
-  if (ip === '') throw new BettyError(`Could not determine IP for '${containerName}' in network '${BETTY_PROXY_NETWORK}'. Try disconnecting and re-linking: betty unlink && betty link`)
-  return ip
+  return containerName
 }
 
 // Restart Traefik so it picks up the config.
@@ -109,7 +107,7 @@ export const ensureCertificate = (domain: string): { certFile: string; keyFile: 
     if (httpsRequested) throw new BettyError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
 
     console.log(`\n⚠️  Could not create a local certificate for ${domain}.`)
-    console.log('   Falling back to HTTP on port 80 for this domain.')
+    console.log(`   Falling back to HTTP on port ${String(getHttpPort())} for this domain.`)
     return null
   }
 }

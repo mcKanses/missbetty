@@ -1,6 +1,6 @@
 import inquirer from 'inquirer'
+import { ensureHostsEntry } from '../utils/hosts'
 import {
-  addHostsEntry,
   checkMkcertCaInstalled,
   checkMkcertInstalled,
   collectSetupStatus,
@@ -42,7 +42,7 @@ const runSetupFix = (): void => {
     if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
   }
 
-  if (!status.hostsEntryExists) console.log(`Warning: hosts entry missing for ${status.domain}. Run 'betty setup' to confirm sudo append.`)
+  if (!status.hostsEntryExists) console.log(`Warning: hosts entry missing for ${status.domain}. Run 'betty setup' to add it.`)
 
   if (!status.dockerInstalled) printDockerInstallInstructions()
   else if (!status.dockerRunning) console.log('Warning: Docker is installed but not running.')
@@ -71,12 +71,8 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
   }
 
   if (!status.hostsEntryExists) {
-    const shouldAddHosts = await askYesNo(`Add ${status.domain} to /etc/hosts? Requires sudo. [Y/n]`, yes)
-    if (shouldAddHosts) {
-      const hostsResult = addHostsEntry(status.domain)
-      if (!hostsResult.changed && hostsResult.warning !== undefined) console.log(`Warning: ${hostsResult.warning}`)
-      if (hostsResult.changed) console.log(`Added hosts entry for ${status.domain}.`)
-    }
+    const shouldAddHosts = await askYesNo(`Add a hosts entry for ${status.domain}? This may ask for admin rights. [Y/n]`, yes)
+    if (shouldAddHosts) ensureHostsEntry(status.domain)
   }
 
   if (!status.dockerInstalled) printDockerInstallInstructions()

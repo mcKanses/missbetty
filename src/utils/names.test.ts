@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals'
-import { sanitizeName, certificatePaths, normalizeDomainLabel, normalizeServiceName } from './names'
+import { sanitizeName, certificatePaths, normalizeDomainLabel, normalizeServiceName, validateDomain } from './names'
 
 jest.mock('./constants', () => ({
   BETTY_CERTS_DIR: '/home/test-user/.betty/certs',
@@ -115,5 +115,19 @@ describe('normalizeServiceName', () => {
 
   test('replaces special characters with hyphens', () => {
     expect(normalizeServiceName('app@v2!')).toBe('app-v2-')
+  })
+})
+
+describe('validateDomain', () => {
+  test.each(['my-app.localhost', 'api.shop.dev', 'App.Dev', 'localhost', ' padded.dev ', 'api_v2.localhost'])('accepts %p', (domain) => {
+    expect(validateDomain(domain)).toBe(true)
+  })
+
+  test('rejects an empty value', () => {
+    expect(validateDomain('   ')).toBe('Domain cannot be empty')
+  })
+
+  test.each(['bad domain.dev', 'a"b.dev', "a'b.dev", 'a$(id).dev', 'a..dev', '-a.dev', 'a-.dev', '_a.dev', `${'a'.repeat(64)}.dev`])('rejects %p', (domain) => {
+    expect(validateDomain(domain)).toContain('Invalid domain')
   })
 })

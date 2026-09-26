@@ -6,6 +6,7 @@
   },
   "ignores": [
     "node_modules/**",
-    ".github/**"
+    ".github/**",
+    "CHANGELOG.md"
   ]
 }

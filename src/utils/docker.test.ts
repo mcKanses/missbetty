@@ -36,7 +36,6 @@ import {
   resolveTraefikComposePath,
   getRunningContainers,
   connectContainerToNetwork,
-  getContainerIp,
   restartTraefik,
   ensureCertificate,
 } from './docker'
@@ -125,32 +124,40 @@ describe('connectContainerToNetwork', () => {
     expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' not found")
   })
 
+  it('returns the canonical container name when linked by ID prefix', () => {
+    ;(execFileSync as unknown as jest.Mock)
+      .mockReturnValueOnce(JSON.stringify([{ Name: '/shop-web-1', State: { Running: true }, NetworkSettings: { Networks: { bridge: {} } } }]))
+      .mockReturnValueOnce(undefined)
+
+    expect(connectContainerToNetwork('3f2a')).toBe('shop-web-1')
+    expect(execFileSync).toHaveBeenLastCalledWith('docker', ['network', 'connect', 'betty_proxy', 'shop-web-1'], expect.anything())
+  })
+
+  it('falls back to the given reference when inspect reports no name', () => {
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy']))
+
+    expect(connectContainerToNetwork('myapp-1')).toBe('myapp-1')
+  })
+
+  it('refuses a stopped container instead of linking an unreachable target', () => {
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify([{ Name: '/myapp-1', State: { Running: false }, NetworkSettings: { Networks: { bridge: {} } } }]))
+
+    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' is not running.")
+    expect(execFileSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('exits when inspect returns no container', () => {
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue('[]')
+
+    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' not found")
+  })
+
   it('exits when network connect fails', () => {
     ;(execFileSync as unknown as jest.Mock)
       .mockReturnValueOnce(makeInspect(['bridge']))
       .mockImplementationOnce(() => { throw new Error('network error') })
 
     expect(() => { connectContainerToNetwork('myapp-1') }).toThrow('Failed to connect')
-  })
-})
-
-describe('getContainerIp', () => {
-  it('returns the container IP from the betty network', () => {
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy'], '172.20.0.5'))
-
-    expect(getContainerIp('myapp-1')).toBe('172.20.0.5')
-  })
-
-  it('exits when the container is not found', () => {
-    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('No such container') })
-
-    expect(() => { getContainerIp('myapp-1') }).toThrow("Container 'myapp-1' not found")
-  })
-
-  it('exits when the container has no IP in the betty network', () => {
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy'], ''))
-
-    expect(() => { getContainerIp('myapp-1') }).toThrow('Could not determine IP')
   })
 })
 
