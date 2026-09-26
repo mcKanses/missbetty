@@ -126,10 +126,10 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     if (!confirm) { console.log('Cancelled.'); return }
   }
 
-  connectContainerToNetwork(containerName)
+  const linkedContainer = connectContainerToNetwork(containerName)
   const certificate = ensureCertificate(domain)
   const routeFileName = `${normalizeServiceName(domain)}.yml`
-  writeRouteConfig(containerName, domain, port, certificate, route.filePath)
+  writeRouteConfig(linkedContainer, domain, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 
@@ -149,12 +149,12 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
 
   console.log('\nSummary:')
   console.log(`- domain: ${domain}`)
-  console.log(`- target: ${containerName}:${String(port)}`)
+  console.log(`- target: ${linkedContainer}:${String(port)}`)
   console.log(`- route: ${routeFileName}`)
   console.log(`- hosts: ${hostsStatus}`)
   console.log('- traefik: restarted')
 
-  console.log(`\n✅ Updated link: ${containerName} -> ${domain}:${String(port)}`)
+  console.log(`\n✅ Updated link: ${linkedContainer} -> ${domain}:${String(port)}`)
   if (certificate) console.log(`✅ HTTPS is available at ${domainUrl(domain, true)}`)
 }
 
