@@ -1,3 +1,21 @@
+## [1.7.1](https://github.com/mcKanses/missbetty/compare/v1.7.0...v1.7.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* Await async command actions so BettyError reaches the central handler ([34e5575](https://github.com/mcKanses/missbetty/commit/34e5575b340dab3adf67cb5ff89b51e87d391eaf))
+* Drop the www prefix from the LinkedIn link ([7543c14](https://github.com/mcKanses/missbetty/commit/7543c14de3edb55dab0fde1eff08151a0c94f51e))
+* Exclude the generated CHANGELOG.md from markdown lint ([4640314](https://github.com/mcKanses/missbetty/commit/4640314be48d1bc3d6ec34d4f38183e01e2ffe4c))
+* Fail relink on an unknown target instead of opening the picker ([9bce6da](https://github.com/mcKanses/missbetty/commit/9bce6dac1afb0e58fd76fe04847a7edfc31fc520))
+* Hold the lock only while project load changes routes ([b7ae472](https://github.com/mcKanses/missbetty/commit/b7ae472eb8ab89b42a195d99e836c23b4673bca5))
+* Keep accepting underscores in domains ([68f9213](https://github.com/mcKanses/missbetty/commit/68f9213fc2dcf9de926f4e00d1a8caf59a6e4878)), closes [#141](https://github.com/mcKanses/missbetty/issues/141)
+* Link only running containers and route to their canonical name ([6d099c8](https://github.com/mcKanses/missbetty/commit/6d099c8f96b8fd002d2ef105ee8ea7130ea5836a)), closes [#139](https://github.com/mcKanses/missbetty/issues/139)
+* Point the LinkedIn link at the current profile URL ([e932e75](https://github.com/mcKanses/missbetty/commit/e932e7595dce0fe14e12837b2e4c210e9a21456c))
+* Remove the old hosts entry when relink changes the domain ([c5f9c04](https://github.com/mcKanses/missbetty/commit/c5f9c04ccd21c2dc2518e6b15ca0bfe9eb6d3ad6))
+* Route to the container by name so an IP change needs no relink ([ac9be29](https://github.com/mcKanses/missbetty/commit/ac9be29aeef3d9465b396821be35b183d3b78fa8))
+* Show the configured proxy ports in URLs and messages ([7e36e0e](https://github.com/mcKanses/missbetty/commit/7e36e0ee330e8865a90f80ee80d5252502036ba2))
+* Validate domains and keep hosts entries out of the shell ([2aae0a4](https://github.com/mcKanses/missbetty/commit/2aae0a4847eed345844e5eca56f1d75c4a458b50))
+
 # [1.7.0](https://github.com/mcKanses/missbetty/compare/v1.6.1...v1.7.0) (2026-06-28)
 
 
