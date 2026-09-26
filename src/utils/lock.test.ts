@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, jest, it } from '@jest/globals'
+import { afterEach, beforeEach, describe, expect, jest, it } from '@jest/globals'
 
 jest.mock('fs', () => ({
   __esModule: true,
@@ -6,12 +6,14 @@ jest.mock('fs', () => ({
     existsSync: jest.fn(),
     mkdirSync: jest.fn(),
     writeFileSync: jest.fn(),
+    readFileSync: jest.fn(),
     statSync: jest.fn(),
     rmSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
   writeFileSync: jest.fn(),
+  readFileSync: jest.fn(),
   statSync: jest.fn(),
   rmSync: jest.fn(),
 }))
@@ -27,18 +29,37 @@ import { BettyError } from './errors'
 
 // Match the platform-specific separators that path.join uses in lock.ts.
 const LOCK_PATH = path.join('/home/test/.betty', '.lock')
+const OTHER_PID = 424242
+
+const lockHeldBy = (content: string): void => {
+  ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('EEXIST') })
+  ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(content)
+}
+
+const processRunning = (running: boolean, code = 'ESRCH'): void => {
+  jest.spyOn(process, 'kill').mockImplementation(() => {
+    if (running) return true
+    throw Object.assign(new Error('kill'), { code })
+  })
+}
 
 beforeEach(() => {
   jest.resetAllMocks()
   ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+  // By default this process owns whatever lock it reads back.
+  ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(String(process.pid))
+})
+
+afterEach(() => {
+  jest.restoreAllMocks()
 })
 
 describe('withLock', () => {
-  it('acquires the lock, runs fn and releases the lock', () => {
+  it('acquires the lock with its PID, runs fn and releases the lock', () => {
     const result = withLock(() => 'done')
 
     expect(result).toBe('done')
-    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, expect.any(String), { flag: 'wx' })
+    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
   })
 
@@ -56,22 +77,58 @@ describe('withLock', () => {
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
   })
 
-  it('refuses to run when a fresh lock is already held', () => {
-    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EEXIST') })
-    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() })
+  it('refuses to run while the owning process is still running, however old the lock is', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(true)
+    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() - 600_000 })
 
     expect(() => withLock(() => 'x')).toThrow(BettyError)
+    expect(fs.rmSync).not.toHaveBeenCalled()
+  })
+
+  it('treats an owner it may not signal (EPERM) as running', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(false, 'EPERM')
+
     expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
   })
 
-  it('reclaims a stale lock and runs fn', () => {
+  it('reclaims a lock right away when its owner is gone, e.g. after Ctrl+C', () => {
     const fn = jest.fn(() => 'ok')
-    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('EEXIST') })
-    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() - 120_000 })
+    lockHeldBy(String(OTHER_PID))
+    processRunning(false)
 
-    expect(withLock(fn)).toBe('ok')
-    expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
+    const result = withLock(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(String(process.pid))
+      return fn()
+    })
+
+    expect(result).toBe('ok')
     expect(fn).toHaveBeenCalled()
+    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+  })
+
+  it('falls back to the file age when the lock has no readable PID', () => {
+    lockHeldBy('')
+    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() })
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+  })
+
+  it('reports a busy lock when another process wins the reclaim race', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(false)
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('EEXIST') })
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+  })
+
+  it('does not delete a lock that another process has taken over', () => {
+    withLock(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(String(OTHER_PID))
+    })
+
+    expect(fs.rmSync).not.toHaveBeenCalled()
   })
 })
 
@@ -80,7 +137,7 @@ describe('withLockAsync', () => {
     const result = await withLockAsync(async () => Promise.resolve('done'))
 
     expect(result).toBe('done')
-    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, expect.any(String), { flag: 'wx' })
+    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
   })
 
@@ -90,9 +147,9 @@ describe('withLockAsync', () => {
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
   })
 
-  it('refuses to run when a fresh lock is already held', async () => {
-    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EEXIST') })
-    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() })
+  it('refuses to run while the owning process is still running', async () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(true)
 
     await expect(withLockAsync(async () => Promise.resolve('x'))).rejects.toThrow('Another betty command is already running')
   })
