@@ -234,4 +234,31 @@ describe('run', () => {
 
     errorSpy.mockRestore()
   })
+
+  // Async actions must hand their promise back to commander; otherwise parseAsync
+  // resolves early and a rejected BettyError escapes the handler as a stack trace.
+  test.each([
+    ['link', linkCommand, ['link', 'myapp']],
+    ['relink', relinkCommand, ['relink']],
+    ['unlink', unlinkCommand, ['unlink']],
+    ['stop', restCommand, ['stop']],
+    ['rest', restCommand, ['rest']],
+    ['setup', setupCommand, ['setup']],
+    ['dev', devCommand, ['dev']],
+    ['project load', projectLoadCommand, ['project', 'load']],
+    ['project create', projectCreateCommand, ['project', 'create']],
+    ['project unlink', unlinkCommand, ['project', 'unlink', 'shop']],
+    ['project link', projectLinkCommand, ['project', 'link']],
+    ['project stop', projectStopCommand, ['project', 'stop']],
+    ['project status', projectStatusCommand, ['project', 'status']],
+  ])('maps a BettyError rejected by the async %s command', async (_name, command, args) => {
+    ;(command as unknown as jest.Mock).mockImplementation(() => Promise.reject(new BettyError('async boom', { hints: ['async hint'], exitCode: 3 })))
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(run(argv(...args))).rejects.toThrow('process-exit-3')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('async boom'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('async hint'))
+
+    errorSpy.mockRestore()
+  })
 })
