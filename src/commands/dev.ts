@@ -16,7 +16,7 @@ import {
 import { sanitizeName, certificatePaths, validateDomain } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
 import { BettyError } from '../utils/errors'
-import { withLockAsync } from '../utils/lock'
+import { withLock, withLockAsync } from '../utils/lock'
 import { findDomainConflict } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
@@ -262,7 +262,7 @@ export const printUrls = (config: DevProjectConfig): void => {
   })
 }
 
-export const linkProject = async (config: DevProjectConfig, opts: { yes?: boolean }): Promise<void> => {
+const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }): Promise<void> => {
   const resolvePermission = (mode: PermissionMode | undefined): PermissionMode | undefined =>
     opts.yes === true && (mode ?? 'prompt') === 'prompt' ? 'allowed' : mode
 
@@ -294,7 +294,13 @@ export const linkProject = async (config: DevProjectConfig, opts: { yes?: boolea
   execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
 }
 
-const devCommandImpl = async (opts: DevCommandOptions): Promise<void> => {
+// The lock covers only the route and hosts changes. The project's up command can
+// run for as long as the developer works, and holding the lock through it would
+// block every other betty command.
+export const linkProject = (config: DevProjectConfig, opts: { yes?: boolean }): Promise<void> =>
+  withLockAsync(() => linkProjectImpl(config, opts))
+
+const devCommand = async (opts: DevCommandOptions): Promise<void> => {
   let cleanExit = false
   try {
     const configPath = resolveConfigPath(opts.config)
@@ -313,8 +319,12 @@ const devCommandImpl = async (opts: DevCommandOptions): Promise<void> => {
       const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
       const result = spawnSync(config.up.command, { shell: true, cwd: path.dirname(configPath), stdio: 'inherit' })
       if (result.signal !== null) {
-        try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
-        try { execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'pipe' }) } catch { /* best-effort */ }
+        try {
+          withLock(() => {
+            try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
+            try { execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'pipe' }) } catch { /* best-effort */ }
+          })
+        } catch { /* best-effort: another betty command holds the lock */ }
         if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
         cleanExit = true
       } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
@@ -326,8 +336,5 @@ const devCommandImpl = async (opts: DevCommandOptions): Promise<void> => {
   }
   if (cleanExit) process.exit(0)
 }
-
-const devCommand = (opts: DevCommandOptions): Promise<void> =>
-  withLockAsync(() => devCommandImpl(opts))
 
 export default devCommand
