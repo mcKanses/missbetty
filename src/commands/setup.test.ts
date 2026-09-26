@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import inquirer from 'inquirer'
 import setupCommand from './setup'
+import { ensureHostsEntry } from '../utils/hosts'
 import {
-  addHostsEntry,
   checkMkcertCaInstalled,
   checkMkcertInstalled,
   collectSetupStatus,
@@ -18,9 +18,13 @@ jest.mock('inquirer', () => ({
   prompt: jest.fn(),
 }))
 
+jest.mock('../utils/hosts', () => ({
+  __esModule: true,
+  ensureHostsEntry: jest.fn(),
+}))
+
 jest.mock('../utils/setup', () => ({
   __esModule: true,
-  addHostsEntry: jest.fn(),
   checkMkcertCaInstalled: jest.fn(),
   checkMkcertInstalled: jest.fn(),
   collectSetupStatus: jest.fn(),
@@ -54,7 +58,7 @@ describe('setup command', () => {
     expect(installMkcertPackage).toHaveBeenCalled()
     expect(runMkcertInstall).toHaveBeenCalled()
     expect(inquirer.prompt).not.toHaveBeenCalled()
-    expect(addHostsEntry).not.toHaveBeenCalled()
+    expect(ensureHostsEntry).not.toHaveBeenCalled()
   })
 
   test('asks for mkcert install and CA setup in interactive mode', async () => {
@@ -70,7 +74,6 @@ describe('setup command', () => {
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
     ;(runMkcertInstall as unknown as jest.Mock).mockReturnValue({ ok: true })
-    ;(addHostsEntry as unknown as jest.Mock).mockReturnValue({ changed: true })
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true }))
 
     await setupCommand()
@@ -78,7 +81,7 @@ describe('setup command', () => {
     expect(installMkcertPackage).toHaveBeenCalled()
     expect(inquirer.prompt).toHaveBeenCalledTimes(3)
     expect(runMkcertInstall).toHaveBeenCalled()
-    expect(addHostsEntry).toHaveBeenCalledWith('myapp.dev')
+    expect(ensureHostsEntry).toHaveBeenCalledWith('myapp.dev')
   })
 
   test('prints installation instructions when automatic mkcert installation is declined', async () => {
@@ -196,7 +199,7 @@ describe('setup command', () => {
     logSpy.mockRestore()
   })
 
-  test('interactive mode shows hostsEntry warning when addHostsEntry returns a warning', async () => {
+  test('interactive mode adds the hosts entry through the shared hosts module when confirmed', async () => {
     ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
       dockerInstalled: true,
       dockerRunning: true,
@@ -208,13 +211,10 @@ describe('setup command', () => {
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true }))
-    ;(addHostsEntry as unknown as jest.Mock).mockReturnValue({ changed: false, warning: 'needs sudo' })
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     await setupCommand()
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('needs sudo'))
-    logSpy.mockRestore()
+    expect(ensureHostsEntry).toHaveBeenCalledWith('myapp.dev')
   })
 
   test('interactive mode skips CA install when user declines', async () => {
@@ -250,7 +250,7 @@ describe('setup command', () => {
 
     await setupCommand()
 
-    expect(addHostsEntry).not.toHaveBeenCalled()
+    expect(ensureHostsEntry).not.toHaveBeenCalled()
   })
 
   test('interactive mode logs CA install warning when runMkcertInstall fails', async () => {
@@ -287,14 +287,13 @@ describe('setup command', () => {
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
     ;(runMkcertInstall as unknown as jest.Mock).mockReturnValue({ ok: true })
-    ;(addHostsEntry as unknown as jest.Mock).mockReturnValue({ changed: true })
 
     await setupCommand({ yes: true })
 
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(installMkcertPackage).toHaveBeenCalled()
     expect(runMkcertInstall).toHaveBeenCalled()
-    expect(addHostsEntry).toHaveBeenCalledWith('myapp.dev')
+    expect(ensureHostsEntry).toHaveBeenCalledWith('myapp.dev')
   })
 
   test('interactive mode logs docker-not-running when docker installed but not running', async () => {

@@ -48,6 +48,18 @@ const grantHostsWritePermission = (hostsPath: string): boolean => {
   return elevateWithPowerShell(script)
 }
 
+// Read-only check against the hosts file Betty writes to (the Windows one under
+// WSL). .localhost needs no entry, so it always counts as present.
+export const hasHostsEntry = (domain: string): boolean => {
+  if (domain.toLowerCase().endsWith('.localhost')) return true
+  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  try {
+    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(fs.readFileSync(getHostsPath(), 'utf8'))
+  } catch {
+    return false
+  }
+}
+
 export const ensureHostsEntry = (domain: string): boolean => {
   if (domain.toLowerCase().endsWith('.localhost')) return true
 
