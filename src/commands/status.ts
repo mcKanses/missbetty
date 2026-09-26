@@ -4,6 +4,7 @@ import path from 'path'
 import fs from 'fs'
 import yaml from 'yaml'
 import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import { domainUrl } from '../utils/config'
 import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 
 interface ProjectStatus {
@@ -117,7 +118,7 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
           || url.startsWith('https://')
           || port === '443'
         const domainWithProtocol = domain !== 'n/a'
-          ? `${isHttps ? 'https' : 'http'}://${domain}`
+          ? domainUrl(domain, isHttps)
           : domain
 
         const target = url !== '' ? url : 'n/a'

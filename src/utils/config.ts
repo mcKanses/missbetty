@@ -80,6 +80,14 @@ export const getHttpPort = (): number =>
 export const getHttpsPort = (): number =>
   normalizePort(process.env.BETTY_HTTPS_PORT) ?? normalizePort(readBettyConfig().httpsPort) ?? DEFAULT_HTTPS_PORT
 
+// The address a linked domain is reachable at. The port only appears when it
+// differs from the protocol default, so standard setups keep clean URLs.
+export const domainUrl = (domain: string, https: boolean): string => {
+  const port = https ? getHttpsPort() : getHttpPort()
+  const defaultPort = https ? DEFAULT_HTTPS_PORT : DEFAULT_HTTP_PORT
+  return `${https ? 'https' : 'http'}://${domain}${port === defaultPort ? '' : `:${String(port)}`}`
+}
+
 export const setHttpPort = (value: string): number => {
   const port = normalizePort(value)
   if (port === null) throw new Error('Invalid port. Example: betty config set httpPort 8080')
