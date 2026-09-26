@@ -11,7 +11,7 @@ import {
 } from '../utils/docker'
 import { ensureHostsEntry } from '../utils/hosts'
 import { readRoutes, findDomainConflict, writeRouteConfig, type RouteEntry } from '../utils/routes'
-import { normalizeServiceName } from '../utils/names'
+import { normalizeServiceName, validateDomain } from '../utils/names'
 
 interface RelinkOptions {
   container?: string;
@@ -81,7 +81,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
       name: 'domain',
       message: 'Domain:',
       default: route.domain,
-      validate: (value: string) => !!value.trim() || 'Domain cannot be empty',
+      validate: validateDomain,
     }] : []),
     ...(shouldPromptValues ? [{
       type: 'input',
@@ -99,6 +99,9 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   if (!containerName) throw new BettyError('No container provided.')
 
   if (!domain) throw new BettyError('No domain provided.')
+
+  const domainValidation = validateDomain(domain)
+  if (domainValidation !== true) throw new BettyError(domainValidation)
 
   const conflict = findDomainConflict(domain, route.filePath)
   if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)

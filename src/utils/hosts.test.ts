@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, it } from '@jest/globals'
 
-jest.mock('child_process', () => ({ execSync: jest.fn() }))
+jest.mock('child_process', () => ({ execSync: jest.fn(), execFileSync: jest.fn() }))
 
 jest.mock('fs', () => ({
   __esModule: true,
@@ -15,7 +15,7 @@ jest.mock('fs', () => ({
 }))
 
 import fs from 'fs'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import { ensureHostsEntry, removeHostsEntry } from './hosts'
 
 const originalPlatform = process.platform
@@ -102,12 +102,13 @@ describe('ensureHostsEntry', () => {
       .mockReturnValueOnce('127.0.0.1 other.dev\n')
       .mockReturnValueOnce('127.0.0.1 myapp.dev # added by betty\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('sudo sh -c'),
-      expect.anything()
+    expect(execFileSync).toHaveBeenCalledWith(
+      'sudo',
+      ['tee', '-a', '/etc/hosts'],
+      expect.objectContaining({ input: '\n127.0.0.1 myapp.dev # added by betty\n' })
     )
   })
 
@@ -116,7 +117,7 @@ describe('ensureHostsEntry', () => {
     delete process.env.WSL_DISTRO_NAME
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
