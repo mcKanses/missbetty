@@ -202,9 +202,9 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   ensureHttpsPortAvailable()
   ensureProxyRunning(traefikComposePath)
   ensureProxyNetwork()
-  connectContainerToNetwork(containerNameResolved)
+  const linkedContainer = connectContainerToNetwork(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
-  writeRouteConfig(containerNameResolved, domainResolved, port, certificate)
+  writeRouteConfig(linkedContainer, domainResolved, port, certificate)
   restartTraefik(traefikComposePath)
   const hostsUpdated = ensureHostsEntry(domainResolved)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)
@@ -215,13 +215,13 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
 
   console.log('\nSummary:')
   console.log(`- domain: ${domainResolved}`)
-  console.log(`- target: ${containerNameResolved}:${String(port)}`)
+  console.log(`- target: ${linkedContainer}:${String(port)}`)
   console.log(`- route: ${routeFileName}`)
   console.log(`- hosts: ${hostsStatus}`)
   console.log('- traefik: restarted')
 
   if (certificate) {
-    console.log(`\n✅ '${containerNameResolved}' is now available at ${domainUrl(domainResolved, true)}`)
+    console.log(`\n✅ '${linkedContainer}' is now available at ${domainUrl(domainResolved, true)}`)
     if (opts.open === true) openInBrowser(domainUrl(domainResolved, true))
   } else {
     console.log(`\n⚠️  Routing was written without TLS certificate for ${domainResolved}.`)
