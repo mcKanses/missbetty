@@ -2,7 +2,7 @@ import { execSync, execFileSync } from 'child_process'
 import path from 'path'
 import inquirer from 'inquirer'
 import { printHint } from '../cli/ui/output'
-import { getDomainSuffix } from '../utils/config'
+import { domainUrl, getDomainSuffix } from '../utils/config'
 import type { DockerInspectEntry } from '../types'
 import {
   resolveTraefikComposePath,
@@ -221,12 +221,12 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   console.log('- traefik: restarted')
 
   if (certificate) {
-    console.log(`\n✅ '${containerNameResolved}' is now available at https://${domainResolved}`)
-    if (opts.open === true) openInBrowser(`https://${domainResolved}`)
+    console.log(`\n✅ '${containerNameResolved}' is now available at ${domainUrl(domainResolved, true)}`)
+    if (opts.open === true) openInBrowser(domainUrl(domainResolved, true))
   } else {
     console.log(`\n⚠️  Routing was written without TLS certificate for ${domainResolved}.`)
-    console.log('   Using HTTP fallback on port 80.')
-    if (opts.open === true) openInBrowser(`http://${domainResolved}`)
+    console.log(`   Using the HTTP fallback: ${domainUrl(domainResolved, false)}`)
+    if (opts.open === true) openInBrowser(domainUrl(domainResolved, false))
   }
 }
 

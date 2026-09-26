@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
+import { getHttpPort } from './config'
 import { BettyError } from './errors'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import type { DockerInspectEntry } from '../types'
@@ -94,7 +95,7 @@ export const ensureCertificate = (domain: string): { certFile: string; keyFile: 
     if (httpsRequested) throw new BettyError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
 
     console.log(`\n⚠️  Could not create a local certificate for ${domain}.`)
-    console.log('   Falling back to HTTP on port 80 for this domain.')
+    console.log(`   Falling back to HTTP on port ${String(getHttpPort())} for this domain.`)
     return null
   }
 }

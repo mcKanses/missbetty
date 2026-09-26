@@ -74,17 +74,20 @@ export const proxyStartError = (message: string, command: string): BettyError =>
     return new BettyError(headline, { hints })
   }
 
-  if (message.includes('Bind for 0.0.0.0:80 failed')) {
+  const httpPort = String(getHttpPort())
+  const httpsPort = String(getHttpsPort())
+
+  if (message.includes(`Bind for 0.0.0.0:${httpPort} failed`)) {
     const hints = [
-      'Port 80 is already in use by another service.',
-      `Stop the conflicting HTTP server or proxy, then run: betty ${command}`,
+      `Port ${httpPort} is already in use by another service.`,
+      `Stop the conflicting HTTP server or proxy, or pick another port with \`betty config set httpPort <port>\`, then run: betty ${command}`,
     ]
     return new BettyError(headline, { hints })
   }
 
-  if (message.includes('port is already allocated') || message.includes('Bind for 0.0.0.0:443 failed')) {
+  if (message.includes('port is already allocated') || message.includes(`Bind for 0.0.0.0:${httpsPort} failed`)) {
     const hints = [
-      'Port 443 is already in use. Stop the other HTTPS server or proxy, then run: betty serve',
+      `Port ${httpsPort} is already in use. Stop the other HTTPS server or proxy, or pick another port with \`betty config set httpsPort <port>\`, then run: betty ${command}`,
       'Useful check: docker ps --format "table {{.Names}}\\t{{.Ports}}"',
     ]
     return new BettyError(headline, { hints })

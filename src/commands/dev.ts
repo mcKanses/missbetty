@@ -15,6 +15,7 @@ import {
 } from '../utils/constants'
 import { sanitizeName, certificatePaths, validateDomain } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock, withLockAsync } from '../utils/lock'
 import { findDomainConflict } from '../utils/routes'
@@ -257,8 +258,7 @@ export const runProjectCommand = (command: string, configPath: string): void => 
 export const printUrls = (config: DevProjectConfig): void => {
   console.log('\nAvailable URLs:')
   config.domains.forEach((domain) => {
-    const protocol = config.https?.enabled === true ? 'https' : 'http'
-    console.log(`- ${protocol}://${domain.host} -> ${domain.target}`)
+    console.log(`- ${domainUrl(domain.host, config.https?.enabled === true)} -> ${domain.target}`)
   })
 }
 

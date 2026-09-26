@@ -40,8 +40,8 @@ jest.mock('./constants', () => ({
 }))
 
 jest.mock('./config', () => ({
-  getHttpPort: () => 80,
-  getHttpsPort: () => 443,
+  getHttpPort: () => Number(process.env.BETTY_HTTP_PORT ?? 80),
+  getHttpsPort: () => Number(process.env.BETTY_HTTPS_PORT ?? 443),
 }))
 
 import fs from 'fs'
@@ -236,6 +236,22 @@ describe('proxyStartError', () => {
 
     expect(error.hints.join('\n')).toContain('betty serve')
     expect(error.hints.join('\n')).toContain('docker ps')
+  })
+
+  it('recognizes a conflict on the configured ports and names them in the hints', () => {
+    process.env.BETTY_HTTP_PORT = '8080'
+    process.env.BETTY_HTTPS_PORT = '8443'
+    try {
+      const httpError = proxyStartError('Bind for 0.0.0.0:8080 failed: port is already allocated', 'serve')
+      expect(httpError.hints.join(' ')).toContain('Port 8080 is already in use')
+
+      const httpsError = proxyStartError('Bind for 0.0.0.0:8443 failed', 'link')
+      expect(httpsError.hints.join(' ')).toContain('Port 8443 is already in use')
+      expect(httpsError.hints.join(' ')).toContain('betty link')
+    } finally {
+      delete process.env.BETTY_HTTP_PORT
+      delete process.env.BETTY_HTTPS_PORT
+    }
   })
 
   it('handles "port is already allocated" message for 443', () => {
