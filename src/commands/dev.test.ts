@@ -170,6 +170,14 @@ describe('readDevProjectConfig', () => {
     expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('domains[0].host is required.')
   })
 
+  test('accepts an existing host with an underscore', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      'project: app\ndomains:\n  - host: api_v2.localhost\n    target: http://127.0.0.1:3000\n'
+    )
+
+    expect(readDevProjectConfig('/project/.betty.yml').domains[0].host).toBe('api_v2.localhost')
+  })
+
   test('throws for a host that is not a valid hostname', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
       "project: app\ndomains:\n  - host: 'a$(id).dev'\n    target: http://127.0.0.1:3000\n"

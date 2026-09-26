@@ -119,7 +119,7 @@ describe('normalizeServiceName', () => {
 })
 
 describe('validateDomain', () => {
-  test.each(['my-app.localhost', 'api.shop.dev', 'App.Dev', 'localhost', ' padded.dev '])('accepts %p', (domain) => {
+  test.each(['my-app.localhost', 'api.shop.dev', 'App.Dev', 'localhost', ' padded.dev ', 'api_v2.localhost'])('accepts %p', (domain) => {
     expect(validateDomain(domain)).toBe(true)
   })
 
@@ -127,7 +127,7 @@ describe('validateDomain', () => {
     expect(validateDomain('   ')).toBe('Domain cannot be empty')
   })
 
-  test.each(['bad domain.dev', 'a"b.dev', "a'b.dev", 'a$(id).dev', 'a..dev', '-a.dev', 'a-.dev', 'a_b.dev', `${'a'.repeat(64)}.dev`])('rejects %p', (domain) => {
+  test.each(['bad domain.dev', 'a"b.dev', "a'b.dev", 'a$(id).dev', 'a..dev', '-a.dev', 'a-.dev', '_a.dev', `${'a'.repeat(64)}.dev`])('rejects %p', (domain) => {
     expect(validateDomain(domain)).toContain('Invalid domain')
   })
 })
