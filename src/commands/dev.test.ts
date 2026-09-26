@@ -411,6 +411,7 @@ describe('dev command', () => {
 
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(CONFIG_NO_HTTPS_PROMPT)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue([])
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
     ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
@@ -444,6 +445,13 @@ describe('dev command', () => {
       expect.stringContaining('mkcert -cert-file'),
       expect.anything()
     )
+
+    // On a fresh install the certs directory must exist before mkcert runs in it.
+    const mkdirCall = (fs.mkdirSync as unknown as jest.Mock).mock.calls.findIndex((call) => String(call[0]).replace(/\\/g, '/').endsWith('/.betty/certs'))
+    const mkcertCall = (execSync as unknown as jest.Mock).mock.calls.findIndex((call) => String(call[0]).includes('mkcert -cert-file'))
+    expect(mkdirCall).toBeGreaterThanOrEqual(0)
+    expect((fs.mkdirSync as unknown as jest.Mock).mock.invocationCallOrder[mkdirCall])
+      .toBeLessThan((execSync as unknown as jest.Mock).mock.invocationCallOrder[mkcertCall])
 
     logSpy.mockRestore()
   })
@@ -588,6 +596,10 @@ describe('dev command', () => {
     })
 
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
+    // Rejected before any side effect: no prompt, hosts write, certificate or proxy start.
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+    expect(execSync).not.toHaveBeenCalledWith(expect.stringMatching(/mkcert|up -d/), expect.anything())
   })
 
   test('dry-run does not log Up command when config has no up command', async () => {
