@@ -4,6 +4,9 @@ import fs from 'fs'
 import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
 import devCommand, { readDevProjectConfig } from './dev'
+import * as lockModule from '../utils/lock'
+
+const { lockState } = lockModule as unknown as { lockState: { held: boolean } }
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -42,11 +45,23 @@ jest.mock('inquirer', () => ({
   prompt: jest.fn(),
 }))
 
-jest.mock('../utils/lock', () => ({
-  __esModule: true,
-  withLock: (fn: () => unknown) => fn(),
-  withLockAsync: (fn: () => unknown) => fn(),
-}))
+// Pass-through lock that records whether it is currently held, so tests can
+// assert which work runs under the lock.
+jest.mock('../utils/lock', () => {
+  const lockState = { held: false }
+  return {
+    __esModule: true,
+    lockState,
+    withLock: (fn: () => unknown) => {
+      lockState.held = true
+      try { return fn() } finally { lockState.held = false }
+    },
+    withLockAsync: async (fn: () => Promise<unknown>) => {
+      lockState.held = true
+      try { return await fn() } finally { lockState.held = false }
+    },
+  }
+})
 
 const SAMPLE_CONFIG = [
   'project: mckanses-auth',
@@ -492,6 +507,45 @@ describe('dev command', () => {
     expect(execSync).toHaveBeenCalledWith('docker compose down', expect.objectContaining({
       cwd: expect.any(String),
     }))
+  })
+
+  test('holds the lock for linking and cleanup only, not for the up command or exit', async () => {
+    const CONFIG_WITH_DOWN = SAMPLE_CONFIG + '\ndown:\n  command: docker compose down'
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return CONFIG_WITH_DOWN
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    const heldDuring: Record<string, boolean[]> = { proxyUp: [], restart: [], upCommand: [], down: [], exit: [] }
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes(' up -d')) heldDuring.proxyUp.push(lockState.held)
+      if (command.includes('restart traefik')) heldDuring.restart.push(lockState.held)
+      if (command === 'docker compose down') heldDuring.down.push(lockState.held)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    ;(spawnSync as unknown as jest.Mock).mockImplementation(() => {
+      heldDuring.upCommand.push(lockState.held)
+      return { signal: 'SIGINT', status: null }
+    })
+    ;(process.exit as unknown as jest.Mock).mockImplementation((code) => {
+      heldDuring.exit.push(lockState.held)
+      throw new Error(`process-exit-${String(code)}`)
+    })
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('process-exit-0')
+
+    expect(heldDuring).toEqual({ proxyUp: [true], restart: [true, true], upCommand: [false], down: [false], exit: [false] })
   })
 
   test('exits when a domain is already linked by another project', async () => {
