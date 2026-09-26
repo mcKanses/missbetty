@@ -482,6 +482,15 @@ describe('link command', () => {
     await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('Domain cannot be empty')
   })
 
+  test('rejects a domain that is not a valid hostname before touching the proxy', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('myapp', { domain: 'bad domain.dev', port: '3000', yes: true })).rejects.toThrow("Invalid domain 'bad domain.dev'")
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
   test('opens browser after successful link when open flag is set', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')

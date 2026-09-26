@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import {
   addHostsEntry,
@@ -22,6 +22,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -118,14 +119,15 @@ describe('setup utils', () => {
     ;(fs.readFileSync as unknown as jest.Mock)
       .mockReturnValueOnce('127.0.0.1 localhost\n')
       .mockReturnValueOnce('127.0.0.1 localhost\n127.0.0.1 myapp.dev # added by betty\n')
-    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
 
     const result = addHostsEntry('myapp.dev')
 
     expect(result).toEqual({ changed: true })
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('sudo sh -c'),
-      { stdio: 'inherit' }
+    expect(execFileSync).toHaveBeenCalledWith(
+      'sudo',
+      ['tee', '-a', '/etc/hosts'],
+      expect.objectContaining({ input: '\n127.0.0.1 myapp.dev # added by betty\n' })
     )
   })
 
@@ -377,10 +379,7 @@ describe('setup utils', () => {
 
   test('addHostsEntry returns failure warning when sudo append throws', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
-    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
-      if (String(cmd).includes('sudo sh -c')) throw new Error('sudo failed')
-      return Buffer.from('')
-    })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
 
     const result = addHostsEntry('myapp.dev')
 
