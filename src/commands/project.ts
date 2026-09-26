@@ -6,7 +6,7 @@ import { BettyError } from '../utils/errors'
 import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
 import { readRoutes } from '../utils/routes'
-import { sanitizeName } from '../utils/names'
+import { sanitizeName, validateDomain } from '../utils/names'
 
 interface ProjectCreateOptions {
   name?: string;
@@ -62,7 +62,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
         type: 'input',
         name: 'host',
         message: `Domain ${String(idx)} host (e.g. my-app.localhost):`,
-        validate: (v: string) => v.trim() !== '' || 'Host is required.',
+        validate: (v: string) => v.trim() !== '' ? validateDomain(v) : 'Host is required.',
       },
       {
         type: 'input',

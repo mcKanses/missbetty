@@ -155,6 +155,14 @@ describe('readDevProjectConfig', () => {
     expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('domains[0].host is required.')
   })
 
+  test('throws for a host that is not a valid hostname', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
+      "project: app\ndomains:\n  - host: 'a$(id).dev'\n    target: http://127.0.0.1:3000\n"
+    )
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow("domains[0].host: Invalid domain 'a$(id).dev'")
+  })
+
   test('throws for missing target in domain', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
       'project: app\ndomains:\n  - host: app.localhost\n'

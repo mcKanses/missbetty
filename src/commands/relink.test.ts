@@ -236,6 +236,23 @@ describe('relink command', () => {
     ).rejects.toThrow('Invalid port. Example: --port 3000')
   })
 
+  test('rejects a new domain that is not a valid hostname', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return (
+        np.endsWith('/.betty/docker-compose.yml') ||
+        np.endsWith('/.betty/dynamic') ||
+        np.endsWith('/.betty/dynamic/app.yml')
+      )
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    await expect(
+      relinkCommand('app', { container: 'myapp', domain: 'a"b.dev', port: '3000', yes: true })
+    ).rejects.toThrow("Invalid domain 'a\"b.dev'")
+  })
+
   test('exits when target domain is already linked by another route', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

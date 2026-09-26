@@ -14,7 +14,7 @@ import {
 import { ensureHostsEntry } from '../utils/hosts'
 import { findDomainConflict, writeRouteConfig } from '../utils/routes'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
-import { normalizeDomainLabel, normalizeServiceName } from '../utils/names'
+import { normalizeDomainLabel, normalizeServiceName, validateDomain } from '../utils/names'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 
@@ -28,12 +28,6 @@ const ensureProxyRunning = (traefikComposePath: string): void => {
     const message = err instanceof Error ? err.message : String(err)
     throw proxyStartError(message, 'link')
   }
-}
-
-const validateLocalDomain = (domain: string): true | string => {
-  const normalized = domain.trim()
-  if (!normalized) return 'Domain cannot be empty'
-  return true
 }
 
 interface LinkPromptAnswers {
@@ -121,7 +115,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
         name: 'domain',
         message: 'Domain:',
         default: (current: { container?: string }) => suggestDomain(resolvedContainer ?? current.container ?? ''),
-        validate: validateLocalDomain,
+        validate: validateDomain,
       }] : []),
     ]) as LinkPromptAnswers
 
@@ -166,7 +160,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
 
   if (resolvedDomain === undefined || resolvedDomain === '') throw new BettyError('No domain provided.')
 
-  const domainValidation = validateLocalDomain(resolvedDomain)
+  const domainValidation = validateDomain(resolvedDomain)
   if (domainValidation !== true) throw new BettyError(domainValidation)
 
   const port = parseInt(resolvedPort, 10)
