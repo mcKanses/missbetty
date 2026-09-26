@@ -273,19 +273,26 @@ describe('writeRouteConfig', () => {
   })
 
   it('derives the file name from the domain and writes the rendered config', () => {
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, expect.stringContaining('yaml-content'), 'utf8')
   })
 
+  it('targets the container by name so an IP change does not need a relink', () => {
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
+
+    const config = (yaml.stringify as unknown as jest.Mock).mock.calls[0][0] as { http: { services: Record<string, { loadBalancer: { servers: { url: string }[] } }> } }
+    expect(config.http.services['myapp-dev'].loadBalancer.servers).toEqual([{ url: 'http://myapp:3000' }])
+  })
+
   it('stores the source container in a leading comment', () => {
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, expect.stringContaining('# betty-container: myapp'), 'utf8')
   })
 
   it('records the container in the link state under the route file name', () => {
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
 
     expect(setLinkContainer).toHaveBeenCalledWith('myapp-dev.yml', 'myapp')
   })
@@ -293,13 +300,13 @@ describe('writeRouteConfig', () => {
   it('creates dynamic dir when it does not exist', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
 
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
 
     expect(fs.mkdirSync).toHaveBeenCalledWith(DYNAMIC_DIR, { recursive: true })
   })
 
   it('passes config with http-only router when no certificate given', () => {
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
 
     const config = (yaml.stringify as unknown as jest.Mock).mock.calls[0][0] as Record<string, unknown>
     const routers = (config.http as { routers: Record<string, unknown> }).routers
@@ -308,7 +315,7 @@ describe('writeRouteConfig', () => {
   })
 
   it('adds secure router and tls block when certificate is provided', () => {
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, { certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
+    writeRouteConfig('myapp', 'myapp.dev', 3000, { certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
 
     const config = (yaml.stringify as unknown as jest.Mock).mock.calls[0][0] as Record<string, unknown>
     const routers = (config.http as { routers: Record<string, unknown> }).routers
@@ -319,14 +326,14 @@ describe('writeRouteConfig', () => {
   it('deletes old file when oldFilePath differs from new path', () => {
     const oldFilePath = path.join(DYNAMIC_DIR, 'old-name.yml')
 
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null, oldFilePath)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null, oldFilePath)
 
     expect(fs.unlinkSync).toHaveBeenCalledWith(oldFilePath)
     expect(removeLinkContainer).toHaveBeenCalledWith('old-name.yml')
   })
 
   it('does not delete old file when oldFilePath matches new path', () => {
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null, NEXT_PATH)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null, NEXT_PATH)
 
     expect(fs.unlinkSync).not.toHaveBeenCalled()
   })
@@ -334,14 +341,14 @@ describe('writeRouteConfig', () => {
   it('logs "Updated" when oldFilePath is provided, "Wrote" otherwise', () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null)
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null)
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Wrote'))
 
     jest.clearAllMocks()
     ;(yaml.stringify as unknown as jest.Mock).mockReturnValue('yaml-content')
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
 
-    writeRouteConfig('myapp', 'myapp.dev', '172.20.0.2', 3000, null, path.join(DYNAMIC_DIR, 'old.yml'))
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null, path.join(DYNAMIC_DIR, 'old.yml'))
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Updated'))
 
     consoleSpy.mockRestore()

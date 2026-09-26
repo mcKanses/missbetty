@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { BettyError } from './errors'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
-import type { DockerInspectEntry, DockerNetworkEntry } from '../types'
+import type { DockerInspectEntry } from '../types'
 import {
   BETTY_PROXY_COMPOSE,
   BETTY_CERTS_DIR,
@@ -46,21 +46,6 @@ export const connectContainerToNetwork = (containerName: string): void => {
     const message = err instanceof Error ? err.message : String(err)
     throw new BettyError(`Failed to connect '${containerName}' to Betty's network.\n${message}`)
   }
-}
-
-export const getContainerIp = (containerName: string): string => {
-  let info: DockerInspectEntry[]
-  try {
-    info = JSON.parse(
-      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
-    ) as DockerInspectEntry[]
-  } catch {
-    throw new BettyError(`Container '${containerName}' not found. Make sure it is running: docker ps`)
-  }
-  const networks = info[0].NetworkSettings.Networks as Record<string, DockerNetworkEntry | undefined>
-  const ip = networks[BETTY_PROXY_NETWORK]?.IPAddress ?? ''
-  if (ip === '') throw new BettyError(`Could not determine IP for '${containerName}' in network '${BETTY_PROXY_NETWORK}'. Try disconnecting and re-linking: betty unlink && betty link`)
-  return ip
 }
 
 // Restart Traefik so it picks up the config.
