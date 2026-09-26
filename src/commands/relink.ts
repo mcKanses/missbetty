@@ -9,7 +9,7 @@ import {
   restartTraefik,
   ensureCertificate,
 } from '../utils/docker'
-import { ensureHostsEntry } from '../utils/hosts'
+import { ensureHostsEntry, removeHostsEntry } from '../utils/hosts'
 import { readRoutes, findDomainConflict, writeRouteConfig, type RouteEntry } from '../utils/routes'
 import { normalizeServiceName, validateDomain } from '../utils/names'
 
@@ -131,6 +131,14 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   writeRouteConfig(containerName, domain, port, certificate, route.filePath)
   const hostsUpdated = ensureHostsEntry(domain)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
+
+  // Moving a link to a new domain would otherwise leave the old hosts entry behind.
+  // The old route file is being replaced, so only other files can still need it.
+  const previousDomain = route.domain
+  if (previousDomain !== '' && previousDomain.toLowerCase() !== domain.toLowerCase()) {
+    const stillUsed = readRoutes().some((r) => r.filePath !== route.filePath && r.domain.toLowerCase() === previousDomain.toLowerCase())
+    if (!stillUsed) removeHostsEntry(previousDomain)
+  }
 
   restartTraefik(composePath)
 

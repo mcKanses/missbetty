@@ -577,6 +577,39 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     logSpy.mockRestore()
   })
 
+  const YAML_APP_TEST_ROUTE = YAML_APP_ROUTE.replace('app.localhost', 'app.test')
+
+  test('removes the previous domain from hosts when relink changes the domain', async () => {
+    setPlatform('linux')
+    mockBaseSetup()
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).endsWith('/etc/hosts')) return '127.0.0.1 app.test # added by betty\n127.0.0.1 myapp.test # added by betty\n'
+      return YAML_APP_TEST_ROUTE
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 myapp.test # added by betty\n\n', 'utf8')
+  })
+
+  test('keeps the previous hosts entry when another link still uses the domain', async () => {
+    setPlatform('linux')
+    mockBaseSetup()
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      if (np.endsWith('/etc/hosts')) return '127.0.0.1 app.test # added by betty\n127.0.0.1 myapp.test # added by betty\n'
+      if (np.endsWith('/other.yml')) return YAML_OTHER_ROUTE.replace('used.localhost', 'app.test')
+      return YAML_APP_TEST_ROUTE
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
+
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith('/etc/hosts', expect.anything(), 'utf8')
+  })
+
   test('adds hosts entry via appendFileSync when entry is missing on Linux', async () => {
     setPlatform('linux')
     mockBaseSetup()
