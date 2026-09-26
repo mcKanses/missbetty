@@ -198,6 +198,30 @@ describe('link command', () => {
     )
   })
 
+  test('creates the certs directory before the proxy starts', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => !String(p).replace(/\\/g, '/').endsWith('/.betty/certs'))
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
+
+    const mkdirOrder = (fs.mkdirSync as unknown as jest.Mock).mock.calls
+      .map((call, i) => [String(call[0]).replace(/\\/g, '/'), (fs.mkdirSync as unknown as jest.Mock).mock.invocationCallOrder[i]] as const)
+      .find(([p]) => p.endsWith('/.betty/certs'))?.[1]
+    const upOrder = (execSync as unknown as jest.Mock).mock.calls
+      .map((call, i) => [String(call[0]), (execSync as unknown as jest.Mock).mock.invocationCallOrder[i]] as const)
+      .find(([c]) => c.includes('up -d'))?.[1]
+    expect(mkdirOrder).toBeDefined()
+    expect(upOrder).toBeDefined()
+    expect(mkdirOrder).toBeLessThan(upOrder ?? 0)
+  })
+
   test('refuses to link a stopped container', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
