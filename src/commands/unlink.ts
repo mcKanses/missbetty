@@ -1,16 +1,13 @@
 import fs from 'fs'
 import path from 'path'
-import yaml from 'yaml'
 import { printError } from '../cli/ui/output'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntry } from '../utils/hosts'
-import { readRoutes, type RouteEntry } from '../utils/routes'
+import { readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
 import { removeLinkContainer } from '../utils/state'
-import { sanitizeName } from '../utils/names'
-import type { TraefikDynamicConfig } from '../types'
 
 interface ConfirmAnswer { confirm: boolean; }
 interface ConfirmAllAnswer { confirmAll: boolean; }
@@ -25,36 +22,6 @@ export interface UnlinkOptions {
   project?: string;
   all?: boolean;
   yes?: boolean;
-}
-
-const removeSingleRoute = (route: RouteEntry): boolean => {
-  const doc = yaml.parse(fs.readFileSync(route.filePath, 'utf8')) as TraefikDynamicConfig
-
-  if (doc.http?.routers !== undefined) {
-    const secureKey = `${route.routerName}-secure`
-    doc.http.routers = Object.fromEntries(
-      Object.entries(doc.http.routers).filter(([k]) => k !== route.routerName && k !== secureKey)
-    )
-  }
-  if (doc.http?.services !== undefined) doc.http.services = Object.fromEntries(
-    Object.entries(doc.http.services).filter(([k]) => k !== route.routerName)
-  )
-
-  if (doc.tls?.certificates !== undefined) {
-    const certFileName = `${sanitizeName(route.domain)}.pem`
-    doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
-    if (doc.tls.certificates.length === 0) delete doc.tls
-  }
-
-  const hasRouters = doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0
-  if (!hasRouters) {
-    fs.unlinkSync(route.filePath)
-    removeLinkContainer(route.fileName)
-    return true
-  }
-
-  fs.writeFileSync(route.filePath, yaml.stringify(doc), 'utf8')
-  return false
 }
 
 const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<void> => {
@@ -127,7 +94,7 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
 }
 
 const removeSingleWithSummary = (route: RouteEntry, composePath: string): void => {
-  const fileDeleted = removeSingleRoute(route)
+  const fileDeleted = removeRouteFromFile(route)
   const remainingRoutes = readRoutes()
   const domainStillUsed = remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)
   let hostsStatus: string
@@ -243,7 +210,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
       failedItems.push(route.domain)
       continue
     }
-    removeSingleRoute(route)
+    removeRouteFromFile(route)
     const remainingRoutes = readRoutes()
     if (!remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)) {
       const hostsUpdated = removeHostsEntry(route.domain)
