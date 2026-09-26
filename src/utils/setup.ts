@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { getDomainSuffix } from './config'
@@ -128,9 +128,8 @@ export const addHostsEntry = (domain: string): { changed: boolean; warning?: str
       warning: `Could not write to the hosts file. Re-run the betty installer (requires admin) to grant permission, or add manually: ${entry}`,
     }
 
-  const escapedEntry = entry.replace(/"/g, '\\"')
   try {
-    execSync(`sudo sh -c 'echo "${escapedEntry}" >> /etc/hosts'`, { stdio: 'inherit' })
+    execFileSync('sudo', ['tee', '-a', hostsPath], { input: `\n${entry}\n`, stdio: ['pipe', 'ignore', 'inherit'] })
     if (hasHostsEntry(domain)) return { changed: true }
     return { changed: false, warning: `Could not verify hosts entry for ${domain} after sudo command.` }
   } catch {

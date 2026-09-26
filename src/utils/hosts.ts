@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 
 // Marker Betty appends to every hosts entry it creates. Removal is gated on this
@@ -100,8 +100,9 @@ export const ensureHostsEntry = (domain: string): boolean => {
   if (process.platform === 'win32') {
     if (grantHostsWritePermission(hostsPath) && tryAppend()) return true
   } else try {
-    const escapedEntry = entry.replace(/"/g, '\\"')
-    execSync(`sudo sh -c 'echo "${escapedEntry}" >> /etc/hosts'`, { stdio: 'inherit' })
+    // Pipe the line into `sudo tee` instead of building a shell command, so the
+    // entry never passes through a shell. sudo reads its password from the tty.
+    execFileSync('sudo', ['tee', '-a', hostsPath], { input: `\n${entry}\n`, stdio: ['pipe', 'ignore', 'inherit'] })
     if (hasEntry()) return true
   } catch {
     // fall through to manual hint

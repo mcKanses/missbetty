@@ -13,7 +13,7 @@ import {
   BETTY_DYNAMIC_DIR,
   BETTY_CERTS_DIR,
 } from '../utils/constants'
-import { sanitizeName, certificatePaths } from '../utils/names'
+import { sanitizeName, certificatePaths, validateDomain } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
@@ -87,6 +87,8 @@ export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
     const host = asString(domainRaw.host)
     const target = asString(domainRaw.target)
     if (host === null) throw new Error(`domains[${String(index)}].host is required.`)
+    const hostValidation = validateDomain(host)
+    if (hostValidation !== true) throw new Error(`domains[${String(index)}].host: ${hostValidation}`)
     if (target === null) throw new Error(`domains[${String(index)}].target is required.`)
     try {
       const url = new URL(target)
