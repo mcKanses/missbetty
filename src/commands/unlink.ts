@@ -24,22 +24,24 @@ export interface UnlinkOptions {
   yes?: boolean;
 }
 
-const unlinkAll = async (composePath: string, routes: RouteEntry[]): Promise<void> => {
+const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean): Promise<void> => {
   console.log(`\nAbout to remove all ${String(routes.length)} link(s):`)
   for (const r of routes) console.log(`  - ${r.domain} (${r.fileName})`)
 
-  const answer = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'confirmAll',
-      message: `Remove all ${String(routes.length)} link(s)?`,
-      default: false,
-    },
-  ]) as ConfirmAllAnswer
+  if (!yes) {
+    const answer = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'confirmAll',
+        message: `Remove all ${String(routes.length)} link(s)?`,
+        default: false,
+      },
+    ]) as ConfirmAllAnswer
 
-  if (!answer.confirmAll) {
-    console.log('Cancelled.')
-    return
+    if (!answer.confirmAll) {
+      console.log('Cancelled.')
+      return
+    }
   }
 
   const removedDomains: string[] = []
@@ -239,7 +241,7 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
 
   // betty unlink --all
   if (opts.all === true && opts.domain === undefined && opts.project === undefined) {
-    await unlinkAll(composePath, routes)
+    await unlinkAll(composePath, routes, opts.yes === true)
     return
   }
 

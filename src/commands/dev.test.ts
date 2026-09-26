@@ -208,6 +208,36 @@ describe('dev command', () => {
     logSpy.mockRestore()
   })
 
+  test('maps an IPv6 loopback target to host.docker.internal', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG.replace('http://127.0.0.1:5173', 'http://[::1]:5173')
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml' })
+
+    const routeWrite = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).replace(/\\/g, '/').endsWith('/.betty/dynamic/mckanses-auth.yml')
+    )
+    expect(routeWrite?.[1]).toContain('http://host.docker.internal:5173')
+  })
+
   test('writes project route with host.docker.internal target for loopback services', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')

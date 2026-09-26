@@ -48,13 +48,20 @@ const grantHostsWritePermission = (hostsPath: string): boolean => {
   return elevateWithPowerShell(script)
 }
 
+// True when an active line maps the domain. Text after `#` is a comment, so a
+// disabled line like `# 127.0.0.1 app.test` does not count.
+const containsDomain = (content: string, domain: string): boolean => {
+  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`(^|\\s)${escaped}(\\s|$)`)
+  return content.split(/\r?\n/).some((line) => pattern.test(line.split('#')[0]))
+}
+
 // Read-only check against the hosts file Betty writes to (the Windows one under
 // WSL). .localhost needs no entry, so it always counts as present.
 export const hasHostsEntry = (domain: string): boolean => {
   if (domain.toLowerCase().endsWith('.localhost')) return true
-  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   try {
-    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(fs.readFileSync(getHostsPath(), 'utf8'))
+    return containsDomain(fs.readFileSync(getHostsPath(), 'utf8'), domain)
   } catch {
     return false
   }
@@ -63,7 +70,6 @@ export const hasHostsEntry = (domain: string): boolean => {
 export const ensureHostsEntry = (domain: string): boolean => {
   if (domain.toLowerCase().endsWith('.localhost')) return true
 
-  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const entry = `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
 
   if (isWsl()) {
@@ -73,7 +79,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
     const winHostsPath = '/mnt/c/Windows/System32/drivers/etc/hosts'
     try {
       const content = fs.readFileSync(winHostsPath, 'utf8')
-      if (new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)) return true
+      if (containsDomain(content, domain)) return true
       fs.appendFileSync(winHostsPath, `\n${entry}\n`, 'utf8')
       console.log(`Added hosts entry to the Windows hosts file: ${entry}`)
       return true
@@ -86,10 +92,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
   }
 
   const hostsPath = getHostsPath()
-  const hasEntry = (): boolean => {
-    const content = fs.readFileSync(hostsPath, 'utf8')
-    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)
-  }
+  const hasEntry = (): boolean => containsDomain(fs.readFileSync(hostsPath, 'utf8'), domain)
 
   try {
     if (hasEntry()) return true
