@@ -135,7 +135,7 @@ const confirmPermission = async (message: string, mode: PermissionMode | undefin
 
 const targetForTraefik = (target: string): string => {
   const url = new URL(target)
-  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '::1') url.hostname = 'host.docker.internal'
+  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
 }
 
