@@ -18,7 +18,9 @@ export const normalizeDomainLabel = (value: string): string => value
 export const normalizeServiceName = (value: string): string => value
   .replace(/[^a-zA-Z0-9-]/g, '-')
 
-const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i
+// Underscores are not valid in hostnames, but browsers, Traefik and hosts files
+// accept them and existing .betty.yml files use them, so they stay allowed.
+const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?$/i
 
 // Validates a hostname before it reaches a Traefik Host() rule, a hosts file line
 // or a shell command. Anything outside plain DNS labels (spaces, quotes, `$`)
@@ -26,7 +28,7 @@ const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i
 export const validateDomain = (value: string): true | string => {
   const domain = value.trim()
   if (domain === '') return 'Domain cannot be empty'
-  if (domain.length > 253 || !domain.split('.').every((label) => DOMAIN_LABEL.test(label))) return `Invalid domain '${domain}'. Use letters, digits and hyphens separated by dots, e.g. my-app.localhost`
+  if (domain.length > 253 || !domain.split('.').every((label) => DOMAIN_LABEL.test(label))) return `Invalid domain '${domain}'. Use letters, digits, hyphens and underscores separated by dots, e.g. my-app.localhost`
   return true
 }
 
