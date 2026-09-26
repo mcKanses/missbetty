@@ -1,8 +1,9 @@
-import { execFileSync, execSync } from 'child_process'
+import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { getDomainSuffix } from './config'
 import { BETTY_DYNAMIC_DIR } from './constants'
+import { hasHostsEntry } from './hosts'
 
 export interface SetupStatus {
   dockerInstalled: boolean;
@@ -85,56 +86,6 @@ export const resolveSetupDomain = (): string => {
   const fromLinkedRoute = findLinkedDomainFromDynamic()
   if (fromLinkedRoute !== null) return fromLinkedRoute
   return `betty${getDomainSuffix()}`
-}
-
-export const getHostsPath = (): string => {
-  if (process.platform === 'win32') return 'C:\\Windows\\System32\\drivers\\etc\\hosts'
-  return '/etc/hosts'
-}
-
-export const hasHostsEntry = (domain: string): boolean => {
-  if (domain.toLowerCase().endsWith('.localhost')) return true
-  const hostsPath = getHostsPath()
-  const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  try {
-    const content = fs.readFileSync(hostsPath, 'utf8')
-    return new RegExp(`(^|\\s)${escaped}(\\s|$)`, 'm').test(content)
-  } catch {
-    return false
-  }
-}
-
-export const addHostsEntry = (domain: string): { changed: boolean; warning?: string } => {
-  const platform = getPlatformInfo()
-  if (domain.toLowerCase().endsWith('.localhost')) return { changed: false }
-  if (hasHostsEntry(domain)) return { changed: false }
-
-  const entry = `127.0.0.1 ${domain} # added by betty`
-  if (platform.isWsl) return {
-      changed: false,
-      warning: `WSL detected. Please add this line to your Windows hosts file manually: ${entry}`,
-    }
-
-  const hostsPath = getHostsPath()
-  try {
-    fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
-    if (hasHostsEntry(domain)) return { changed: true }
-  } catch {
-    // fall through to platform-specific fallback
-  }
-
-  if (platform.isWindows) return {
-      changed: false,
-      warning: `Could not write to the hosts file. Re-run the betty installer (requires admin) to grant permission, or add manually: ${entry}`,
-    }
-
-  try {
-    execFileSync('sudo', ['tee', '-a', hostsPath], { input: `\n${entry}\n`, stdio: ['pipe', 'ignore', 'inherit'] })
-    if (hasHostsEntry(domain)) return { changed: true }
-    return { changed: false, warning: `Could not verify hosts entry for ${domain} after sudo command.` }
-  } catch {
-    return { changed: false, warning: `Failed to append hosts entry. Add manually: ${entry}` }
-  }
 }
 
 export const runMkcertInstall = (): { ok: boolean; warning?: string } => {

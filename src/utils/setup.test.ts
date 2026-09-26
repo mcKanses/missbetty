@@ -1,12 +1,10 @@
 import { afterAll, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execFileSync, execSync } from 'child_process'
+import { execSync } from 'child_process'
 import fs from 'fs'
 import {
-  addHostsEntry,
   checkDockerRunning,
   checkMkcertCaInstalled,
   collectSetupStatus,
-  getHostsPath,
   installMkcertPackage,
   printDockerInstallInstructions,
   printMkcertInstallInstructions,
@@ -22,7 +20,6 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
-  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -104,33 +101,6 @@ describe('setup utils', () => {
     expect(resolveSetupDomain()).toBe('betty.localhost')
   })
 
-  test('addHostsEntry returns WSL warning and does not try sudo', () => {
-    process.env.WSL_DISTRO_NAME = 'Ubuntu'
-    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('missing hosts') })
-
-    const result = addHostsEntry('myapp.dev')
-
-    expect(result.changed).toBe(false)
-    expect(result.warning).toContain('WSL detected')
-  })
-
-  test('addHostsEntry appends hosts entry with sudo on Linux when direct write fails', () => {
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(fs.readFileSync as unknown as jest.Mock)
-      .mockReturnValueOnce('127.0.0.1 localhost\n')
-      .mockReturnValueOnce('127.0.0.1 localhost\n127.0.0.1 myapp.dev # added by betty\n')
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
-
-    const result = addHostsEntry('myapp.dev')
-
-    expect(result).toEqual({ changed: true })
-    expect(execFileSync).toHaveBeenCalledWith(
-      'sudo',
-      ['tee', '-a', '/etc/hosts'],
-      expect.objectContaining({ input: '\n127.0.0.1 myapp.dev # added by betty\n' })
-    )
-  })
-
   test('runMkcertInstall returns warning when mkcert is missing', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       if (String(cmd) === 'mkcert -help') throw new Error('missing')
@@ -141,29 +111,6 @@ describe('setup utils', () => {
 
     expect(result.ok).toBe(false)
     expect(result.warning).toContain('not installed')
-  })
-
-  test('getHostsPath returns the Linux hosts file path on Linux', () => {
-    setPlatform('linux')
-    expect(getHostsPath()).toBe('/etc/hosts')
-  })
-
-  test('getHostsPath returns the Windows hosts file path on Windows', () => {
-    setPlatform('win32')
-    expect(getHostsPath()).toBe('C:\\Windows\\System32\\drivers\\etc\\hosts')
-  })
-
-  test('addHostsEntry tries direct write on Windows and returns warning when it fails', () => {
-    setPlatform('win32')
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
-    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-
-    const result = addHostsEntry('myapp.dev')
-
-    expect(result.changed).toBe(false)
-    expect(result.warning).toContain('Re-run the betty installer')
-    expect(fs.appendFileSync).toHaveBeenCalled()
-    expect(execSync).not.toHaveBeenCalled()
   })
 
   test('installMkcertPackage returns ok immediately when mkcert is already installed', () => {
@@ -365,26 +312,6 @@ describe('setup utils', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('http:\n  routers:\n    app:\n      rule: PathPrefix("/")\n')
 
     expect(resolveSetupDomain()).toBe('betty.localhost')
-  })
-
-  test('addHostsEntry returns unverified warning when hosts entry is not found after sudo', () => {
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
-    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
-
-    const result = addHostsEntry('myapp.dev')
-
-    expect(result.changed).toBe(false)
-    expect(result.warning).toContain('Could not verify')
-  })
-
-  test('addHostsEntry returns failure warning when sudo append throws', () => {
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\n')
-    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('sudo failed') })
-
-    const result = addHostsEntry('myapp.dev')
-
-    expect(result.changed).toBe(false)
-    expect(result.warning).toContain('Failed to append')
   })
 
   test('runMkcertInstall returns mkcert-install-failed warning when mkcert -install throws', () => {

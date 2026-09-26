@@ -4,8 +4,8 @@ import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, checkMkcertInstalled, hasHostsEntry, runMkcertInstall } from '../utils/setup'
-import { ensureHostsEntry } from '../utils/hosts'
+import { checkDockerRunning, checkMkcertInstalled, runMkcertInstall } from '../utils/setup'
+import { ensureHostsEntry, hasHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import {
   BETTY_HOME_DIR,
