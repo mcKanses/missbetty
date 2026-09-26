@@ -71,6 +71,14 @@ describe('hasHostsEntry', () => {
     expect(hasHostsEntry('myapp.dev')).toBe(false)
   })
 
+  it('ignores a commented-out entry', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# 127.0.0.1 myapp.dev\n127.0.0.1 other.dev # myapp.dev\n')
+
+    expect(hasHostsEntry('myapp.dev')).toBe(false)
+  })
+
   it('returns false when the hosts file cannot be read', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
 
@@ -82,6 +90,15 @@ describe('ensureHostsEntry', () => {
   it('returns true without reading hosts for .localhost domains', () => {
     expect(ensureHostsEntry('myapp.localhost')).toBe(true)
     expect(fs.readFileSync).not.toHaveBeenCalled()
+  })
+
+  it('appends an entry when the domain only appears in a commented-out line', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# 127.0.0.1 myapp.dev\n')
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('127.0.0.1 myapp.dev # added by betty'), 'utf8')
   })
 
   it('returns true when entry already exists in hosts file', () => {
