@@ -10,6 +10,7 @@ export interface DockerContainerState {
 }
 
 export interface DockerInspectEntry {
+  Name?: string;
   NetworkSettings: {
     Networks: Record<string, DockerNetworkEntry>;
   };
