@@ -355,6 +355,32 @@ describe('relink command', () => {
     logSpy.mockRestore()
   })
 
+  const mockTwoRoutes = (): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml', 'other.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
+      normalizePath(String(p)).endsWith('/other.yml') ? YAML_OTHER_ROUTE : YAML_APP_ROUTE
+    )
+  }
+
+  test('throws instead of prompting when the target matches no link', async () => {
+    mockTwoRoutes()
+
+    await expect(relinkCommand('missing.localhost', { yes: true })).rejects.toThrow("No link matches 'missing.localhost'.")
+    await expect(relinkCommand('missing.localhost')).rejects.toThrow("No link matches 'missing.localhost'.")
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
+  test('throws instead of prompting when --yes is set and several links exist', async () => {
+    mockTwoRoutes()
+
+    await expect(relinkCommand(undefined, { yes: true })).rejects.toThrow('Multiple links found.')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
   test('exits when domain resolves to empty string', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

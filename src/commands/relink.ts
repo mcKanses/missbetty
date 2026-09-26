@@ -24,25 +24,32 @@ interface SelectRouteAnswer {
   route: string;
 }
 
-const selectRoute = async (routes: RouteEntry[], target?: string): Promise<RouteEntry> => {
-  if (target === undefined && routes.length === 1) return routes[0]
-
+const selectRoute = async (routes: RouteEntry[], target?: string, yes?: boolean): Promise<RouteEntry> => {
+  let candidates = routes
   if (target !== undefined) {
     const normalized = target.toLowerCase()
-    const matches = routes.filter((route) =>
+    candidates = routes.filter((route) =>
       route.routerName.toLowerCase() === normalized ||
       route.container.toLowerCase() === normalized ||
       route.domain.toLowerCase() === normalized ||
       path.basename(route.fileName, path.extname(route.fileName)).toLowerCase() === normalized
     )
-    if (matches.length === 1) return matches[0]
+    if (candidates.length === 0) throw new BettyError(`No link matches '${target}'.`, { hints: ['Run `betty status` to list the linked domains.'] })
   }
+
+  if (candidates.length === 1) return candidates[0]
+
+  // -y must never fall back to an interactive picker: without a TTY the prompt
+  // crashes, and silently picking one of several links would be a guess.
+  if (yes === true) throw new BettyError(target !== undefined ? `'${target}' matches ${String(candidates.length)} links.` : 'Multiple links found.', {
+    hints: ['Pass the domain to pick one: betty relink <domain>', ...candidates.map((route) => ` - ${route.domain}`)],
+  })
 
   const answer = await inquirer.prompt([{
     type: 'list',
     name: 'route',
     message: 'Which link should be updated?',
-    choices: routes.map((route) => ({
+    choices: candidates.map((route) => ({
       name: `${route.routerName} -> ${route.domain} (${route.target || 'n/a'})`,
       value: route.filePath,
     })),
@@ -64,7 +71,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     return
   }
 
-  const route = await selectRoute(routes, target)
+  const route = await selectRoute(routes, target, opts?.yes)
   const runningContainers = getRunningContainers()
   const shouldPromptValues = opts?.yes !== true && opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined
 
