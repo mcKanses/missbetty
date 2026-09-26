@@ -124,6 +124,34 @@ describe('connectContainerToNetwork', () => {
     expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' not found")
   })
 
+  it('returns the canonical container name when linked by ID prefix', () => {
+    ;(execFileSync as unknown as jest.Mock)
+      .mockReturnValueOnce(JSON.stringify([{ Name: '/shop-web-1', State: { Running: true }, NetworkSettings: { Networks: { bridge: {} } } }]))
+      .mockReturnValueOnce(undefined)
+
+    expect(connectContainerToNetwork('3f2a')).toBe('shop-web-1')
+    expect(execFileSync).toHaveBeenLastCalledWith('docker', ['network', 'connect', 'betty_proxy', 'shop-web-1'], expect.anything())
+  })
+
+  it('falls back to the given reference when inspect reports no name', () => {
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(makeInspect(['betty_proxy']))
+
+    expect(connectContainerToNetwork('myapp-1')).toBe('myapp-1')
+  })
+
+  it('refuses a stopped container instead of linking an unreachable target', () => {
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify([{ Name: '/myapp-1', State: { Running: false }, NetworkSettings: { Networks: { bridge: {} } } }]))
+
+    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' is not running.")
+    expect(execFileSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('exits when inspect returns no container', () => {
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue('[]')
+
+    expect(() => { connectContainerToNetwork('myapp-1') }).toThrow("Container 'myapp-1' not found")
+  })
+
   it('exits when network connect fails', () => {
     ;(execFileSync as unknown as jest.Mock)
       .mockReturnValueOnce(makeInspect(['bridge']))
