@@ -212,6 +212,21 @@ describe('projectCreateCommand', () => {
     expect(content).not.toContain('permissions')
   })
 
+  test.each([true, false])('starts the project with yes=%p when autoApprove is %p', async (autoApprove) => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'app' },
+      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
+      { another: false },
+      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove },
+      { startNow: true }
+    )
+
+    await projectCreateCommand({})
+
+    expect(devCommand).toHaveBeenCalledWith(expect.objectContaining({ yes: autoApprove }))
+  })
+
   test('handles project name with YAML special characters safely', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
     mockPromptSequence(
@@ -337,23 +352,6 @@ describe('projectCreateCommand', () => {
     await projectCreateCommand({})
 
     expect(fs.writeFileSync).toHaveBeenCalled()
-  })
-
-  test('passes yes:true to devCommand when starting after creation', async () => {
-    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
-    mockPromptSequence(
-      { projectName: 'app' },
-      { host: 'app.localhost', target: 'http://127.0.0.1:3000' },
-      { another: false },
-      { httpsEnabled: false, upCommand: '', downCommand: '', autoApprove: false },
-      { startNow: true }
-    )
-
-    await projectCreateCommand({})
-
-    expect(devCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ config: expect.stringContaining('.betty.yml'), yes: true })
-    )
   })
 })
 
