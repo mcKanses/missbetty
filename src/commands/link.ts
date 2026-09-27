@@ -1,7 +1,7 @@
 import { execSync, execFileSync } from 'child_process'
 import inquirer from 'inquirer'
 import { printHint } from '../cli/ui/output'
-import { domainUrl, getDomainSuffix } from '../utils/config'
+import { domainUrl, getDomainSuffix, parsePort } from '../utils/config'
 import type { DockerInspectEntry } from '../types'
 import {
   resolveTraefikComposePath,
@@ -127,7 +127,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
           type: 'input',
           name: 'port',
           message: 'Port:',
-          validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Please provide a valid port',
+          validate: (v: string) => parsePort(v) !== null || 'Please provide a valid port',
         }]) as { port: string }
         resolvedPort = customAnswer.port
       } else resolvedPort = portAnswer.port
@@ -137,7 +137,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
         name: 'port',
         message: 'Port:',
         default: '80',
-        validate: (v: string) => (Number.isFinite(parseInt(v, 10)) && parseInt(v, 10) > 0) || 'Please provide a valid port',
+        validate: (v: string) => parsePort(v) !== null || 'Please provide a valid port',
       }]) as { port: string }
       resolvedPort = portAnswer.port
     }
@@ -150,8 +150,8 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   const domainValidation = validateDomain(resolvedDomain)
   if (domainValidation !== true) throw new BettyError(domainValidation)
 
-  const port = parseInt(resolvedPort, 10)
-  if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
+  const port = parsePort(resolvedPort)
+  if (port === null) throw new BettyError('Invalid port. Example: --port 3000')
 
   const containerNameResolved = resolvedContainer
   const domainResolved = resolvedDomain.trim()

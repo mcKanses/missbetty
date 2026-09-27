@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
-import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort, domainUrl } from './config'
+import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort, domainUrl, parsePort } from './config'
 
 jest.mock('./constants', () => ({
   BETTY_HOME_DIR: '/home/test-user/.betty',
@@ -175,6 +175,16 @@ describe('getHttpPort / getHttpsPort', () => {
 
     expect(getHttpPort()).toBe(80)
     expect(getHttpsPort()).toBe(443)
+  })
+})
+
+describe('parsePort', () => {
+  test.each([['3000', 3000], [' 8080 ', 8080], ['1', 1], ['65535', 65535]])('accepts %p', (value, expected) => {
+    expect(parsePort(value)).toBe(expected)
+  })
+
+  test.each(['0', '70000', '3000abc', '-1', '30.5', '', 'abc'])('rejects %p', (value) => {
+    expect(parsePort(value)).toBeNull()
   })
 })
 
