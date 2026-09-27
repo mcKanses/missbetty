@@ -1,5 +1,4 @@
 import { execSync, execFileSync } from 'child_process'
-import path from 'path'
 import inquirer from 'inquirer'
 import { printHint } from '../cli/ui/output'
 import { domainUrl, getDomainSuffix } from '../utils/config'
@@ -13,22 +12,10 @@ import {
 } from '../utils/docker'
 import { ensureHostsEntry } from '../utils/hosts'
 import { findDomainConflict, writeRouteConfig } from '../utils/routes'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { normalizeDomainLabel, normalizeServiceName, validateDomain } from '../utils/names'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
-
-const ensureProxyRunning = (traefikComposePath: string): void => {
-  try {
-    execFileSync('docker', ['compose', '-f', traefikComposePath, 'up', '-d'], {
-      cwd: path.dirname(traefikComposePath),
-      stdio: 'inherit',
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    throw proxyStartError(message, 'link')
-  }
-}
 
 interface LinkPromptAnswers {
   container?: string;
@@ -202,7 +189,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${String(port)}...`)
 
   ensureHttpsPortAvailable()
-  ensureProxyRunning(traefikComposePath)
+  ensureProxyRunning(traefikComposePath, 'link')
   ensureProxyNetwork()
   const linkedContainer = connectContainerToNetwork(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
