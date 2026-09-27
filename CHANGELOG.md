@@ -1,3 +1,18 @@
+## [1.7.2](https://github.com/mcKanses/missbetty/compare/v1.7.1...v1.7.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* Clean up after Ctrl+C in project load and guard same-named projects ([0d3b964](https://github.com/mcKanses/missbetty/commit/0d3b964cbd7a18d82dc5cb3968f37c8cf644e54b))
+* Honor unlink --all --yes, ignore commented hosts lines, map [::1] ([7f47a42](https://github.com/mcKanses/missbetty/commit/7f47a42e215e51004f5aca0a2bb9232ba8b118ae))
+* Identify relink routes by file and router, not by file alone ([9c4eb9b](https://github.com/mcKanses/missbetty/commit/9c4eb9bb5cd26444240e2728a48dedfeea02353b))
+* Keep the other project domains when relinking one of them ([fc36d7d](https://github.com/mcKanses/missbetty/commit/fc36d7dc135b736950e40ce4c694ddeb1dd6da79))
+* Match hosts entries to remove only in the active part of the line ([06786ca](https://github.com/mcKanses/missbetty/commit/06786ca28e03f258f96197150c4cf2797a2fd06d))
+* Prepare the certs directory and check conflicts before side effects ([1ab8151](https://github.com/mcKanses/missbetty/commit/1ab8151ac86e9635c9e690f5b2b2572b35ebdd0a))
+* Reject invalid ports and sanitize the project unlink name ([026750a](https://github.com/mcKanses/missbetty/commit/026750a31848827d8a808d4bdd83fba3be7f705f))
+* Respect the auto-approve answer when project create starts the project ([d0850b7](https://github.com/mcKanses/missbetty/commit/d0850b7c84e786994b8838f1987f99f9fce1639d))
+* Tie the command lock to its owner's PID ([589be4a](https://github.com/mcKanses/missbetty/commit/589be4a4c9a922254570b58098c758d77e81aa52))
+
 ## [1.7.1](https://github.com/mcKanses/missbetty/compare/v1.7.0...v1.7.1) (2026-09-26)
 
 
