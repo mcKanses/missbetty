@@ -8,6 +8,9 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  # npm trusted publishing: the job proves its identity to npm with an OIDC
+  # token, so no long-lived NPM_TOKEN secret is needed.
+  id-token: write
 
 jobs:
   semantic-release:
@@ -27,7 +30,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Install dependencies
@@ -45,18 +47,12 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Verify npm auth
-        run: npm whoami --registry=https://registry.npmjs.org/
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
+      # @semantic-release/npm verifies the OIDC trusted-publisher setup in its
+      # verifyConditions step, before anything is tagged or published.
       - name: Release
         run: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Disable hooks for release metadata commit
         run: git config core.hooksPath /dev/null
