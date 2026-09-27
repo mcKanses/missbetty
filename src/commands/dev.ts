@@ -282,7 +282,7 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }
   // Check for conflicts before touching hosts, certificates or the proxy, so a
   // rejected project leaves nothing behind.
   const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
-  for (const domain of config.domains) if (findDomainConflict(domain.host, ownRouteFile) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
+  for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile }) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
 
   await prepareHosts(effectiveConfig)
   const certificates = await prepareCertificates(effectiveConfig)
