@@ -12,6 +12,8 @@ const DEFAULT_HTTPS_PORT = 443
 
 const normalizePort = (value: string | number | undefined): number | null => {
   if (value === undefined || value === '') return null
+  // Digits only: parseInt would accept '3000abc' as 3000.
+  if (typeof value === 'string' && !/^[0-9]+$/.test(value.trim())) return null
   const port = typeof value === 'number' ? value : parseInt(value, 10)
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null
   return port
@@ -69,6 +71,9 @@ export const getStoredDomainSuffix = (): string | null => {
   if (configured === null) return null
   return configured
 }
+
+// Parses a TCP port (1-65535) given as text; null for anything else.
+export const parsePort = (value: string): number | null => normalizePort(value)
 
 // Host ports Traefik publishes on. Configurable so Betty can coexist with
 // another local proxy already holding 80/443. Traefik still listens on 80/443

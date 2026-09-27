@@ -4,17 +4,17 @@ import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, checkMkcertInstalled, runMkcertInstall } from '../utils/setup'
+import { checkDockerRunning, runMkcertInstall } from '../utils/setup'
+import { ensureCertificate, restartTraefik } from '../utils/docker'
 import { ensureHostsEntry, hasHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import {
   BETTY_HOME_DIR,
   BETTY_PROXY_COMPOSE,
   BETTY_DYNAMIC_DIR,
-  BETTY_CERTS_DIR,
 } from '../utils/constants'
-import { sanitizeName, certificatePaths, validateDomain } from '../utils/names'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { sanitizeName, validateDomain } from '../utils/names'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock, withLockAsync } from '../utils/lock'
@@ -139,31 +139,25 @@ const targetForTraefik = (target: string): string => {
   return url.toString().replace(/\/$/, '')
 }
 
-const ensureCertificate = (host: string): { certFile: string; keyFile: string } => {
-  const cert = certificatePaths(host)
-  if (fs.existsSync(cert.hostPath) && fs.existsSync(cert.keyPath)) return {
-      certFile: cert.certFile,
-      keyFile: cert.keyFile,
-    }
+// The project route file records which .betty.yml wrote it. Route files are named
+// after the project, and the default name is the directory name, so two projects
+// can collide; the origin tells them apart.
+const PROJECT_ORIGIN_COMMENT = /^#\s*betty-project-config:\s*(.+?)\s*$/m
 
-  if (!checkMkcertInstalled()) throw new Error('HTTPS is enabled, but mkcert is not installed. Run `betty setup`.')
-
-  // Certificates are prepared before the proxy setup, so on a fresh install the
-  // directory mkcert writes into (and runs in) does not exist yet.
-  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
-
-  execSync(`mkcert -cert-file "${cert.hostPath}" -key-file "${cert.keyPath}" "${host}"`, {
-    cwd: BETTY_CERTS_DIR,
-    stdio: 'inherit',
-  })
-  return { certFile: cert.certFile, keyFile: cert.keyFile }
+const readProjectOrigin = (routeFile: string): string | null => {
+  try {
+    return PROJECT_ORIGIN_COMMENT.exec(fs.readFileSync(routeFile, 'utf8'))?.[1] ?? null
+  } catch {
+    return null
+  }
 }
 
 const writeProjectRoute = (
   project: string,
   domains: DevDomainConfig[],
   certificates: Record<string, { certFile: string; keyFile: string }>,
-  httpsEnabled: boolean
+  httpsEnabled: boolean,
+  configPath?: string
 ): void => {
   const routers: Record<string, TraefikRouter> = {}
   const services: Record<string, TraefikService> = {}
@@ -192,7 +186,8 @@ const writeProjectRoute = (
   const certList = Object.values(certificates)
   if (certList.length > 0) config.tls = { certificates: certList }
 
-  fs.writeFileSync(path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(project)}.yml`), yaml.stringify(config), 'utf8')
+  const origin = configPath !== undefined ? `# betty-project-config: ${configPath}\n` : ''
+  fs.writeFileSync(path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(project)}.yml`), `${origin}${yaml.stringify(config)}`, 'utf8')
 }
 
 const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
@@ -247,7 +242,9 @@ const prepareCertificates = async (config: DevProjectConfig): Promise<Record<str
 
   const certificates: Record<string, { certFile: string; keyFile: string }> = {}
   config.domains.forEach((domain) => {
-    certificates[domain.host] = ensureCertificate(domain.host)
+    const certificate = ensureCertificate(domain.host, { required: true })
+    if (certificate === null) throw new Error(`Could not create a certificate for ${domain.host}.`)
+    certificates[domain.host] = certificate
   })
   return certificates
 }
@@ -266,7 +263,13 @@ export const printUrls = (config: DevProjectConfig): void => {
   })
 }
 
-const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }): Promise<void> => {
+interface LinkProjectOptions {
+  yes?: boolean;
+  // The .betty.yml being loaded; used to tell same-named projects apart.
+  configPath?: string;
+}
+
+const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOptions): Promise<void> => {
   const resolvePermission = (mode: PermissionMode | undefined): PermissionMode | undefined =>
     opts.yes === true && (mode ?? 'prompt') === 'prompt' ? 'allowed' : mode
 
@@ -282,7 +285,11 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }
   // Check for conflicts before touching hosts, certificates or the proxy, so a
   // rejected project leaves nothing behind.
   const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
-  for (const domain of config.domains) if (findDomainConflict(domain.host, ownRouteFile) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
+  const loadedFrom = readProjectOrigin(ownRouteFile)
+  if (opts.configPath !== undefined && loadedFrom !== null && path.resolve(loadedFrom) !== path.resolve(opts.configPath)) throw new BettyError(`Project '${config.project}' is already loaded from ${loadedFrom}.`, {
+    hints: ['Give this project another name in .betty.yml, or run `betty project stop` in the other project first.'],
+  })
+  for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile }) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
 
   await prepareHosts(effectiveConfig)
   const certificates = await prepareCertificates(effectiveConfig)
@@ -294,17 +301,19 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }
   ensureProxySetup({ certs: true })
   ensureHttpsPortAvailable()
   ensureProxyNetwork()
-  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+  ensureProxyRunning(BETTY_PROXY_COMPOSE, 'project load')
 
-  writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
-  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+  writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true, opts.configPath)
+  restartTraefik(BETTY_PROXY_COMPOSE)
 }
 
 // The lock covers only the route and hosts changes. The project's up command can
 // run for as long as the developer works, and holding the lock through it would
 // block every other betty command.
-export const linkProject = (config: DevProjectConfig, opts: { yes?: boolean }): Promise<void> =>
+export const linkProject = (config: DevProjectConfig, opts: LinkProjectOptions): Promise<void> =>
   withLockAsync(() => linkProjectImpl(config, opts))
+
+const INTERRUPTED_EXIT_CODES = [130, 0xC000013A]
 
 const devCommand = async (opts: DevCommandOptions): Promise<void> => {
   let cleanExit = false
@@ -319,12 +328,25 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
       return
     }
 
-    await linkProject(config, { yes: opts.yes })
+    await linkProject(config, { yes: opts.yes, configPath })
 
     if (config.up?.command !== undefined) {
       const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
-      const result = spawnSync(config.up.command, { shell: true, cwd: path.dirname(configPath), stdio: 'inherit' })
-      if (result.signal !== null) {
+      // Ctrl+C reaches betty as well as the up command. Without a listener Node
+      // would exit at once and skip the cleanup below; with one, spawnSync returns
+      // once the command has stopped.
+      const ignoreSigint = (): void => undefined
+      process.on('SIGINT', ignoreSigint)
+      let result: ReturnType<typeof spawnSync>
+      try {
+        result = spawnSync(config.up.command, { shell: true, cwd: path.dirname(configPath), stdio: 'inherit' })
+      } finally {
+        process.off('SIGINT', ignoreSigint)
+      }
+      // Commands that trap SIGINT themselves (e.g. docker compose) exit with a
+      // status instead of a signal: 130 on POSIX, 0xC000013A on Windows.
+      const interrupted = result.signal !== null || (result.status !== null && INTERRUPTED_EXIT_CODES.includes(result.status))
+      if (interrupted) {
         try {
           withLock(() => {
             try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
