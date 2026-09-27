@@ -3,14 +3,14 @@ import fs from 'fs'
 import path from 'path'
 import { getHttpPort } from './config'
 import { BettyError } from './errors'
-import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import type { DockerInspectEntry } from '../types'
 import {
   BETTY_PROXY_COMPOSE,
   BETTY_CERTS_DIR,
   BETTY_PROXY_NETWORK,
 } from './constants'
-import { sanitizeName } from './names'
+import { certificatePaths } from './names'
 
 export const resolveTraefikComposePath = (): string => {
   if (fs.existsSync(BETTY_PROXY_COMPOSE)) return BETTY_PROXY_COMPOSE
@@ -83,14 +83,8 @@ export const restartTraefik = (composePath: string): void => {
 export const ensureCertificate = (domain: string, opts: { required?: boolean } = {}): { certFile: string; keyFile: string } | null => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
-  const baseName = sanitizeName(domain)
-  const certPath = path.join(BETTY_CERTS_DIR, `${baseName}.pem`)
-  const keyPath = path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`)
-
-  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) return {
-    certFile: `/certs/${baseName}.pem`,
-    keyFile: `/certs/${baseName}-key.pem`,
-  }
+  const { hostPath: certPath, keyPath, certFile, keyFile } = certificatePaths(domain)
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) return { certFile, keyFile }
 
   const httpsRequested = opts.required === true || isHttpsRequestedDomain(domain)
   if (!checkMkcertInstalled()) {
@@ -101,12 +95,11 @@ export const ensureCertificate = (domain: string, opts: { required?: boolean } =
   }
 
   try {
-    execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
+    // Installing the CA can prompt for a password or trust-store change, so only
+    // do it when it is actually missing, not once per certificate.
+    if (!checkMkcertCaInstalled()) execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
     execFileSync('mkcert', ['-cert-file', certPath, '-key-file', keyPath, domain], { stdio: 'inherit' })
-    return {
-      certFile: `/certs/${baseName}.pem`,
-      keyFile: `/certs/${baseName}-key.pem`,
-    }
+    return { certFile, keyFile }
   } catch {
     if (httpsRequested) throw new BettyError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
 
