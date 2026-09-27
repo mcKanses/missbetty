@@ -1,5 +1,6 @@
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
+import path from 'path'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
 import { getHttpPort, getHttpsPort } from './config'
 import { BettyError } from './errors'
@@ -94,4 +95,15 @@ export const proxyStartError = (message: string, command: string): BettyError =>
   }
 
   return new BettyError(headline, { hints: [message] })
+}
+
+// Starts (or keeps running) the global Traefik proxy. A failure is mapped to
+// proxyStartError so port conflicts and socket permissions get targeted hints.
+export const ensureProxyRunning = (composePath: string, command: string): void => {
+  try {
+    execFileSync('docker', ['compose', '-f', composePath, 'up', '-d'], { cwd: path.dirname(composePath), stdio: 'inherit' })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw proxyStartError(message, command)
+  }
 }
