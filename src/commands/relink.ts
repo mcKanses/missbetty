@@ -79,12 +79,19 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   const runningContainers = getRunningContainers()
   const shouldPromptValues = opts?.yes !== true && opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined
 
+  // A project route points at a host service from .betty.yml, not at a
+  // container, so there is no container to keep. Only an explicit container
+  // turns it into a regular link; anything else belongs in .betty.yml.
+  if (route.containerKnown === false && opts?.container === undefined && !shouldPromptValues) throw new BettyError(`'${route.domain}' comes from a .betty.yml project and points at ${route.target || 'a host service'}, not at a container.`, {
+    hints: ['Change it in .betty.yml and run `betty project load`, or pass --container <name> to move it to a container.'],
+  })
+
   const answers = await inquirer.prompt([
     ...(shouldPromptValues ? [{
       type: runningContainers.length > 0 ? 'list' : 'input',
       name: 'container',
       message: 'Container:',
-      default: route.container,
+      default: route.containerKnown === false ? undefined : route.container,
       ...(runningContainers.length > 0 ? { choices: runningContainers } : {}),
     }] : []),
     ...(shouldPromptValues ? [{
