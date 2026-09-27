@@ -169,7 +169,7 @@ export const projectLinkCommand = async (opts: ProjectActionOptions): Promise<vo
       if (!confirm) { console.log('Cancelled.'); return }
     }
 
-    await linkProject(config, { yes: opts.yes })
+    await linkProject(config, { yes: opts.yes, configPath })
     printUrls(config)
   } catch (err) {
     if (err instanceof BettyError) throw err
