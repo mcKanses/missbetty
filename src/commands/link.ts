@@ -189,8 +189,10 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${String(port)}...`)
 
   ensureHttpsPortAvailable()
-  ensureProxyRunning(traefikComposePath, 'link')
+  // The compose file declares betty_proxy as external, so it must exist before
+  // the proxy starts.
   ensureProxyNetwork()
+  ensureProxyRunning(traefikComposePath, 'link')
   const linkedContainer = connectContainerToNetwork(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
   writeRouteConfig(linkedContainer, domainResolved, port, certificate)
