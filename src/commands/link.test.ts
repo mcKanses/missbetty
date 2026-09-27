@@ -683,7 +683,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const c = String(cmd)
       if (c.includes('docker ps --filter')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
-      if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker inspect --type container myapp')) return Buffer.from(DOCKER_INSPECT)
       if (c.includes('docker network inspect')) return Buffer.from('[{}]')
       if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
       return Buffer.from('')
@@ -792,7 +792,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const c = String(cmd)
       if (c.includes('docker ps --filter')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
-      if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker inspect --type container myapp')) return Buffer.from(DOCKER_INSPECT)
       if (c.includes('docker network inspect')) return Buffer.from('[{}]')
       if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
       if (c.includes('EncodedCommand')) throw new Error('elevation failed')
