@@ -410,6 +410,75 @@ describe('relink command', () => {
     expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('myproj.yml'))
   })
 
+  test('relinks the route picked in the menu, not the first route of its project file', async () => {
+    const YAML_PROJECT = [
+      'http:',
+      '  routers:',
+      '    myproj-1:',
+      '      rule: \'Host("a.localhost")\'',
+      '      service: myproj-1',
+      '    myproj-2:',
+      '      rule: \'Host("b.localhost")\'',
+      '      service: myproj-2',
+      '  services:',
+      '    myproj-1:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:3000',
+      '    myproj-2:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:4000',
+    ].join('\n')
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/myproj.yml') || np.endsWith('/.betty/certs')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myproj.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_PROJECT)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string; choices?: { name: string; value: string }[] }[]
+      const routeQuestion = qs.find((q) => q.name === 'route')
+      if (routeQuestion !== undefined) return Promise.resolve({ route: routeQuestion.choices?.find((c) => c.name.includes('b.localhost'))?.value })
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: true })
+      return Promise.resolve({ container: 'web', domain: 'b.localhost', port: '5000' })
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand()
+
+    const writes = (fs.writeFileSync as unknown as jest.Mock).mock.calls.map((call) => [normalizePath(String(call[0])), String(call[1])])
+    expect(writes.some(([p, content]) => p.endsWith('/dynamic/b-localhost.yml') && content.includes('http://web:5000'))).toBe(true)
+    const projectWrite = writes.find(([p]) => p.endsWith('/dynamic/myproj.yml'))
+    expect(projectWrite?.[1]).toContain('a.localhost')
+    expect(projectWrite?.[1]).not.toContain('b.localhost')
+  })
+
+  test('reports a conflict when relinking to another domain of the same project file', async () => {
+    const YAML_PROJECT = [
+      'http:',
+      '  routers:',
+      '    myproj-1:',
+      '      rule: \'Host("a.localhost")\'',
+      '      service: myproj-1',
+      '    myproj-2:',
+      '      rule: \'Host("b.localhost")\'',
+      '      service: myproj-2',
+    ].join('\n')
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/myproj.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myproj.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_PROJECT)
+
+    await expect(relinkCommand('a.localhost', { domain: 'b.localhost', yes: true })).rejects.toThrow("Domain 'b.localhost' is already linked by myproj-2")
+  })
+
   test('throws instead of prompting when the target matches no link', async () => {
     mockTwoRoutes()
 

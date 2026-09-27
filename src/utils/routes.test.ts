@@ -260,7 +260,7 @@ describe('findDomainConflict', () => {
     ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('myapp', 'myapp.dev', 'http://172.20.0.2:3000'))
 
     const ignoreFilePath = path.join(DYNAMIC_DIR, 'myapp.yml')
-    expect(findDomainConflict('myapp.dev', ignoreFilePath)).toBeNull()
+    expect(findDomainConflict('myapp.dev', { filePath: ignoreFilePath })).toBeNull()
   })
 })
 
