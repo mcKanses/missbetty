@@ -372,7 +372,7 @@ describe('projectLinkCommand', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: 'confirm', message: expect.stringContaining('my-app') })])
     )
-    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined })
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined, configPath: expect.any(String) })
     expect(printUrls).toHaveBeenCalledWith(mockConfig)
   })
 
@@ -399,7 +399,7 @@ describe('projectLinkCommand', () => {
     await projectLinkCommand({ yes: true })
 
     expect(inquirer.prompt).not.toHaveBeenCalled()
-    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: true })
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: true, configPath: expect.any(String) })
   })
 
   test('skips prompt when --file is set', async () => {
@@ -411,7 +411,7 @@ describe('projectLinkCommand', () => {
 
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(resolveConfigPath).toHaveBeenCalledWith('custom.yml')
-    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined })
+    expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined, configPath: expect.any(String) })
   })
 
   test('exits with code 1 when linkProject throws', async () => {
