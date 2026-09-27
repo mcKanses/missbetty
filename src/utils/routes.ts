@@ -56,7 +56,15 @@ export const readRoutes = (): RouteEntry[] => {
   return entries
 }
 
-export const findDomainConflict = (domain: string, ignoreFilePath?: string): { fileName: string; routerName: string } | null => {
+// What a conflict check may skip: a whole file (a project re-linking itself), or
+// one route in it (relink). A project file holds several routes, so skipping the
+// whole file on relink would miss a clash with the project's other domains.
+export interface ConflictIgnore {
+  filePath: string;
+  routerName?: string;
+}
+
+export const findDomainConflict = (domain: string, ignore?: ConflictIgnore): { fileName: string; routerName: string } | null => {
   // Compare on the normalized service name, not the raw domain, so two distinct
   // domains that collapse to the same route file name (e.g. "a.b.localhost" and
   // "a-b.localhost", or case variants on case-insensitive file systems) are
@@ -64,7 +72,9 @@ export const findDomainConflict = (domain: string, ignoreFilePath?: string): { f
   const target = normalizeServiceName(domain.toLowerCase())
   const routes = readRoutes()
   for (const route of routes) {
-    if (ignoreFilePath !== undefined && route.filePath === ignoreFilePath) continue
+    const ignored = ignore?.filePath === route.filePath
+      && (ignore.routerName === undefined || route.routerName === ignore.routerName)
+    if (ignored) continue
     if (normalizeServiceName(route.domain.toLowerCase()) !== target) continue
     return { fileName: route.fileName, routerName: route.routerName }
   }
