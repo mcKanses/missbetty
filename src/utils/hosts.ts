@@ -138,7 +138,9 @@ export const removeHostsEntry = (domain: string): boolean => {
 
   const removeLines = (content: string): { nextContent: string; removed: boolean } => {
     const lines = content.split(/\r?\n/)
-    const kept = lines.filter((line) => !(domainRegex.test(line) && line.includes(BETTY_HOSTS_MARKER)))
+    // Match the domain only in the active part of the line: the marker comment
+    // itself contains words ("added", "by", "betty") that are valid domains.
+    const kept = lines.filter((line) => !(domainRegex.test(line.split('#')[0]) && line.includes(BETTY_HOSTS_MARKER)))
     return {
       nextContent: `${kept.join('\n')}\n`,
       removed: kept.length !== lines.length,
