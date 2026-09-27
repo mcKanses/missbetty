@@ -4,17 +4,17 @@ import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, checkMkcertInstalled, runMkcertInstall } from '../utils/setup'
+import { checkDockerRunning, runMkcertInstall } from '../utils/setup'
+import { ensureCertificate, restartTraefik } from '../utils/docker'
 import { ensureHostsEntry, hasHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import {
   BETTY_HOME_DIR,
   BETTY_PROXY_COMPOSE,
   BETTY_DYNAMIC_DIR,
-  BETTY_CERTS_DIR,
 } from '../utils/constants'
-import { sanitizeName, certificatePaths, validateDomain } from '../utils/names'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork } from '../utils/proxy'
+import { sanitizeName, validateDomain } from '../utils/names'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock, withLockAsync } from '../utils/lock'
@@ -139,26 +139,6 @@ const targetForTraefik = (target: string): string => {
   return url.toString().replace(/\/$/, '')
 }
 
-const ensureCertificate = (host: string): { certFile: string; keyFile: string } => {
-  const cert = certificatePaths(host)
-  if (fs.existsSync(cert.hostPath) && fs.existsSync(cert.keyPath)) return {
-      certFile: cert.certFile,
-      keyFile: cert.keyFile,
-    }
-
-  if (!checkMkcertInstalled()) throw new Error('HTTPS is enabled, but mkcert is not installed. Run `betty setup`.')
-
-  // Certificates are prepared before the proxy setup, so on a fresh install the
-  // directory mkcert writes into (and runs in) does not exist yet.
-  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
-
-  execSync(`mkcert -cert-file "${cert.hostPath}" -key-file "${cert.keyPath}" "${host}"`, {
-    cwd: BETTY_CERTS_DIR,
-    stdio: 'inherit',
-  })
-  return { certFile: cert.certFile, keyFile: cert.keyFile }
-}
-
 const writeProjectRoute = (
   project: string,
   domains: DevDomainConfig[],
@@ -247,7 +227,9 @@ const prepareCertificates = async (config: DevProjectConfig): Promise<Record<str
 
   const certificates: Record<string, { certFile: string; keyFile: string }> = {}
   config.domains.forEach((domain) => {
-    certificates[domain.host] = ensureCertificate(domain.host)
+    const certificate = ensureCertificate(domain.host, { required: true })
+    if (certificate === null) throw new Error(`Could not create a certificate for ${domain.host}.`)
+    certificates[domain.host] = certificate
   })
   return certificates
 }
@@ -294,10 +276,10 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }
   ensureProxySetup({ certs: true })
   ensureHttpsPortAvailable()
   ensureProxyNetwork()
-  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+  ensureProxyRunning(BETTY_PROXY_COMPOSE, 'project load')
 
   writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
-  execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
+  restartTraefik(BETTY_PROXY_COMPOSE)
 }
 
 // The lock covers only the route and hosts changes. The project's up command can

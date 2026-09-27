@@ -76,7 +76,11 @@ export const restartTraefik = (composePath: string): void => {
   }
 }
 
-export const ensureCertificate = (domain: string): { certFile: string; keyFile: string } | null => {
+// Returns the certificate for a domain, creating it with mkcert when missing.
+// Without a certificate it falls back to HTTP unless HTTPS is required: always
+// for .dev (browsers force HTTPS there), or when the caller asks for it, as a
+// project with `https.enabled` does.
+export const ensureCertificate = (domain: string, opts: { required?: boolean } = {}): { certFile: string; keyFile: string } | null => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
   const baseName = sanitizeName(domain)
@@ -88,7 +92,7 @@ export const ensureCertificate = (domain: string): { certFile: string; keyFile: 
     keyFile: `/certs/${baseName}-key.pem`,
   }
 
-  const httpsRequested = isHttpsRequestedDomain(domain)
+  const httpsRequested = opts.required === true || isHttpsRequestedDomain(domain)
   if (!checkMkcertInstalled()) {
     if (httpsRequested) throw new BettyError('HTTPS requested but mkcert is not installed. Run `betty setup`.')
 
