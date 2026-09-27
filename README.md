@@ -506,8 +506,10 @@ After a merge to `main`, GitHub Actions runs semantic-release. If releasable
 commits exist, it creates the Git tag, GitHub release, and npm publish
 automatically without pushing a release commit back to `main`.
 
-Configure the repository secret `NPM_TOKEN` with an npm automation or granular
-access token that can publish `missbetty`.
+Publishing uses npm trusted publishing, so no npm token is stored in the
+repository. The `missbetty` package on npmjs.com lists this repository's
+`publish.yml` workflow as its trusted publisher, and the workflow has the
+`id-token: write` permission it needs to authenticate.
 
 The publish workflow uses Node.js 24. Betty itself requires Node.js 24 or newer at runtime.
 
