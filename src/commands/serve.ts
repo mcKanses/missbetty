@@ -1,10 +1,8 @@
-import { execSync } from 'child_process'
 import {
-  BETTY_HOME_DIR,
   BETTY_TRAEFIK_CONTAINER,
   BETTY_PROXY_COMPOSE,
 } from '../utils/constants'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from '../utils/proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning, proxyStartError } from '../utils/proxy'
 import { getHttpPort, getHttpsPort } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock } from '../utils/lock'
@@ -16,10 +14,7 @@ const serveCommand = (): void => { withLock(() => {
     ensureHttpsPortAvailable()
 
     console.log('Starting global Betty Traefik proxy...')
-    execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, {
-      cwd: BETTY_HOME_DIR,
-      stdio: 'inherit',
-    })
+    ensureProxyRunning(BETTY_PROXY_COMPOSE, 'serve')
     console.log(`Traefik proxy is running as '${BETTY_TRAEFIK_CONTAINER}' on ports ${String(getHttpPort())} (HTTP) and ${String(getHttpsPort())} (HTTPS).`)
   } catch (err) {
     // BettyError already carries a user-facing message and hints; let it reach
