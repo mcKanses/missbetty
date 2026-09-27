@@ -163,6 +163,12 @@ describe('createProgram project subcommands', () => {
     expect(unlinkCommand).toHaveBeenCalledWith({ project: 'demo', yes: true })
   })
 
+  test('project unlink uses the same file name as project stop for names with spaces', () => {
+    parse('project', 'unlink', 'My App', '-y')
+
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'my-app', yes: true })
+  })
+
   test('project link forwards options', () => {
     parse('project', 'link', '--file', '/tmp/.betty.yml', '-y')
 

@@ -19,6 +19,7 @@ import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
 import { AUTHOR_INFO } from './cli/ui/meta'
 import { printError, printHint } from './cli/ui/output'
 import { BettyError } from './utils/errors'
+import { sanitizeName } from './utils/names'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string }
@@ -108,7 +109,7 @@ export const createProgram = (): Command => {
     .command('unlink <name>')
     .description('Remove all domain links for a project')
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((name: string, opts: { yes?: boolean }) => unlinkCommand({ project: name, yes: opts.yes }))
+    .action((name: string, opts: { yes?: boolean }) => unlinkCommand({ project: sanitizeName(name), yes: opts.yes }))
 
   projectCmd
     .command('link')
