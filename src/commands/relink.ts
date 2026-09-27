@@ -25,6 +25,9 @@ interface SelectRouteAnswer {
   route: string;
 }
 
+// A project file holds several routes, so the file path alone is not unique.
+const routeKey = (route: RouteEntry): string => `${route.filePath}::${route.routerName}`
+
 const selectRoute = async (routes: RouteEntry[], target?: string, yes?: boolean): Promise<RouteEntry> => {
   let candidates = routes
   if (target !== undefined) {
@@ -52,10 +55,10 @@ const selectRoute = async (routes: RouteEntry[], target?: string, yes?: boolean)
     message: 'Which link should be updated?',
     choices: candidates.map((route) => ({
       name: `${route.routerName} -> ${route.domain} (${route.target || 'n/a'})`,
-      value: route.filePath,
+      value: routeKey(route),
     })),
   }]) as SelectRouteAnswer
-  return routes.find((route) => route.filePath === answer.route) ?? routes[0]
+  return candidates.find((route) => routeKey(route) === answer.route) ?? candidates[0]
 }
 
 interface RelinkPromptAnswers {
@@ -111,7 +114,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   const domainValidation = validateDomain(domain)
   if (domainValidation !== true) throw new BettyError(domainValidation)
 
-  const conflict = findDomainConflict(domain, route.filePath)
+  const conflict = findDomainConflict(domain, route)
   if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
 
   if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
