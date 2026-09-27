@@ -1,6 +1,6 @@
 import path from 'path'
 import inquirer from 'inquirer'
-import { domainUrl } from '../utils/config'
+import { domainUrl, parsePort } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 import {
@@ -96,13 +96,13 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
       name: 'port',
       message: 'Port:',
       default: route.port || '80',
-      validate: (value: string) => (Number.isFinite(parseInt(value, 10)) && parseInt(value, 10) > 0) || 'Please provide a valid port',
+      validate: (value: string) => parsePort(value) !== null || 'Please provide a valid port',
     }] : []),
   ]) as RelinkPromptAnswers
 
   const containerName = (opts?.container ?? answers.container ?? route.container).trim()
   const domain = (opts?.domain ?? answers.domain ?? route.domain).trim()
-  const port = parseInt((opts?.port ?? answers.port ?? route.port) || '80', 10)
+  const port = parsePort((opts?.port ?? answers.port ?? route.port) || '80')
 
   if (!containerName) throw new BettyError('No container provided.')
 
@@ -114,7 +114,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   const conflict = findDomainConflict(domain, route.filePath)
   if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
 
-  if (!Number.isFinite(port) || port <= 0) throw new BettyError('Invalid port. Example: --port 3000')
+  if (port === null) throw new BettyError('Invalid port. Example: --port 3000')
 
   if (opts?.yes !== true) {
     const { confirm } = await inquirer.prompt([{
