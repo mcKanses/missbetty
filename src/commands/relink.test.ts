@@ -703,7 +703,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
     await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 myapp.test # added by betty\n\n', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 myapp.test # added by betty\n', 'utf8')
   })
 
   test('keeps the previous hosts entry when another link still uses the domain', async () => {
