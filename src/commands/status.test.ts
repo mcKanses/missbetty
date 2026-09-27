@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execSync } from 'child_process'
 import fs from 'fs'
+import path from 'path'
 import statusCommand from './status'
 
 jest.mock('os', () => ({
@@ -393,14 +394,16 @@ describe('status command', () => {
     logSpy.mockRestore()
   })
 
-  test('skips container in meta lookup when docker inspect returns empty array', () => {
+  test('inspects all running containers in one call and picks the matching one', () => {
     mockRouteFile('http://172.18.0.2:5173')
     ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
       const command = String(args[0])
       if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
-      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\ndef456\n')
-      if (command === 'docker inspect abc123') return Buffer.from('[]')
-      if (command === 'docker inspect def456') return Buffer.from('[{"NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":2}]')
+      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\r\ndef456\r\n')
+      if (command === 'docker inspect abc123 def456') return Buffer.from(JSON.stringify([
+        { Name: '/other', NetworkSettings: { Networks: { bridge: { IPAddress: '172.17.0.5' } } }, State: { Status: 'running', StartedAt: '2026-05-02T00:00:00.000Z' }, RestartCount: 0 },
+        { Name: '/myapp', NetworkSettings: { Networks: { betty_proxy: { IPAddress: '172.18.0.2' } } }, State: { Status: 'running', StartedAt: '2026-05-02T00:00:00.000Z' }, RestartCount: 2 },
+      ]))
       throw new Error(`Unexpected: ${command}`)
     })
 
@@ -410,8 +413,28 @@ describe('status command', () => {
 
     const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { projects: { restarts: string }[] }
     expect(payload.projects[0].restarts).toBe('2')
+    const inspectCalls = (execSync as unknown as jest.Mock).mock.calls.filter((call) => String(call[0]).startsWith('docker inspect abc'))
+    expect(inspectCalls).toHaveLength(1)
 
     logSpy.mockRestore()
+  })
+
+  test('inspects running containers only once for several routes', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      return p.endsWith('/.betty/docker-compose.yml') || p.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['a.yml', 'b.yml', 'c.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const name = path.basename(String(args[0]), '.yml')
+      return `http:\n  routers:\n    ${name}:\n      rule: 'Host("${name}.localhost")'\n  services:\n    ${name}:\n      loadBalancer:\n        servers:\n          - url: http://${name}:3000\n`
+    })
+    mockRunningProxy()
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    expect((execSync as unknown as jest.Mock).mock.calls.filter((call) => String(call[0]) === 'docker ps --format {{.ID}}')).toHaveLength(1)
   })
 
   test('uses n/a domain and target when route has no Host rule and no url', () => {

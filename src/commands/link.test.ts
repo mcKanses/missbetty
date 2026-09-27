@@ -543,6 +543,15 @@ describe('link command', () => {
     await expect(linkCommand('myapp', { domain: '   ', port: '3000' })).rejects.toThrow('Domain cannot be empty')
   })
 
+  test.each(['70000', '3000abc'])('rejects port %p instead of writing an unusable route', async (port) => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('myapp', { domain: 'myapp.localhost', port, yes: true })).rejects.toThrow('Invalid port. Example: --port 3000')
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
   test('rejects a domain that is not a valid hostname before touching the proxy', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
