@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import { execFileSync, execSync, spawnSync } from 'child_process'
 import fs from 'fs'
+import path from 'path'
 import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
 import devCommand, { readDevProjectConfig } from './dev'
@@ -627,6 +628,84 @@ describe('dev command', () => {
     expect(error).toBeInstanceOf(BettyError)
     expect((error as BettyError).hints.join(' ')).toContain('Port 80 is already in use')
     expect((error as BettyError).hints.join(' ')).toContain('betty project load')
+  })
+
+  const mockProjectEnv = (routeFileContent?: string): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG + '\ndown:\n  command: docker compose down'
+      if (normalized.endsWith('/.betty/dynamic/mckanses-auth.yml')) {
+        if (routeFileContent === undefined) throw new Error('ENOENT')
+        return routeFileContent
+      }
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+  }
+
+  test('treats an up command that exits with 130 (it trapped Ctrl+C) as an interrupt and cleans up', async () => {
+    mockProjectEnv()
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 130 })
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('process-exit-0')
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(execSync).toHaveBeenCalledWith('docker compose down', expect.anything())
+  })
+
+  test('keeps betty alive on Ctrl+C while the up command runs, and removes the listener afterwards', async () => {
+    mockProjectEnv()
+    const before = process.listenerCount('SIGINT')
+    let during = -1
+    ;(spawnSync as unknown as jest.Mock).mockImplementation(() => {
+      during = process.listenerCount('SIGINT')
+      return { signal: null, status: 0 }
+    })
+
+    await devCommand({ config: '.betty.yml', yes: true })
+
+    expect(during).toBe(before + 1)
+    expect(process.listenerCount('SIGINT')).toBe(before)
+  })
+
+  test('refuses to overwrite a same-named project loaded from another .betty.yml', async () => {
+    mockProjectEnv('# betty-project-config: /elsewhere/app/.betty.yml\nhttp: {}\n')
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow("Project 'mckanses-auth' is already loaded from /elsewhere/app/.betty.yml.")
+    expect(execSync).not.toHaveBeenCalledWith(expect.stringContaining('up -d'), expect.anything())
+  })
+
+  test('records the .betty.yml path in the project route file', async () => {
+    mockProjectEnv()
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 0 })
+
+    await devCommand({ config: '.betty.yml', yes: true })
+
+    const routeWrite = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).replace(/\\/g, '/').endsWith('/.betty/dynamic/mckanses-auth.yml')
+    )
+    expect(String(routeWrite?.[1])).toMatch(/^# betty-project-config: .*\.betty\.yml\n/)
+  })
+
+  test('reloads a project from the same .betty.yml without a conflict', async () => {
+    const configPath = path.resolve(process.cwd(), '.betty.yml')
+    mockProjectEnv(`# betty-project-config: ${configPath}\nhttp: {}\n`)
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 0 })
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).resolves.toBeUndefined()
   })
 
   test('exits when a domain is already linked by another project', async () => {
