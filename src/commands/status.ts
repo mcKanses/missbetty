@@ -50,39 +50,42 @@ const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolea
   return { proxyRunning, proxyInfo, proxyUptime, traefikContainer }
 }
 
+interface ContainerMeta {
+  uptime: string;
+  health: string;
+  restarts: string;
+}
+
+const NO_META: ContainerMeta = { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
+
+// Inspects every running container in a single call. Status then costs two docker
+// calls in total instead of one inspect per container for every route.
+const inspectRunningContainers = (): DockerInspectEntry[] => {
+  try {
+    const ids = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().split(/\r?\n/).map((id) => id.trim()).filter(Boolean)
+    if (ids.length === 0) return []
+    return JSON.parse(execSync(`docker inspect ${ids.join(' ')}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[]
+  } catch {
+    return []
+  }
+}
+
 // Route targets name the container (current format) or hold the IP captured at
 // link time (older route files), so match either.
-const getContainerMetaByTarget = (host: string): { uptime: string; health: string; restarts: string } => {
-  try {
-    const idsOutput = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().trim()
-    if (!idsOutput) return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
+const metaForTarget = (containers: DockerInspectEntry[], host: string): ContainerMeta => {
+  const container = containers.find((c) =>
+    c.Name?.replace(/^\//, '') === host ||
+    Object.values(c.NetworkSettings.Networks).some((n) => n.IPAddress === host)
+  )
+  if (container === undefined) return NO_META
 
-    const ids = idsOutput.split('\n').filter(Boolean)
-    for (const id of ids) try {
-        const inspectOut = execSync(`docker inspect ${id}`, { stdio: 'pipe' }).toString()
-        const inspectJson = JSON.parse(inspectOut) as DockerInspectEntry[]
-        const container = inspectJson.length > 0 ? inspectJson[0] : null
-        if (!container) continue
-        const nameMatch = container.Name?.replace(/^\//, '') === host
-        const ipMatch = Object.values(container.NetworkSettings.Networks).some((n) => n.IPAddress === host)
-        if (!nameMatch && !ipMatch) continue
-
-        const startedAt = container.State.StartedAt
-        const uptime = startedAt !== '0001-01-01T00:00:00Z'
-          ? `${String(Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000)))}m`
-          : 'n/a'
-        const health = container.State.Health?.Status ?? container.State.Status
-        const restarts = String(container.RestartCount)
-        return { uptime, health, restarts }
-      } catch {
-        // next container
-      }
-    
-  } catch {
-    // ignore
-  }
-
-  return { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
+  const startedAt = container.State.StartedAt
+  const uptime = startedAt !== '0001-01-01T00:00:00Z'
+    ? `${String(Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000)))}m`
+    : 'n/a'
+  const health = container.State.Health?.Status ?? container.State.Status
+  const restarts = String(container.RestartCount)
+  return { uptime, health, restarts }
 }
 
 const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
@@ -91,6 +94,8 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
 
   const files = fs.readdirSync(dynamicDir).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
   const projects: ProjectStatus[] = []
+  // Inspected on first use, once for all routes.
+  let containers: DockerInspectEntry[] | null = null
 
   for (const file of files) try {
       const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
@@ -123,7 +128,8 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
 
         const target = url !== '' ? url : 'n/a'
         const host = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)?.[1] ?? ''
-        const meta = host !== '' ? getContainerMetaByTarget(host) : { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
+        if (host !== '' && containers === null) containers = inspectRunningContainers()
+        const meta = host !== '' ? metaForTarget(containers ?? [], host) : NO_META
 
         projects.push({
           name: projectName,

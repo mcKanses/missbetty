@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync, spawnSync } from 'child_process'
+import { execFileSync, execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
@@ -16,6 +16,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
   spawnSync: jest.fn(),
 }))
 
@@ -81,6 +82,11 @@ const SAMPLE_CONFIG = [
 
 beforeEach(() => {
   jest.resetAllMocks()
+  // Route execFileSync (docker/mkcert helpers) through the execSync mock, so tests
+  // can match on the command line.
+  ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+    (execSync as unknown as jest.Mock)(String(file) + " " + (Array.isArray(args) ? args.join(" ") : ""), opts)
+  )
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
@@ -592,6 +598,35 @@ describe('dev command', () => {
     await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('process-exit-0')
 
     expect(heldDuring).toEqual({ proxyUp: [true], restart: [true, true], upCommand: [false], down: [false], exit: [false] })
+  })
+
+  test('gives the targeted port hint when the proxy cannot bind its port', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
+        normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return SAMPLE_CONFIG
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      if (command.includes('up -d')) throw new Error('Bind for 0.0.0.0:80 failed: port is already allocated')
+      return Buffer.from('')
+    })
+
+    const error = await devCommand({ config: '.betty.yml', yes: true }).catch((err: unknown) => err)
+
+    expect(error).toBeInstanceOf(BettyError)
+    expect((error as BettyError).hints.join(' ')).toContain('Port 80 is already in use')
+    expect((error as BettyError).hints.join(' ')).toContain('betty project load')
   })
 
   test('exits when a domain is already linked by another project', async () => {
