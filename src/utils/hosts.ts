@@ -67,6 +67,26 @@ export const hasHostsEntry = (domain: string): boolean => {
   }
 }
 
+// A hosts file keeps its own line endings (CRLF on Windows) and never gains
+// blank lines from Betty: add a line break only if the file does not end with
+// one, and end the entry with the file's line ending.
+const lineEnding = (content: string): string =>
+  content.includes('\r\n') || (content === '' && process.platform === 'win32') ? '\r\n' : '\n'
+
+const appendText = (content: string, entry: string): string => {
+  const eol = lineEnding(content)
+  const separator = content === '' || content.endsWith('\n') ? '' : eol
+  return `${separator}${entry}${eol}`
+}
+
+const readOrEmpty = (filePath: string): string => {
+  try {
+    return fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
 export const ensureHostsEntry = (domain: string): boolean => {
   if (domain.toLowerCase().endsWith('.localhost')) return true
 
@@ -80,7 +100,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
     try {
       const content = fs.readFileSync(winHostsPath, 'utf8')
       if (containsDomain(content, domain)) return true
-      fs.appendFileSync(winHostsPath, `\n${entry}\n`, 'utf8')
+      fs.appendFileSync(winHostsPath, appendText(content, entry), 'utf8')
       console.log(`Added hosts entry to the Windows hosts file: ${entry}`)
       return true
     } catch {
@@ -102,7 +122,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
 
   const tryAppend = (): boolean => {
     try {
-      fs.appendFileSync(hostsPath, `\n${entry}\n`, 'utf8')
+      fs.appendFileSync(hostsPath, appendText(readOrEmpty(hostsPath), entry), 'utf8')
       console.log(`Added hosts entry: ${entry}`)
       return true
     } catch {
@@ -117,7 +137,7 @@ export const ensureHostsEntry = (domain: string): boolean => {
   } else try {
     // Pipe the line into `sudo tee` instead of building a shell command, so the
     // entry never passes through a shell. sudo reads its password from the tty.
-    execFileSync('sudo', ['tee', '-a', hostsPath], { input: `\n${entry}\n`, stdio: ['pipe', 'ignore', 'inherit'] })
+    execFileSync('sudo', ['tee', '-a', hostsPath], { input: appendText(readOrEmpty(hostsPath), entry), stdio: ['pipe', 'ignore', 'inherit'] })
     if (hasEntry()) return true
   } catch {
     // fall through to manual hint
@@ -141,8 +161,10 @@ export const removeHostsEntry = (domain: string): boolean => {
     // Match the domain only in the active part of the line: the marker comment
     // itself contains words ("added", "by", "betty") that are valid domains.
     const kept = lines.filter((line) => !(domainRegex.test(line.split('#')[0]) && line.includes(BETTY_HOSTS_MARKER)))
+    // Splitting keeps the final empty element, so joining restores the file's
+    // trailing line break and line ending without adding one.
     return {
-      nextContent: `${kept.join('\n')}\n`,
+      nextContent: kept.join(lineEnding(content)),
       removed: kept.length !== lines.length,
     }
   }
