@@ -135,7 +135,7 @@ const confirmPermission = async (message: string, mode: PermissionMode | undefin
 
 const targetForTraefik = (target: string): string => {
   const url = new URL(target)
-  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '::1') url.hostname = 'host.docker.internal'
+  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
 }
 
@@ -147,6 +147,10 @@ const ensureCertificate = (host: string): { certFile: string; keyFile: string } 
     }
 
   if (!checkMkcertInstalled()) throw new Error('HTTPS is enabled, but mkcert is not installed. Run `betty setup`.')
+
+  // Certificates are prepared before the proxy setup, so on a fresh install the
+  // directory mkcert writes into (and runs in) does not exist yet.
+  if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
   execSync(`mkcert -cert-file "${cert.hostPath}" -key-file "${cert.keyPath}" "${host}"`, {
     cwd: BETTY_CERTS_DIR,
@@ -275,6 +279,11 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }
     },
   }
 
+  // Check for conflicts before touching hosts, certificates or the proxy, so a
+  // rejected project leaves nothing behind.
+  const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
+  for (const domain of config.domains) if (findDomainConflict(domain.host, ownRouteFile) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
+
   await prepareHosts(effectiveConfig)
   const certificates = await prepareCertificates(effectiveConfig)
 
@@ -286,9 +295,6 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: { yes?: boolean }
   ensureHttpsPortAvailable()
   ensureProxyNetwork()
   execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" up -d`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })
-
-  const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
-  for (const domain of config.domains) if (findDomainConflict(domain.host, ownRouteFile) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
 
   writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true)
   execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'inherit' })

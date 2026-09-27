@@ -194,7 +194,9 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
     if (!confirm) { console.log('Cancelled.'); return }
   }
 
-  ensureProxySetup()
+  // Create certs/ before `docker compose up` does: on native Linux the daemon
+  // would create the bind-mount source as root, and mkcert could not write to it.
+  ensureProxySetup({ certs: true })
   const traefikComposePath = resolveTraefikComposePath()
 
   console.log(`Linking '${containerNameResolved}' to domain '${domainResolved}' on port ${String(port)}...`)

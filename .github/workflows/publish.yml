@@ -12,6 +12,11 @@ permissions:
 jobs:
   semantic-release:
     runs-on: ubuntu-latest
+    env:
+      # Optional token for the release metadata PR. PRs opened with GITHUB_TOKEN
+      # do not trigger other workflows, so the required CI check never runs on
+      # them; with this token set, CI runs and the PR merges itself.
+      HAS_RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -63,11 +68,12 @@ jobs:
           sed -i "s/\$env:BETTY_VERSION = 'v[0-9]\+\.[0-9]\+\.[0-9]\+'/\$env:BETTY_VERSION = 'v${TAG}'/g" README.md
 
       - name: Create release metadata PR
+        id: metadata-pr
         uses: peter-evans/create-pull-request@v6
         env:
           HUSKY: 0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}
           base: development
           branch: chore/release-metadata
           delete-branch: true
@@ -80,3 +86,9 @@ jobs:
             package-lock.json
             CHANGELOG.md
             README.md
+
+      - name: Auto-merge release metadata PR
+        if: env.HAS_RELEASE_PR_TOKEN == 'true' && steps.metadata-pr.outputs.pull-request-number != ''
+        run: gh pr merge "${{ steps.metadata-pr.outputs.pull-request-number }}" --auto --merge --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}

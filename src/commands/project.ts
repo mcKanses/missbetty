@@ -123,7 +123,8 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     message: 'Start the project now?',
     default: true,
   }]) as { startNow: boolean }
-  if (startNow) await devCommand({ config: configPath, yes: true })
+  // Only skip the system prompts if the user just chose to auto-approve them.
+  if (startNow) await devCommand({ config: configPath, yes: autoApprove })
 }
 
 export const projectLoadCommand = async (opts: ProjectLoadOptions): Promise<void> => {

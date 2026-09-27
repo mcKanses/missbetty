@@ -366,6 +366,50 @@ describe('relink command', () => {
     )
   }
 
+  test('relinking one domain of a project file keeps the other domains of that project', async () => {
+    const YAML_PROJECT = [
+      'http:',
+      '  routers:',
+      '    myproj-1:',
+      '      rule: \'Host("a.localhost")\'',
+      '      service: myproj-1',
+      '    myproj-2:',
+      '      rule: \'Host("b.localhost")\'',
+      '      service: myproj-2',
+      '  services:',
+      '    myproj-1:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:3000',
+      '    myproj-2:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:4000',
+    ].join('\n')
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/myproj.yml') || np.endsWith('/.betty/certs')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myproj.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_PROJECT)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker inspect')) return Buffer.from(DOCKER_INSPECT_WITH_NETWORK)
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({} as never)
+
+    await relinkCommand('a.localhost', { container: 'web', port: '5000', yes: true })
+
+    const writes = (fs.writeFileSync as unknown as jest.Mock).mock.calls.map((call) => [normalizePath(String(call[0])), String(call[1])])
+    const projectWrite = writes.find(([p]) => p.endsWith('/dynamic/myproj.yml'))
+    expect(projectWrite?.[1]).toContain('b.localhost')
+    expect(projectWrite?.[1]).not.toContain('a.localhost')
+    expect(writes.some(([p, content]) => p.endsWith('/dynamic/a-localhost.yml') && content.includes('http://web:5000'))).toBe(true)
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(expect.stringContaining('myproj.yml'))
+  })
+
   test('throws instead of prompting when the target matches no link', async () => {
     mockTwoRoutes()
 
