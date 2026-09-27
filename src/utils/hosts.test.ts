@@ -229,6 +229,24 @@ describe('removeHostsEntry', () => {
     expect(fs.readFileSync).not.toHaveBeenCalled()
   })
 
+  it('does not match words of the marker comment, e.g. a domain named "betty"', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 app.dev # added by betty\n127.0.0.1 betty # added by betty\n')
+
+    expect(removeHostsEntry('betty')).toBe(true)
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n\n', 'utf8')
+  })
+
+  it('leaves a commented-out line alone', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# 127.0.0.1 app.dev # added by betty\n')
+
+    expect(removeHostsEntry('app.dev')).toBe(true)
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
   it('returns true when domain is not in hosts file without writing', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
 
