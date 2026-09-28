@@ -16,6 +16,9 @@ export interface RouteEntry {
   fileName: string;
   routerName: string;
   container: string;
+  // False when no container is recorded and container is just the router name,
+  // as for project routes, which point at host services rather than containers.
+  containerKnown?: boolean;
   domain: string;
   target: string;
   port: string;
@@ -46,7 +49,8 @@ export const readRoutes = (): RouteEntry[] => {
         const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
         const target = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
         const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? ''
-        entries.push({ filePath, fileName: file, routerName: routerKey, container: getLinkContainer(file) ?? storedContainer ?? routerKey, domain, target, port })
+        const knownContainer = getLinkContainer(file) ?? storedContainer
+        entries.push({ filePath, fileName: file, routerName: routerKey, container: knownContainer ?? routerKey, containerKnown: knownContainer !== undefined, domain, target, port })
       }
     } catch {
       // Ignore malformed route files.
@@ -85,7 +89,11 @@ export const findDomainConflict = (domain: string, ignore?: ConflictIgnore): { f
 // file, and deletes the file once no router is left. Returns true when deleted.
 // Project files hold several domains, so the other routes must survive.
 export const removeRouteFromFile = (route: RouteEntry): boolean => {
-  const doc = yaml.parse(fs.readFileSync(route.filePath, 'utf8')) as TraefikDynamicConfig
+  const content = fs.readFileSync(route.filePath, 'utf8')
+  const doc = yaml.parse(content) as TraefikDynamicConfig
+  // yaml.stringify drops comments; keep the leading ones Betty stores metadata in
+  // (the project origin, the source container).
+  const header = /^(?:#[^\n]*\n)*/.exec(content)?.[0] ?? ''
 
   if (doc.http?.routers !== undefined) {
     const secureKey = `${route.routerName}-secure`
@@ -110,8 +118,30 @@ export const removeRouteFromFile = (route: RouteEntry): boolean => {
     return true
   }
 
-  fs.writeFileSync(route.filePath, yaml.stringify(doc), 'utf8')
+  fs.writeFileSync(route.filePath, `${header}${yaml.stringify(doc)}`, 'utf8')
   return false
+}
+
+// A project route file records which .betty.yml wrote it. Route files are named
+// after the project, and the default name is the directory name, so two projects
+// can collide; the origin tells them apart.
+const PROJECT_ORIGIN_COMMENT = /^#\s*betty-project-config:\s*(.+?)\s*$/m
+
+export const projectRouteFile = (project: string): string => path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(project)}.yml`)
+
+export const readProjectOrigin = (routeFile: string): string | null => {
+  try {
+    return PROJECT_ORIGIN_COMMENT.exec(fs.readFileSync(routeFile, 'utf8'))?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+// The other .betty.yml a project's route file was loaded from, or null when it
+// is this one, unknown, or not loaded at all.
+export const loadedFromElsewhere = (project: string, configPath: string): string | null => {
+  const origin = readProjectOrigin(projectRouteFile(project))
+  return origin !== null && path.resolve(origin) !== path.resolve(configPath) ? origin : null
 }
 
 export const writeRouteConfig = (

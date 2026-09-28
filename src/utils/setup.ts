@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { getDomainSuffix } from './config'
 import { BETTY_DYNAMIC_DIR } from './constants'
-import { hasHostsEntry } from './hosts'
+import { hasHostsEntry, isWsl } from './hosts'
 
 export interface SetupStatus {
   dockerInstalled: boolean;
@@ -22,9 +22,8 @@ export interface PlatformInfo {
 }
 
 export const getPlatformInfo = (): PlatformInfo => {
-  const isWsl = process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
   return {
-    isWsl,
+    isWsl: isWsl(),
     isWindows: process.platform === 'win32',
     isMac: process.platform === 'darwin',
     isLinux: process.platform === 'linux',

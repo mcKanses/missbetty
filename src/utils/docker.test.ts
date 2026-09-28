@@ -14,6 +14,7 @@ jest.mock('fs', () => ({
 
 jest.mock('./setup', () => ({
   checkMkcertInstalled: jest.fn(),
+  checkMkcertCaInstalled: jest.fn(),
   isHttpsRequestedDomain: jest.fn(),
 }))
 
@@ -25,12 +26,18 @@ jest.mock('./constants', () => ({
 
 jest.mock('./names', () => ({
   sanitizeName: jest.fn((name: string) => name),
+  certificatePaths: (domain: string) => ({
+    hostPath: `/home/test/.betty/certs/${domain}.pem`,
+    keyPath: `/home/test/.betty/certs/${domain}-key.pem`,
+    certFile: `/certs/${domain}.pem`,
+    keyFile: `/certs/${domain}-key.pem`,
+  }),
 }))
 
 import fs from 'fs'
 import { execFileSync } from 'child_process'
 import { BettyError } from './errors'
-import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import { sanitizeName } from './names'
 import {
   resolveTraefikComposePath,
@@ -146,6 +153,13 @@ describe('connectContainerToNetwork', () => {
     expect(execFileSync).toHaveBeenCalledTimes(1)
   })
 
+  it('inspects containers only, so an image with the same name is not mistaken for one', () => {
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('Error: No such container: nginx') })
+
+    expect(() => { connectContainerToNetwork('nginx') }).toThrow("Container 'nginx' not found")
+    expect(execFileSync).toHaveBeenCalledWith('docker', ['inspect', '--type', 'container', 'nginx'], expect.anything())
+  })
+
   it('exits when inspect returns no container', () => {
     ;(execFileSync as unknown as jest.Mock).mockReturnValue('[]')
 
@@ -220,6 +234,19 @@ describe('ensureCertificate', () => {
       keyFile: '/certs/myapp.dev-key.pem',
     })
     expect(execFileSync).toHaveBeenCalledWith('mkcert', expect.arrayContaining(['-cert-file']), expect.anything())
+  })
+
+  it('runs mkcert -install only when the local CA is missing', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p) === CERTS_DIR)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
+    ensureCertificate('myapp.dev')
+    expect(execFileSync).not.toHaveBeenCalledWith('mkcert', ['-install'], expect.anything())
+
+    ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
+    ensureCertificate('myapp.dev')
+    expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-install'], expect.anything())
   })
 
   it('returns null when mkcert is not installed and domain does not require https', () => {

@@ -39,6 +39,18 @@ const setPlatform = (platform: string): void => {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true })
 }
 
+// The PowerShell script Betty elevated, decoded from its -EncodedCommand argument.
+const elevatedScript = (): string => {
+  const calls = (execSync as unknown as jest.Mock).mock.calls as [string][]
+  const command = calls[calls.length - 1]?.[0] ?? ''
+  const encoded = /'-EncodedCommand','([^']+)'/.exec(command)?.[1] ?? ''
+  return Buffer.from(encoded, 'base64').toString('utf16le')
+}
+
+// The hosts text the elevated script writes, decoded from its embedded base64.
+const decodeEmbeddedText = (script: string): string =>
+  Buffer.from(/FromBase64String\('([^']+)'\)/.exec(script)?.[1] ?? '', 'base64').toString('utf8')
+
 describe('hasHostsEntry', () => {
   it('treats .localhost domains as present without reading hosts', () => {
     expect(hasHostsEntry('myapp.localhost')).toBe(true)
@@ -119,8 +131,25 @@ describe('ensureHostsEntry', () => {
     )
   })
 
-  it('continues to append when initial readFileSync fails', () => {
-    ;(fs.readFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('ENOENT') })
+  it('appends in the file\'s CRLF style without adding blank lines', () => {
+    setPlatform('win32')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\r\n')
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 myapp.dev # added by betty\r\n', 'utf8')
+  })
+
+  it('starts a new line first when the file does not end with one', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost')
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'utf8')
+  })
+
+  it('continues to append when the hosts file cannot be read', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('ENOENT') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
     expect(fs.appendFileSync).toHaveBeenCalled()
@@ -154,17 +183,18 @@ describe('ensureHostsEntry', () => {
   it('uses sudo fallback when append fails on linux and returns true', () => {
     setPlatform('linux')
     delete process.env.WSL_DISTRO_NAME
-    ;(fs.readFileSync as unknown as jest.Mock)
-      .mockReturnValueOnce('127.0.0.1 other.dev\n')
-      .mockReturnValueOnce('127.0.0.1 myapp.dev # added by betty\n')
+    let written = false
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() =>
+      written ? '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n' : '127.0.0.1 other.dev\n'
+    )
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { written = true })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
     expect(execFileSync).toHaveBeenCalledWith(
       'sudo',
       ['tee', '-a', '/etc/hosts'],
-      expect.objectContaining({ input: '\n127.0.0.1 myapp.dev # added by betty\n' })
+      expect.objectContaining({ input: '127.0.0.1 myapp.dev # added by betty\n' })
     )
   })
 
@@ -178,21 +208,20 @@ describe('ensureHostsEntry', () => {
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
 
-  it('uses PowerShell elevation when append fails on win32 and returns true', () => {
+  it('appends from an elevated PowerShell on win32 without widening the hosts ACL', () => {
     setPlatform('win32')
-    process.env.USERDOMAIN = 'WORKSTATION'
-    process.env.USERNAME = 'testuser'
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
-    ;(fs.appendFileSync as unknown as jest.Mock)
-      .mockImplementationOnce(() => { throw new Error('EACCES') })
-      .mockImplementationOnce(() => undefined)
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    let elevated = false
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() =>
+      elevated ? '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n' : '127.0.0.1 other.dev\n'
+    )
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('EncodedCommand'),
-      expect.anything()
-    )
+    const script = elevatedScript()
+    expect(script).toContain('AppendAllText')
+    expect(script).not.toMatch(/Set-Acl|AddAccessRule/)
+    expect(decodeEmbeddedText(script)).toBe('127.0.0.1 myapp.dev # added by betty\n')
   })
 
   it('returns false when elevation fails on win32', () => {
@@ -235,7 +264,15 @@ describe('removeHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 app.dev # added by betty\n127.0.0.1 betty # added by betty\n')
 
     expect(removeHostsEntry('betty')).toBe(true)
-    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n\n', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n', 'utf8')
+  })
+
+  it('keeps CRLF line endings and adds no trailing blank line when removing', () => {
+    setPlatform('win32')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\r\n127.0.0.1 app.dev # added by betty\r\n')
+
+    expect(removeHostsEntry('app.dev')).toBe(true)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 localhost\r\n', 'utf8')
   })
 
   it('leaves a commented-out line alone', () => {
@@ -312,23 +349,20 @@ describe('removeHostsEntry', () => {
     expect(removeHostsEntry('myapp.dev')).toBe(false)
   })
 
-  it('uses PowerShell elevation when write fails on win32 and returns true', () => {
+  it('rewrites from an elevated PowerShell on win32 without widening the hosts ACL', () => {
     setPlatform('win32')
-    process.env.USERDOMAIN = 'WORKSTATION'
-    process.env.USERNAME = 'testuser'
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
-      '127.0.0.1 myapp.dev # added by betty\n'
+    let elevated = false
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() =>
+      elevated ? '127.0.0.1 other.dev\n' : '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n'
     )
-    ;(fs.writeFileSync as unknown as jest.Mock)
-      .mockImplementationOnce(() => { throw new Error('EACCES') })
-      .mockImplementationOnce(() => undefined)
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(removeHostsEntry('myapp.dev')).toBe(true)
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('EncodedCommand'),
-      expect.anything()
-    )
+    const script = elevatedScript()
+    expect(script).toContain('WriteAllText')
+    expect(script).not.toMatch(/Set-Acl|AddAccessRule/)
+    expect(decodeEmbeddedText(script)).toBe('127.0.0.1 other.dev\n')
   })
 
   it('returns false when elevation fails on win32', () => {

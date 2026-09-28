@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import serveCommand from './serve'
 import {
@@ -17,6 +17,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -54,6 +55,11 @@ jest.mock('../utils/lock', () => ({
 describe('serve command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    // The proxy starts through execFileSync; route it through the execSync mock so
+    // tests can match on the command line.
+    ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
+      (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
+    )
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
     ;(getDockerPortOwners as unknown as jest.Mock).mockReturnValue(['betty-traefik'])
@@ -72,7 +78,7 @@ describe('serve command', () => {
     serveCommand()
 
     const composeStart = (execSync as unknown as jest.Mock).mock.calls.find((call) =>
-      String(call[0]).replace(/\\/g, '/').includes('docker compose -f "/home/test-user/.betty/docker-compose.yml" up -d')
+      String(call[0]).replace(/\\/g, '/').includes('docker compose -f /home/test-user/.betty/docker-compose.yml up -d')
     )
     expect(composeStart?.[1]).toEqual(expect.objectContaining({ stdio: 'inherit' }))
     expect(logSpy).toHaveBeenCalledWith('Starting global Betty Traefik proxy...')
