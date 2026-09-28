@@ -146,6 +146,13 @@ describe('connectContainerToNetwork', () => {
     expect(execFileSync).toHaveBeenCalledTimes(1)
   })
 
+  it('inspects containers only, so an image with the same name is not mistaken for one', () => {
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('Error: No such container: nginx') })
+
+    expect(() => { connectContainerToNetwork('nginx') }).toThrow("Container 'nginx' not found")
+    expect(execFileSync).toHaveBeenCalledWith('docker', ['inspect', '--type', 'container', 'nginx'], expect.anything())
+  })
+
   it('exits when inspect returns no container', () => {
     ;(execFileSync as unknown as jest.Mock).mockReturnValue('[]')
 

@@ -43,7 +43,7 @@ interface DockerInspectComposeLabelsEntry extends DockerInspectEntry {
 export const readExposedPorts = (containerName: string): number[] => {
   try {
     const info = JSON.parse(
-      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', '--type', 'container', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectComposeLabelsEntry[]
     const exposed = info[0]?.Config?.ExposedPorts ?? {}
     return Object.keys(exposed)
@@ -58,7 +58,7 @@ export const readExposedPorts = (containerName: string): number[] => {
 const readComposeLabels = (containerName: string): { project: string; service: string } | null => {
   try {
     const info = JSON.parse(
-      execFileSync('docker', ['inspect', containerName], { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', '--type', 'container', containerName], { stdio: 'pipe' }).toString()
     ) as DockerInspectComposeLabelsEntry[]
     const labels = info[0]?.Config?.Labels ?? {}
     const project = normalizeDomainLabel(labels['com.docker.compose.project'] ?? '')
