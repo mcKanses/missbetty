@@ -39,6 +39,18 @@ const setPlatform = (platform: string): void => {
   Object.defineProperty(process, 'platform', { value: platform, configurable: true })
 }
 
+// The PowerShell script Betty elevated, decoded from its -EncodedCommand argument.
+const elevatedScript = (): string => {
+  const calls = (execSync as unknown as jest.Mock).mock.calls as [string][]
+  const command = calls[calls.length - 1]?.[0] ?? ''
+  const encoded = /'-EncodedCommand','([^']+)'/.exec(command)?.[1] ?? ''
+  return Buffer.from(encoded, 'base64').toString('utf16le')
+}
+
+// The hosts text the elevated script writes, decoded from its embedded base64.
+const decodeEmbeddedText = (script: string): string =>
+  Buffer.from(/FromBase64String\('([^']+)'\)/.exec(script)?.[1] ?? '', 'base64').toString('utf8')
+
 describe('hasHostsEntry', () => {
   it('treats .localhost domains as present without reading hosts', () => {
     expect(hasHostsEntry('myapp.localhost')).toBe(true)
@@ -196,21 +208,20 @@ describe('ensureHostsEntry', () => {
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
 
-  it('uses PowerShell elevation when append fails on win32 and returns true', () => {
+  it('appends from an elevated PowerShell on win32 without widening the hosts ACL', () => {
     setPlatform('win32')
-    process.env.USERDOMAIN = 'WORKSTATION'
-    process.env.USERNAME = 'testuser'
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
-    ;(fs.appendFileSync as unknown as jest.Mock)
-      .mockImplementationOnce(() => { throw new Error('EACCES') })
-      .mockImplementationOnce(() => undefined)
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    let elevated = false
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() =>
+      elevated ? '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n' : '127.0.0.1 other.dev\n'
+    )
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('EncodedCommand'),
-      expect.anything()
-    )
+    const script = elevatedScript()
+    expect(script).toContain('AppendAllText')
+    expect(script).not.toMatch(/Set-Acl|AddAccessRule/)
+    expect(decodeEmbeddedText(script)).toBe('127.0.0.1 myapp.dev # added by betty\n')
   })
 
   it('returns false when elevation fails on win32', () => {
@@ -338,23 +349,20 @@ describe('removeHostsEntry', () => {
     expect(removeHostsEntry('myapp.dev')).toBe(false)
   })
 
-  it('uses PowerShell elevation when write fails on win32 and returns true', () => {
+  it('rewrites from an elevated PowerShell on win32 without widening the hosts ACL', () => {
     setPlatform('win32')
-    process.env.USERDOMAIN = 'WORKSTATION'
-    process.env.USERNAME = 'testuser'
-    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(
-      '127.0.0.1 myapp.dev # added by betty\n'
+    let elevated = false
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() =>
+      elevated ? '127.0.0.1 other.dev\n' : '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n'
     )
-    ;(fs.writeFileSync as unknown as jest.Mock)
-      .mockImplementationOnce(() => { throw new Error('EACCES') })
-      .mockImplementationOnce(() => undefined)
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(removeHostsEntry('myapp.dev')).toBe(true)
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('EncodedCommand'),
-      expect.anything()
-    )
+    const script = elevatedScript()
+    expect(script).toContain('WriteAllText')
+    expect(script).not.toMatch(/Set-Acl|AddAccessRule/)
+    expect(decodeEmbeddedText(script)).toBe('127.0.0.1 other.dev\n')
   })
 
   it('returns false when elevation fails on win32', () => {
