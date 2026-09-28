@@ -31,8 +31,11 @@ import { BettyError } from './errors'
 const LOCK_PATH = path.join('/home/test/.betty', '.lock')
 const OTHER_PID = 424242
 
+// What fs throws for an O_EXCL create when the file already exists.
+const eexist = (): Error => Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' })
+
 const lockHeldBy = (content: string): void => {
-  ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('EEXIST') })
+  ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw eexist() })
   ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(content)
 }
 
@@ -118,7 +121,7 @@ describe('withLock', () => {
   it('reports a busy lock when another process wins the reclaim race', () => {
     lockHeldBy(String(OTHER_PID))
     processRunning(false)
-    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('EEXIST') })
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw eexist() })
 
     expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
   })
@@ -152,5 +155,16 @@ describe('withLockAsync', () => {
     processRunning(true)
 
     await expect(withLockAsync(async () => Promise.resolve('x'))).rejects.toThrow('Another betty command is already running')
+  })
+})
+
+describe('lock file errors', () => {
+  it('reports a failure to create the lock file instead of claiming another command is running', () => {
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementationOnce(() => {
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    })
+
+    expect(() => withLock(() => 'x')).toThrow('Could not create the lock file')
+    expect(() => withLock(() => 'x')).not.toThrow('Another betty command is already running')
   })
 })
