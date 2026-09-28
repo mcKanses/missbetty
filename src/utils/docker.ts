@@ -36,7 +36,7 @@ export const connectContainerToNetwork = (containerRef: string): string => {
   let entry: DockerInspectEntry | undefined
   try {
     entry = (JSON.parse(
-      execFileSync('docker', ['inspect', containerRef], { stdio: 'pipe' }).toString()
+      execFileSync('docker', ['inspect', '--type', 'container', containerRef], { stdio: 'pipe' }).toString()
     ) as DockerInspectEntry[])[0]
   } catch {
     entry = undefined
