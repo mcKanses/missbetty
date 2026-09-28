@@ -28,21 +28,20 @@ const elevateWithPowerShell = (script: string): boolean => {
   }
 }
 
-const grantHostsWritePermission = (hostsPath: string): boolean => {
-  const domain = process.env.USERDOMAIN ?? ''
-  const user = process.env.USERNAME ?? ''
-  if (domain === '' || user === '') return false
-  const username = `${domain}\\${user}`
-
-  const escapedUser = username.replace(/'/g, "''")
+// Writes the hosts file from one elevated PowerShell (a UAC prompt) instead of
+// widening the file's ACL: a lasting Write grant would let any unelevated
+// process of the user redirect domains without a prompt. The text travels as
+// base64 so no quoting can break the script.
+const writeHostsElevated = (hostsPath: string, text: string, mode: 'append' | 'replace'): boolean => {
   const escapedPath = hostsPath.replace(/'/g, "''")
+  const encodedText = Buffer.from(text, 'utf8').toString('base64')
+  const write = mode === 'append' ? '[System.IO.File]::AppendAllText($path, $text, $encoding)' : '[System.IO.File]::WriteAllText($path, $text, $encoding)'
   const script = [
     "$ErrorActionPreference = 'Stop'",
-    `$hostsPath = '${escapedPath}'`,
-    "$acl = Get-Acl $hostsPath",
-    `$rule = New-Object System.Security.AccessControl.FileSystemAccessRule('${escapedUser}', 'Write', 'Allow')`,
-    '$acl.AddAccessRule($rule)',
-    'Set-Acl -Path $hostsPath -AclObject $acl',
+    `$path = '${escapedPath}'`,
+    `$text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encodedText}'))`,
+    '$encoding = New-Object System.Text.UTF8Encoding $false',
+    write,
   ].join('\n')
 
   return elevateWithPowerShell(script)
@@ -133,7 +132,11 @@ export const ensureHostsEntry = (domain: string): boolean => {
   if (tryAppend()) return true
 
   if (process.platform === 'win32') {
-    if (grantHostsWritePermission(hostsPath) && tryAppend()) return true
+    // Elevation can be declined or fail silently; re-read to confirm.
+    if (writeHostsElevated(hostsPath, appendText(readOrEmpty(hostsPath), entry), 'append') && containsDomain(readOrEmpty(hostsPath), domain)) {
+      console.log(`Added hosts entry: ${entry}`)
+      return true
+    }
   } else try {
     // Pipe the line into `sudo tee` instead of building a shell command, so the
     // entry never passes through a shell. sudo reads its password from the tty.
@@ -184,7 +187,16 @@ export const removeHostsEntry = (domain: string): boolean => {
 
   if (tryRemove()) return true
 
-  if (process.platform === 'win32' && grantHostsWritePermission(hostsPath) && tryRemove()) return true
+  // An unreadable file gives nothing to rewrite, so fall through to the hint.
+  // Elevation can be declined or fail silently; re-read to confirm.
+  const content = readOrEmpty(hostsPath)
+  const removedElevated = process.platform === 'win32' && content !== ''
+    && writeHostsElevated(hostsPath, removeLines(content).nextContent, 'replace')
+    && !removeLines(readOrEmpty(hostsPath)).removed
+  if (removedElevated) {
+    console.log(`Removed hosts entry for: ${domain}`)
+    return true
+  }
 
   console.log(`\n⚠️  Could not remove hosts entry automatically.`)
   console.log(`   Remove this domain manually from ${hostsPath}: ${domain}`)

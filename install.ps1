@@ -200,19 +200,9 @@ try {
 
   Write-Host "betty installed: $(Join-Path $installDir 'betty.exe')"
 
-  $hostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
-  try {
-    $acl = Get-Acl $hostsPath
-    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-      $currentUser, 'Write', 'Allow'
-    )
-    $acl.AddAccessRule($rule)
-    Set-Acl -Path $hostsPath -AclObject $acl
-    Write-Host "Granted hosts file write access to $currentUser"
-  } catch {
-    Write-Host "Warning: Could not set hosts file permissions. betty may need admin rights to manage local domains."
-  }
+  # The hosts file keeps its default permissions. betty asks for elevation (UAC)
+  # when it adds or removes an entry, instead of every process of this user
+  # being able to rewrite the file.
 
   Install-DependenciesWindows
 
