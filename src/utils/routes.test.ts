@@ -39,7 +39,7 @@ jest.mock('./state', () => ({
 
 import fs from 'fs'
 import yaml from 'yaml'
-import { readRoutes, findDomainConflict, writeRouteConfig } from './routes'
+import { readRoutes, findDomainConflict, writeRouteConfig, removeRouteFromFile } from './routes'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 const DYNAMIC_DIR = '/home/test-user/.betty/dynamic'
@@ -352,5 +352,24 @@ describe('writeRouteConfig', () => {
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Updated'))
 
     consoleSpy.mockRestore()
+  })
+})
+
+describe('removeRouteFromFile', () => {
+  it('keeps the leading metadata comments when it rewrites a project file', () => {
+    const filePath = path.join(DYNAMIC_DIR, 'app.yml')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-project-config: /a/app/.betty.yml\nhttp: {}\n')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({
+      http: {
+        routers: { 'app-1': { rule: 'Host("a.localhost")' }, 'app-2': { rule: 'Host("b.localhost")' } },
+        services: { 'app-1': {}, 'app-2': {} },
+      },
+    })
+    ;(yaml.stringify as unknown as jest.Mock).mockReturnValue('yaml-out\n')
+
+    const deleted = removeRouteFromFile({ filePath, fileName: 'app.yml', routerName: 'app-1', container: 'app-1', domain: 'a.localhost', target: '', port: '' })
+
+    expect(deleted).toBe(false)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(filePath, '# betty-project-config: /a/app/.betty.yml\nyaml-out\n', 'utf8')
   })
 })
