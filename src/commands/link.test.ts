@@ -198,6 +198,26 @@ describe('link command', () => {
     )
   })
 
+  test('refuses a domain whose route file is a loaded project with the same name', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['api-dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('/dynamic/api-dev.yml')) return [
+        '# betty-project-config: /work/api-dev/.betty.yml',
+        'http:',
+        '  routers:',
+        '    api-dev-1:',
+        '      rule: \'Host("front.dev")\'',
+        '      service: api-dev-1',
+      ].join('\n')
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(linkCommand('c1', { domain: 'api.dev', port: '3000', yes: true })).rejects.toThrow('The route file api-dev.yml already holds the routes of another project (e.g. front.dev).')
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith(expect.stringContaining('api-dev.yml'), expect.anything(), 'utf8')
+  })
+
   test('creates the betty_proxy network before the proxy starts on a fresh machine', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')

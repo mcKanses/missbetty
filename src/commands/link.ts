@@ -11,7 +11,7 @@ import {
   ensureCertificate,
 } from '../utils/docker'
 import { ensureHostsEntry } from '../utils/hosts'
-import { findDomainConflict, writeRouteConfig } from '../utils/routes'
+import { findDomainConflict, routeFileOccupant, writeRouteConfig } from '../utils/routes'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { normalizeDomainLabel, normalizeServiceName, validateDomain } from '../utils/names'
 import { BettyError } from '../utils/errors'
@@ -158,6 +158,8 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   const routeFileName = `${normalizeServiceName(domainResolved)}.yml`
   const conflict = findDomainConflict(domainResolved)
   if (conflict !== null) throw new BettyError(`Domain '${domainResolved}' is already linked by ${conflict.routerName} (${conflict.fileName}).`, { hints: ['Use `betty relink` to move an existing domain to another container.'] })
+  const occupant = routeFileOccupant(domainResolved)
+  if (occupant !== undefined) throw new BettyError(`The route file ${occupant.fileName} already holds the routes of another project (e.g. ${occupant.domain}).`, { hints: ["Choose another domain, or stop that project first: betty project stop"] })
 
   if (opts.dryRun === true) {
     console.log('Dry run: no changes were applied.')

@@ -3,7 +3,7 @@ import fs from 'fs'
 import yaml from 'yaml'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import { BETTY_DYNAMIC_DIR } from './constants'
-import { normalizeServiceName, sanitizeName } from './names'
+import { certificateBaseName, normalizeServiceName, sanitizeName } from './names'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 // Betty stores the source container name in a leading YAML comment so relink can
@@ -85,6 +85,20 @@ export const findDomainConflict = (domain: string, ignore?: ConflictIgnore): { f
   return null
 }
 
+// A link writes its route to <normalized-domain>.yml, which can be the file of a
+// project with that name (project `api-dev` vs. domain `api.dev`). Returns a
+// route of such a foreign file, so the caller refuses instead of overwriting the
+// project's other domains. `ignoreFilePath` skips the link's own current file.
+// Compared case-insensitively for case-insensitive file systems.
+export const routeFileOccupant = (domain: string, ignoreFilePath?: string): RouteEntry | undefined => {
+  const ownName = normalizeServiceName(domain).toLowerCase()
+  return readRoutes().find((route) =>
+    route.filePath !== ignoreFilePath &&
+    route.fileName.toLowerCase() === `${ownName}.yml` &&
+    route.routerName.toLowerCase() !== ownName
+  )
+}
+
 // Removes one route (router, its -secure twin, service and certificate) from its
 // file, and deletes the file once no router is left. Returns true when deleted.
 // Project files hold several domains, so the other routes must survive.
@@ -106,7 +120,7 @@ export const removeRouteFromFile = (route: RouteEntry): boolean => {
   )
 
   if (doc.tls?.certificates !== undefined) {
-    const certFileName = `${sanitizeName(route.domain)}.pem`
+    const certFileName = `${certificateBaseName(route.domain)}.pem`
     doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
     if (doc.tls.certificates.length === 0) delete doc.tls
   }
