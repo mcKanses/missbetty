@@ -119,8 +119,25 @@ describe('ensureHostsEntry', () => {
     )
   })
 
-  it('continues to append when initial readFileSync fails', () => {
-    ;(fs.readFileSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('ENOENT') })
+  it('appends in the file\'s CRLF style without adding blank lines', () => {
+    setPlatform('win32')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\r\n')
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 myapp.dev # added by betty\r\n', 'utf8')
+  })
+
+  it('starts a new line first when the file does not end with one', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost')
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'utf8')
+  })
+
+  it('continues to append when the hosts file cannot be read', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('ENOENT') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
     expect(fs.appendFileSync).toHaveBeenCalled()
@@ -154,17 +171,18 @@ describe('ensureHostsEntry', () => {
   it('uses sudo fallback when append fails on linux and returns true', () => {
     setPlatform('linux')
     delete process.env.WSL_DISTRO_NAME
-    ;(fs.readFileSync as unknown as jest.Mock)
-      .mockReturnValueOnce('127.0.0.1 other.dev\n')
-      .mockReturnValueOnce('127.0.0.1 myapp.dev # added by betty\n')
+    let written = false
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() =>
+      written ? '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n' : '127.0.0.1 other.dev\n'
+    )
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { written = true })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
     expect(execFileSync).toHaveBeenCalledWith(
       'sudo',
       ['tee', '-a', '/etc/hosts'],
-      expect.objectContaining({ input: '\n127.0.0.1 myapp.dev # added by betty\n' })
+      expect.objectContaining({ input: '127.0.0.1 myapp.dev # added by betty\n' })
     )
   })
 
@@ -235,7 +253,15 @@ describe('removeHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 app.dev # added by betty\n127.0.0.1 betty # added by betty\n')
 
     expect(removeHostsEntry('betty')).toBe(true)
-    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n\n', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n', 'utf8')
+  })
+
+  it('keeps CRLF line endings and adds no trailing blank line when removing', () => {
+    setPlatform('win32')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\r\n127.0.0.1 app.dev # added by betty\r\n')
+
+    expect(removeHostsEntry('app.dev')).toBe(true)
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 localhost\r\n', 'utf8')
   })
 
   it('leaves a commented-out line alone', () => {
