@@ -1,3 +1,13 @@
+## [1.7.4](https://github.com/mcKanses/missbetty/compare/v1.7.3...v1.7.4) (2026-09-28)
+
+
+### Bug Fixes
+
+* Always confirm the mkcert CA is trusted and keep underscores in cert names ([f10e3a5](https://github.com/mcKanses/missbetty/commit/f10e3a563bb99e8cdf51c1334ebe1dd9f6307796)), closes [#173](https://github.com/mcKanses/missbetty/issues/173)
+* Edit hosts entries in one batched step, elevating with domain names only ([a1670fd](https://github.com/mcKanses/missbetty/commit/a1670fdf03a984ec465ea711ec2680db1be903dd))
+* Keep betty link from overwriting a same-named project route file ([235aa6b](https://github.com/mcKanses/missbetty/commit/235aa6bd1c27909d376afe8e5ab7a8e1dff50928))
+* Report unexpected errors cleanly and tell lock I/O errors from a busy lock ([ee0bc26](https://github.com/mcKanses/missbetty/commit/ee0bc26c3c0a09f9fc06e5acbb802345ca5d2766))
+
 ## [1.7.3](https://github.com/mcKanses/missbetty/compare/v1.7.2...v1.7.3) (2026-09-28)
 
 
