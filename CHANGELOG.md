@@ -1,3 +1,15 @@
+## [1.7.3](https://github.com/mcKanses/missbetty/compare/v1.7.2...v1.7.3) (2026-09-28)
+
+
+### Bug Fixes
+
+* Create the proxy network before betty link starts the proxy ([cd09953](https://github.com/mcKanses/missbetty/commit/cd09953a84a19dee3b5b0aea66bccab81b59090e))
+* Explain that project domains have no container when relinking ([d16a44c](https://github.com/mcKanses/missbetty/commit/d16a44cb43fa7d6708c07e548d784c3b59af2227))
+* Inspect only containers when resolving a link target ([234293e](https://github.com/mcKanses/missbetty/commit/234293e825de5ea767b78f750912cc69dc9d3c29))
+* Keep project origin metadata and guard project stop and link files ([b196889](https://github.com/mcKanses/missbetty/commit/b196889c73722f108c374c035f020de95a89d9bf))
+* Keep the hosts file's line endings and stop adding blank lines ([42463f7](https://github.com/mcKanses/missbetty/commit/42463f74658894b853a1658c417eab9ba71f59b7))
+* Write the Windows hosts file from an elevated shell instead of widening its ACL ([ca18334](https://github.com/mcKanses/missbetty/commit/ca18334d9e1d1ff77e641de86d183caa8523ec78))
+
 ## [1.7.2](https://github.com/mcKanses/missbetty/compare/v1.7.1...v1.7.2) (2026-09-27)
 
 
