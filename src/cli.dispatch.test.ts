@@ -241,6 +241,17 @@ describe('run', () => {
     errorSpy.mockRestore()
   })
 
+  test('shows an unexpected error as a formatted error with exit code 1 instead of a stack trace', async () => {
+    ;(linkCommand as unknown as jest.Mock).mockImplementation(() => Promise.reject(new Error('Cannot connect to the Docker daemon')))
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(run(argv('link', 'web'))).rejects.toThrow('process-exit-1')
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Cannot connect to the Docker daemon'))
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('please report it'))
+
+    errorSpy.mockRestore()
+  })
+
   // Async actions must hand their promise back to commander; otherwise parseAsync
   // resolves early and a rejected BettyError escapes the handler as a stack trace.
   test.each([
