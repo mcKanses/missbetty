@@ -5,7 +5,7 @@ import fs from 'fs'
 // marker so Betty never deletes hosts lines a user added manually.
 const BETTY_HOSTS_MARKER = '# added by betty'
 
-const isWsl = (): boolean => process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
+export const isWsl = (): boolean => process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
 
 const getHostsPath = (): string => {
   if (process.platform === 'win32') return 'C:\\Windows\\System32\\drivers\\etc\\hosts'
