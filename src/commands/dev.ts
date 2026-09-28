@@ -6,7 +6,7 @@ import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
 import { checkDockerRunning, runMkcertInstall } from '../utils/setup'
 import { ensureCertificate, restartTraefik } from '../utils/docker'
-import { ensureHostsEntry, hasHostsEntry } from '../utils/hosts'
+import { ensureHostsEntries, hasHostsEntry } from '../utils/hosts'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import {
   BETTY_HOME_DIR,
@@ -182,8 +182,9 @@ const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
   if (missing.length === 0) return
   const mode = config.permissions?.hosts ?? 'prompt'
 
+  // All entries go in one hosts edit: a single elevation prompt on Windows.
   if (mode === 'allowed') {
-    for (const domain of missing) ensureHostsEntry(domain.host)
+    ensureHostsEntries(missing.map((domain) => domain.host))
     return
   }
 
@@ -209,11 +210,11 @@ const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
     selected = answer.hosts
   }
 
-  for (const domain of missing) if (selected.includes(domain.host)) ensureHostsEntry(domain.host)
-    else {
-      printWarn(`Hosts entry was not changed for ${domain.host}.`)
-      printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
-    }
+  ensureHostsEntries(selected)
+  for (const domain of missing) if (!selected.includes(domain.host)) {
+    printWarn(`Hosts entry was not changed for ${domain.host}.`)
+    printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
+  }
 }
 
 const prepareCertificates = async (config: DevProjectConfig): Promise<Record<string, { certFile: string; keyFile: string }>> => {
