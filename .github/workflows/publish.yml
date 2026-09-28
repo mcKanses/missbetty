@@ -3,6 +3,13 @@ name: Publish
 on:
   push:
     branches: [main]
+  # Publishes an already released version to npm by hand, e.g. one released
+  # while npm publishing was paused. semantic-release never republishes a tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to npm, e.g. v1.7.4
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +21,7 @@ permissions:
 
 jobs:
   semantic-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       # Optional token for the release metadata PR. PRs opened with GITHUB_TOKEN
@@ -88,3 +96,50 @@ jobs:
         run: gh pr merge "${{ steps.metadata-pr.outputs.pull-request-number }}" --auto --merge --delete-branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+
+  npm-publish-tag:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+[.][0-9]+[.][0-9]+$'; then
+            echo "Expected a release tag like v1.7.4, got: $TAG"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # semantic-release sets the version only in its own checkout; the tagged
+      # commit still carries the previous one.
+      - name: Set version from tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: npm version "${TAG#v}" --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm
+        run: npm publish --access public

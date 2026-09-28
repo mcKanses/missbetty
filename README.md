@@ -511,6 +511,13 @@ repository. The `missbetty` package on npmjs.com lists this repository's
 `publish.yml` workflow as its trusted publisher, and the workflow has the
 `id-token: write` permission it needs to authenticate.
 
+To publish an already released version to npm (semantic-release never
+republishes a tag), start the Publish workflow by hand with that tag:
+
+```sh
+gh workflow run publish.yml -f tag=v1.7.4
+```
+
 The publish workflow uses Node.js 24. Betty itself requires Node.js 24 or newer at runtime.
 
 Manual fallback release scripts are still available:
