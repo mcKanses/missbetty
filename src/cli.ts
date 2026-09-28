@@ -249,7 +249,12 @@ export const run = async (argv = process.argv): Promise<void> => {
       err.hints.forEach((hint) => { printHint(hint) })
       process.exit(err.exitCode)
     }
-    throw err
+    // Anything else is a failure Betty did not anticipate (e.g. a docker call
+    // with the daemon stopped). Show it as an error rather than letting it
+    // escape as an unhandled rejection with a stack trace.
+    printError(err instanceof Error ? err.message : String(err))
+    printHint('If this looks like a bug in betty, please report it: https://github.com/mcKanses/missbetty/issues')
+    process.exit(1)
   }
 }
 
