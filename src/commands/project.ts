@@ -5,7 +5,7 @@ import inquirer from 'inquirer'
 import { BettyError } from '../utils/errors'
 import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
-import { readRoutes } from '../utils/routes'
+import { loadedFromElsewhere, readRoutes } from '../utils/routes'
 import { sanitizeName, validateDomain } from '../utils/names'
 
 interface ProjectCreateOptions {
@@ -181,6 +181,13 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
   try {
     const configPath = resolveConfigPath(opts.file)
     const config = readDevProjectConfig(configPath)
+
+    // Same-named projects share a route file name. Stopping this one must not
+    // take down the routes of the other one that is actually loaded.
+    const loadedFrom = loadedFromElsewhere(config.project, configPath)
+    if (loadedFrom !== null) throw new BettyError(`Project '${config.project}' is loaded from ${loadedFrom}, not from this .betty.yml.`, {
+      hints: ['Run `betty project stop` in that project instead.'],
+    })
 
     if (opts.yes !== true) {
       const { confirm } = await inquirer.prompt([{

@@ -198,6 +198,27 @@ describe('link command', () => {
     )
   })
 
+  test('creates the betty_proxy network before the proxy starts on a fresh machine', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker network inspect')) throw new Error('network betty_proxy not found')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await linkCommand('myapp', { domain: 'myapp.localhost', port: '3000', yes: true })
+
+    const commands = (execSync as unknown as jest.Mock).mock.calls.map((call) => String(call[0]))
+    const createIndex = commands.findIndex((c) => c.includes('docker network create betty_proxy'))
+    const upIndex = commands.findIndex((c) => c.includes('up -d'))
+    expect(createIndex).toBeGreaterThanOrEqual(0)
+    expect(createIndex).toBeLessThan(upIndex)
+  })
+
   test('creates the certs directory before the proxy starts', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => !String(p).replace(/\\/g, '/').endsWith('/.betty/certs'))
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
@@ -683,7 +704,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const c = String(cmd)
       if (c.includes('docker ps --filter')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
-      if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker inspect --type container myapp')) return Buffer.from(DOCKER_INSPECT)
       if (c.includes('docker network inspect')) return Buffer.from('[{}]')
       if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
       return Buffer.from('')
@@ -747,16 +768,14 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     logSpy.mockRestore()
   })
 
-  test('uses EncodedCommand elevation and returns true when PowerShell elevation succeeds on Windows', async () => {
+  test('writes the entry from an elevated PowerShell on Windows', async () => {
     setPlatform('win32')
-    process.env.USERDOMAIN = 'WORKSTATION'
-    process.env.USERNAME = 'testuser'
     mockSetupForHostsEntry()
-    ;(fs.appendFileSync as unknown as jest.Mock)
-      .mockImplementationOnce(() => { throw new Error('EACCES') })
-      .mockImplementationOnce(() => undefined)
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    // The elevated PowerShell writes the entry itself; afterwards the file has it.
+    const elevated = (): boolean => (execSync as unknown as jest.Mock).mock.calls.some((call) => String(call[0]).includes('EncodedCommand'))
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
+      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return elevated() ? '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n' : '127.0.0.1 localhost\n'
       return ''
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
@@ -792,7 +811,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const c = String(cmd)
       if (c.includes('docker ps --filter')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
-      if (c.includes('docker inspect myapp')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker inspect --type container myapp')) return Buffer.from(DOCKER_INSPECT)
       if (c.includes('docker network inspect')) return Buffer.from('[{}]')
       if (c.includes('mkcert -help')) throw new Error('mkcert not installed')
       if (c.includes('EncodedCommand')) throw new Error('elevation failed')
