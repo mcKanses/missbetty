@@ -476,7 +476,50 @@ describe('relink command', () => {
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myproj.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_PROJECT)
 
-    await expect(relinkCommand('a.localhost', { domain: 'b.localhost', yes: true })).rejects.toThrow("Domain 'b.localhost' is already linked by myproj-2")
+    await expect(relinkCommand('a.localhost', { container: 'web', domain: 'b.localhost', yes: true })).rejects.toThrow("Domain 'b.localhost' is already linked by myproj-2")
+  })
+
+  const mockProjectRoute = (): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/myproj.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['myproj.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      'http:',
+      '  routers:',
+      '    myproj-1:',
+      '      rule: \'Host("a.localhost")\'',
+      '      service: myproj-1',
+      '  services:',
+      '    myproj-1:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - url: http://host.docker.internal:3000',
+    ].join('\n'))
+  }
+
+  test('explains that a project domain has no container instead of treating the router name as one', async () => {
+    mockProjectRoute()
+
+    await expect(relinkCommand('a.localhost', { port: '4000', yes: true })).rejects.toThrow("'a.localhost' comes from a .betty.yml project and points at http://host.docker.internal:3000, not at a container.")
+    expect(execSync).not.toHaveBeenCalledWith(expect.stringContaining('docker inspect'), expect.anything())
+  })
+
+  test('does not pre-fill the router name as the container when relinking a project domain interactively', async () => {
+    mockProjectRoute()
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation((questions: unknown) => {
+      const qs = questions as { name: string }[]
+      if (qs.some((q) => q.name === 'confirm')) return Promise.resolve({ confirm: false })
+      return Promise.resolve({ container: 'web', domain: 'a.localhost', port: '3000' })
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('a.localhost')
+
+    const valueQuestions = (inquirer.prompt as unknown as jest.Mock).mock.calls[0][0] as { name: string; default?: unknown }[]
+    expect(valueQuestions.find((q) => q.name === 'container')?.default).toBeUndefined()
   })
 
   test('throws instead of prompting when the target matches no link', async () => {

@@ -16,6 +16,9 @@ export interface RouteEntry {
   fileName: string;
   routerName: string;
   container: string;
+  // False when no container is recorded and container is just the router name,
+  // as for project routes, which point at host services rather than containers.
+  containerKnown?: boolean;
   domain: string;
   target: string;
   port: string;
@@ -46,7 +49,8 @@ export const readRoutes = (): RouteEntry[] => {
         const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
         const target = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
         const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? ''
-        entries.push({ filePath, fileName: file, routerName: routerKey, container: getLinkContainer(file) ?? storedContainer ?? routerKey, domain, target, port })
+        const knownContainer = getLinkContainer(file) ?? storedContainer
+        entries.push({ filePath, fileName: file, routerName: routerKey, container: knownContainer ?? routerKey, containerKnown: knownContainer !== undefined, domain, target, port })
       }
     } catch {
       // Ignore malformed route files.
