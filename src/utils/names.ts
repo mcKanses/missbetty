@@ -32,8 +32,15 @@ export const validateDomain = (value: string): true | string => {
   return true
 }
 
-export const certificatePaths =(domain: string): { hostPath: string; keyPath: string; certFile: string; keyFile: string } => {
-  const baseName = sanitizeName(domain)
+// File name for a domain's certificate. Unlike sanitizeName it keeps `_`, so
+// my_app.dev and my-app.dev never share (and serve each other's) certificate.
+export const certificateBaseName = (domain: string): string => domain
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9._-]/g, '-')
+
+export const certificatePaths = (domain: string): { hostPath: string; keyPath: string; certFile: string; keyFile: string } => {
+  const baseName = certificateBaseName(domain)
   return {
     hostPath: path.join(BETTY_CERTS_DIR, `${baseName}.pem`),
     keyPath: path.join(BETTY_CERTS_DIR, `${baseName}-key.pem`),

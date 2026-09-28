@@ -62,6 +62,11 @@ describe('certificatePaths', () => {
     expect(result.keyFile).toBe('/certs/my-app-key.pem')
   })
 
+  test('gives my_app.dev and my-app.dev different certificate files', () => {
+    expect(certificatePaths('my_app.dev').certFile).toBe('/certs/my_app.dev.pem')
+    expect(certificatePaths('my-app.dev').certFile).toBe('/certs/my-app.dev.pem')
+  })
+
   test('certFile and keyFile are always relative to /certs/', () => {
     const result = certificatePaths('any.domain.localhost')
 
