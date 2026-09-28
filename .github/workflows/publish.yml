@@ -114,11 +114,13 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
 
+      # No registry-url here: with it, setup-node writes an .npmrc whose token
+      # defaults to a placeholder, and npm sends that instead of using the OIDC
+      # trusted-publishing login (the registry then answers 404).
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       # Trusted publishing needs npm 11.5.1 or newer.
