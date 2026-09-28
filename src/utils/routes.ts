@@ -85,6 +85,20 @@ export const findDomainConflict = (domain: string, ignore?: ConflictIgnore): { f
   return null
 }
 
+// A link writes its route to <normalized-domain>.yml, which can be the file of a
+// project with that name (project `api-dev` vs. domain `api.dev`). Returns a
+// route of such a foreign file, so the caller refuses instead of overwriting the
+// project's other domains. `ignoreFilePath` skips the link's own current file.
+// Compared case-insensitively for case-insensitive file systems.
+export const routeFileOccupant = (domain: string, ignoreFilePath?: string): RouteEntry | undefined => {
+  const ownName = normalizeServiceName(domain).toLowerCase()
+  return readRoutes().find((route) =>
+    route.filePath !== ignoreFilePath &&
+    route.fileName.toLowerCase() === `${ownName}.yml` &&
+    route.routerName.toLowerCase() !== ownName
+  )
+}
+
 // Removes one route (router, its -secure twin, service and certificate) from its
 // file, and deletes the file once no router is left. Returns true when deleted.
 // Project files hold several domains, so the other routes must survive.

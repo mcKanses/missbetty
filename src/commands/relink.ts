@@ -11,7 +11,7 @@ import {
   ensureCertificate,
 } from '../utils/docker'
 import { ensureHostsEntry, removeHostsEntry } from '../utils/hosts'
-import { readRoutes, findDomainConflict, removeRouteFromFile, writeRouteConfig, type RouteEntry } from '../utils/routes'
+import { readRoutes, findDomainConflict, removeRouteFromFile, routeFileOccupant, writeRouteConfig, type RouteEntry } from '../utils/routes'
 import { normalizeServiceName, validateDomain } from '../utils/names'
 
 interface RelinkOptions {
@@ -123,6 +123,8 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
 
   const conflict = findDomainConflict(domain, route)
   if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
+  const occupant = routeFileOccupant(domain, route.filePath)
+  if (occupant !== undefined) throw new BettyError(`The route file ${occupant.fileName} already holds the routes of another project (e.g. ${occupant.domain}).`, { hints: ["Choose another domain, or stop that project first: betty project stop"] })
 
   if (port === null) throw new BettyError('Invalid port. Example: --port 3000')
 
