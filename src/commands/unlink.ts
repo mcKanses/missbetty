@@ -5,7 +5,7 @@ import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
-import { removeHostsEntry } from '../utils/hosts'
+import { removeHostsEntries, removeHostsEntry } from '../utils/hosts'
 import { readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
 import { removeLinkContainer } from '../utils/state'
 
@@ -50,7 +50,6 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
 
   for (const route of routes) {
     if (deletedFiles.has(route.filePath)) {
-      removeHostsEntry(route.domain)
       removedDomains.push(route.domain)
       continue
     }
@@ -62,9 +61,10 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
     fs.unlinkSync(route.filePath)
     removeLinkContainer(route.fileName)
     deletedFiles.add(route.filePath)
-    removeHostsEntry(route.domain)
     removedDomains.push(route.domain)
   }
+  // One hosts edit for all domains: a single elevation prompt on Windows.
+  removeHostsEntries(removedDomains)
 
   restartTraefik(composePath)
 
@@ -81,11 +81,9 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
   const removedDomains: string[] = []
   for (const r of projectRoutes) {
     const stillUsed = remainingRoutes.some((rem) => rem.domain === r.domain)
-    if (!stillUsed) {
-      removeHostsEntry(r.domain)
-      removedDomains.push(r.domain)
-    }
+    if (!stillUsed) removedDomains.push(r.domain)
   }
+  removeHostsEntries(removedDomains)
   restartTraefik(composePath)
   const projectName = path.basename(route.filePath, path.extname(route.filePath))
   console.log('\nSummary:')
@@ -199,10 +197,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
     fs.unlinkSync(filePath)
     removeLinkContainer(path.basename(filePath))
     const remainingRoutes = readRoutes()
-    for (const r of group) if (!remainingRoutes.some((rem) => rem.domain === r.domain)) {
-        removeHostsEntry(r.domain)
-        removedDomains.push(r.domain)
-      }
+    for (const r of group) if (!remainingRoutes.some((rem) => rem.domain === r.domain)) removedDomains.push(r.domain)
     
   }
 
@@ -214,14 +209,12 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
     }
     removeRouteFromFile(route)
     const remainingRoutes = readRoutes()
-    if (!remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)) {
-      const hostsUpdated = removeHostsEntry(route.domain)
-      if (!hostsUpdated) console.log(`Domain still needs manual cleanup in hosts: ${route.domain}`)
-      removedDomains.push(route.domain)
-    } else console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
-    
+    if (!remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)) removedDomains.push(route.domain)
+    else console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
   }
 
+  // One hosts edit for all selected domains: a single elevation prompt on Windows.
+  removeHostsEntries(removedDomains)
   restartTraefik(composePath)
 
   console.log('\nSummary:')
