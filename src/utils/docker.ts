@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { getHttpPort } from './config'
 import { BettyError } from './errors'
-import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import type { DockerInspectEntry } from '../types'
 import {
   BETTY_PROXY_COMPOSE,
@@ -95,9 +95,11 @@ export const ensureCertificate = (domain: string, opts: { required?: boolean } =
   }
 
   try {
-    // Installing the CA can prompt for a password or trust-store change, so only
-    // do it when it is actually missing, not once per certificate.
-    if (!checkMkcertCaInstalled()) execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
+    // Always let mkcert check that its CA is trusted: the CA files can exist while
+    // the trust step never happened (a declined prompt, or plain `mkcert <host>`),
+    // and then browsers reject the certificate. mkcert only prompts when the CA
+    // is not trusted yet.
+    execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
     execFileSync('mkcert', ['-cert-file', certPath, '-key-file', keyPath, domain], { stdio: 'inherit' })
     return { certFile, keyFile }
   } catch {

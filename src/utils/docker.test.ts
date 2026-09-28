@@ -236,17 +236,16 @@ describe('ensureCertificate', () => {
     expect(execFileSync).toHaveBeenCalledWith('mkcert', expect.arrayContaining(['-cert-file']), expect.anything())
   })
 
-  it('runs mkcert -install only when the local CA is missing', () => {
+  it('lets mkcert confirm the CA is trusted before every new certificate, even when its files exist', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p) === CERTS_DIR)
     ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
-
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
-    ensureCertificate('myapp.dev')
-    expect(execFileSync).not.toHaveBeenCalledWith('mkcert', ['-install'], expect.anything())
 
-    ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
     ensureCertificate('myapp.dev')
-    expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-install'], expect.anything())
+
+    const calls = (execFileSync as unknown as jest.Mock).mock.calls.map((call) => (call[1] as string[]).join(' '))
+    expect(calls.indexOf('-install')).toBeGreaterThanOrEqual(0)
+    expect(calls.indexOf('-install')).toBeLessThan(calls.findIndex((c) => c.startsWith('-cert-file')))
   })
 
   it('returns null when mkcert is not installed and domain does not require https', () => {
