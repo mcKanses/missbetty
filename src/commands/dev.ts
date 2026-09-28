@@ -18,7 +18,7 @@ import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureP
 import { domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock, withLockAsync } from '../utils/lock'
-import { findDomainConflict } from '../utils/routes'
+import { findDomainConflict, loadedFromElsewhere, projectRouteFile, readRoutes } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -137,19 +137,6 @@ const targetForTraefik = (target: string): string => {
   const url = new URL(target)
   if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
-}
-
-// The project route file records which .betty.yml wrote it. Route files are named
-// after the project, and the default name is the directory name, so two projects
-// can collide; the origin tells them apart.
-const PROJECT_ORIGIN_COMMENT = /^#\s*betty-project-config:\s*(.+?)\s*$/m
-
-const readProjectOrigin = (routeFile: string): string | null => {
-  try {
-    return PROJECT_ORIGIN_COMMENT.exec(fs.readFileSync(routeFile, 'utf8'))?.[1] ?? null
-  } catch {
-    return null
-  }
 }
 
 const writeProjectRoute = (
@@ -284,10 +271,17 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
 
   // Check for conflicts before touching hosts, certificates or the proxy, so a
   // rejected project leaves nothing behind.
-  const ownRouteFile = path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(config.project)}.yml`)
-  const loadedFrom = readProjectOrigin(ownRouteFile)
-  if (opts.configPath !== undefined && loadedFrom !== null && path.resolve(loadedFrom) !== path.resolve(opts.configPath)) throw new BettyError(`Project '${config.project}' is already loaded from ${loadedFrom}.`, {
+  const ownRouteFile = projectRouteFile(config.project)
+  const loadedFrom = opts.configPath !== undefined ? loadedFromElsewhere(config.project, opts.configPath) : null
+  if (loadedFrom !== null) throw new BettyError(`Project '${config.project}' is already loaded from ${loadedFrom}.`, {
     hints: ['Give this project another name in .betty.yml, or run `betty project stop` in the other project first.'],
+  })
+  // Project routers are named <project>-<n>. Anything else in the file means it
+  // is a `betty link` route file whose name happens to match the project.
+  const routerPrefix = `${sanitizeName(config.project)}-`
+  const foreign = readRoutes().find((r) => r.filePath === ownRouteFile && !(r.routerName.startsWith(routerPrefix) && /^[0-9]+$/.test(r.routerName.slice(routerPrefix.length))))
+  if (foreign !== undefined) throw new BettyError(`The route file ${foreign.fileName} already belongs to the link for ${foreign.domain}.`, {
+    hints: ['Give this project another name in .betty.yml, or run `betty unlink --domain ' + foreign.domain + '` first.'],
   })
   for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile }) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
 

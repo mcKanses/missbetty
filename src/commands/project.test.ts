@@ -4,7 +4,7 @@ import inquirer from 'inquirer'
 import { projectCreateCommand, projectLoadCommand, projectLinkCommand, projectStopCommand, projectStatusCommand, validateHttpTarget } from './project'
 import { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
-import { readRoutes } from '../utils/routes'
+import { loadedFromElsewhere, readRoutes } from '../utils/routes'
 
 jest.mock('os', () => ({
   __esModule: true,
@@ -47,6 +47,7 @@ jest.mock('./unlink', () => ({
 
 jest.mock('../utils/routes', () => ({
   readRoutes: jest.fn(),
+  loadedFromElsewhere: jest.fn(),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -59,6 +60,7 @@ const mockPromptSequence = (...responses: unknown[]): void => {
 
 beforeEach(() => {
   jest.resetAllMocks()
+  ;(loadedFromElsewhere as unknown as jest.Mock).mockReturnValue(null)
   ;(process.exit as unknown as jest.Mock) = jest.fn().mockImplementation((code) => {
     throw new Error(`process-exit-${String(code)}`)
   })
@@ -453,6 +455,16 @@ describe('projectStopCommand', () => {
     expect(logSpy).toHaveBeenCalledWith('Running: docker compose down')
 
     logSpy.mockRestore()
+  })
+
+  test('refuses to stop a same-named project that was loaded from another .betty.yml', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/b/app/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfigWithDown)
+    ;(loadedFromElsewhere as unknown as jest.Mock).mockReturnValue('/a/app/.betty.yml')
+
+    await expect(projectStopCommand({ yes: true })).rejects.toThrow("is loaded from /a/app/.betty.yml, not from this .betty.yml")
+    expect(runProjectCommand).not.toHaveBeenCalled()
+    expect(unlinkCommand).not.toHaveBeenCalled()
   })
 
   test('skips down command when none configured', async () => {

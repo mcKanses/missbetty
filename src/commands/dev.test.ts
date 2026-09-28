@@ -700,6 +700,26 @@ describe('dev command', () => {
     expect(String(routeWrite?.[1])).toMatch(/^# betty-project-config: .*\.betty\.yml\n/)
   })
 
+  test('refuses to overwrite a betty link route file that has the project name', async () => {
+    const LINK_ROUTE = [
+      '# betty-container: web',
+      'http:',
+      '  routers:',
+      '    mckanses-auth:',
+      '      rule: \'Host("mckanses.auth")\'',
+      '      service: mckanses-auth',
+    ].join('\n')
+    mockProjectEnv(LINK_ROUTE)
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') || normalized.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('The route file mckanses-auth.yml already belongs to the link for mckanses.auth.')
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'), expect.anything(), 'utf8')
+  })
+
   test('reloads a project from the same .betty.yml without a conflict', async () => {
     const configPath = path.resolve(process.cwd(), '.betty.yml')
     mockProjectEnv(`# betty-project-config: ${configPath}\nhttp: {}\n`)
