@@ -3,7 +3,7 @@ import fs from 'fs'
 import yaml from 'yaml'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
 import { BETTY_DYNAMIC_DIR } from './constants'
-import { normalizeServiceName, sanitizeName } from './names'
+import { certificateBaseName, normalizeServiceName, sanitizeName } from './names'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 // Betty stores the source container name in a leading YAML comment so relink can
@@ -106,7 +106,7 @@ export const removeRouteFromFile = (route: RouteEntry): boolean => {
   )
 
   if (doc.tls?.certificates !== undefined) {
-    const certFileName = `${sanitizeName(route.domain)}.pem`
+    const certFileName = `${certificateBaseName(route.domain)}.pem`
     doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
     if (doc.tls.certificates.length === 0) delete doc.tls
   }
