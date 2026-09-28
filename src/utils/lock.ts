@@ -51,7 +51,10 @@ const acquire = (): void => {
   try {
     writeLockFile()
     return
-  } catch {
+  } catch (err) {
+    // Only an existing lock means another command may be running; any other
+    // failure (permissions, a missing directory) is reported as what it is.
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw new BettyError(`Could not create the lock file ${LOCK_PATH}: ${err instanceof Error ? err.message : String(err)}`)
     // Lock already exists — reclaim it only if its owner is gone.
   }
 
