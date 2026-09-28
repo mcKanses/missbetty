@@ -768,16 +768,14 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
     logSpy.mockRestore()
   })
 
-  test('uses EncodedCommand elevation and returns true when PowerShell elevation succeeds on Windows', async () => {
+  test('writes the entry from an elevated PowerShell on Windows', async () => {
     setPlatform('win32')
-    process.env.USERDOMAIN = 'WORKSTATION'
-    process.env.USERNAME = 'testuser'
     mockSetupForHostsEntry()
-    ;(fs.appendFileSync as unknown as jest.Mock)
-      .mockImplementationOnce(() => { throw new Error('EACCES') })
-      .mockImplementationOnce(() => undefined)
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    // The elevated PowerShell writes the entry itself; afterwards the file has it.
+    const elevated = (): boolean => (execSync as unknown as jest.Mock).mock.calls.some((call) => String(call[0]).includes('EncodedCommand'))
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
-      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return '127.0.0.1 localhost\n'
+      if (String(p).replace(/\\/g, '/').includes('drivers/etc/hosts')) return elevated() ? '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n' : '127.0.0.1 localhost\n'
       return ''
     })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
