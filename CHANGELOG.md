@@ -1,3 +1,11 @@
+## [1.7.5](https://github.com/mcKanses/missbetty/compare/v1.7.4...v1.7.5) (2026-10-08)
+
+
+### Bug Fixes
+
+* Install on Intel Macs and run Homebrew as the invoking user ([d022660](https://github.com/mcKanses/missbetty/commit/d022660a6939772937e9b611d79817002e900c90))
+* Let install.ps1 run without Administrator rights ([7c6ce90](https://github.com/mcKanses/missbetty/commit/7c6ce90b7901566041805d5c9b8a174b8f0a7c72))
+
 ## [1.7.4](https://github.com/mcKanses/missbetty/compare/v1.7.3...v1.7.4) (2026-09-28)
 
 
