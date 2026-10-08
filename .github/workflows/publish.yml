@@ -110,11 +110,17 @@ jobs:
     # whole Publish run red, which would stop release-binaries.
     continue-on-error: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
+    # This job runs third-party install scripts (npm ci) and tests; it needs to
+    # read the repo and get an OIDC token for npm, nothing more.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve tag
         id: tag
