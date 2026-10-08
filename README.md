@@ -60,7 +60,16 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 
 Betty publishes standalone binaries on GitHub Releases.
 The installer scripts verify SHA256 checksums before installation.
-Release assets are also signed with Sigstore Cosign (keyless certificates).
+Release assets are also signed with Sigstore Cosign (keyless certificates);
+the installers do not check those signatures, but you can, for example:
+
+```sh
+cosign verify-blob betty-linux-x64.tar.gz \
+  --signature betty-linux-x64.tar.gz.sig \
+  --certificate betty-linux-x64.tar.gz.pem \
+  --certificate-identity-regexp '^https://github.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 Current prebuilt targets:
 
@@ -86,7 +95,7 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.7.4 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.7.4 sh
 ```
 
 ```powershell

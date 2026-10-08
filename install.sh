@@ -260,26 +260,46 @@ install_dependencies_macos() {
   echo "Missing tools:$MISSING_TOOLS"
   echo ""
 
-  if ! command -v brew >/dev/null 2>&1; then
+  # sudo may drop Homebrew's directory from PATH, so look in its default
+  # prefixes too (/opt/homebrew on Apple Silicon, /usr/local on Intel).
+  BREW="$(command -v brew 2>/dev/null || true)"
+  for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    if [ -z "$BREW" ] && [ -x "$candidate" ]; then BREW="$candidate"; fi
+  done
+
+  if [ -z "$BREW" ]; then
     echo "This script requires Homebrew. Please install from https://brew.sh"
     echo "Then run this installer again."
     return
   fi
 
+  # Homebrew refuses to run as root, and mkcert must trust its CA in the
+  # user's keychain, so both run as the user who invoked sudo.
+  if [ "$(id -u)" -eq 0 ]; then
+    if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = "root" ]; then
+      echo "Homebrew cannot run as root. Install Docker Desktop and mkcert as your user:"
+      echo "  brew install --cask docker && brew install mkcert && mkcert -install"
+      return
+    fi
+    as_user() { sudo -u "$SUDO_USER" -H "$@"; }
+  else
+    as_user() { "$@"; }
+  fi
+
   echo "Running brew update..."
-  brew update
+  as_user "$BREW" update
 
   if echo "$MISSING_TOOLS" | grep -q "docker"; then
     echo "Installing Docker Desktop..."
-    brew install --cask docker
+    as_user "$BREW" install --cask docker
     echo "⚠ Please start Docker Desktop from Applications folder"
     echo "✓ Docker Desktop installed"
   fi
 
   if echo "$MISSING_TOOLS" | grep -q "mkcert"; then
     echo "Installing mkcert..."
-    brew install mkcert
-    mkcert -install >/dev/null 2>&1 || true
+    as_user "$BREW" install mkcert
+    as_user "$(dirname "$BREW")/mkcert" -install >/dev/null 2>&1 || true
     echo "✓ mkcert installed"
   fi
 
@@ -298,11 +318,6 @@ else
 fi
 
 ASSET="betty-${OS}-${ARCH}.tar.gz"
-if [ "$OS" = "darwin" ] && [ "$ARCH" = "x64" ]; then
-  echo "No prebuilt macOS x64 binary published yet."
-  echo "Please use an arm64 machine or build from source."
-  exit 1
-fi
 
 if [ "$VERSION" = "latest" ]; then
   URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
