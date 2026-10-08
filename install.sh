@@ -330,17 +330,18 @@ fi
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
-echo "Downloading ${URL}"
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$URL" -o "$TMP_DIR/betty.tar.gz"
-  curl -fsSL "$CHECKSUM_URL" -o "$TMP_DIR/betty.tar.gz.sha256"
+  fetch() { curl -fsSL "$1" -o "$2"; }
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO "$TMP_DIR/betty.tar.gz" "$URL"
-  wget -qO "$TMP_DIR/betty.tar.gz.sha256" "$CHECKSUM_URL"
+  fetch() { wget -qO "$2" "$1"; }
 else
   echo "Neither curl nor wget is available."
   exit 1
 fi
+
+echo "Downloading ${URL}"
+fetch "$URL" "$TMP_DIR/betty.tar.gz"
+fetch "$CHECKSUM_URL" "$TMP_DIR/betty.tar.gz.sha256"
 
 EXPECTED_SHA="$(awk '{print $1}' "$TMP_DIR/betty.tar.gz.sha256")"
 if [ -z "$EXPECTED_SHA" ]; then
@@ -363,6 +364,42 @@ if [ "$EXPECTED_SHA" != "$ACTUAL_SHA" ]; then
 fi
 
 echo "Checksum verification passed."
+
+# The checksum proves the download is intact, not who built it. The archive is
+# also signed with Sigstore (keyless) by this repository's release-binaries
+# workflow; with cosign installed that signature is checked too, and
+# BETTY_REQUIRE_SIGNATURE=true refuses to install without it.
+REQUIRE_SIGNATURE="${BETTY_REQUIRE_SIGNATURE:-false}"
+SIGNER_IDENTITY='^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/'
+SIGNER_ISSUER='https://token.actions.githubusercontent.com'
+
+# sudo may drop cosign's directory from PATH (e.g. Homebrew's), so look in the
+# usual install locations too.
+COSIGN="$(command -v cosign 2>/dev/null || true)"
+for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign; do
+  if [ -z "$COSIGN" ] && [ -x "$candidate" ]; then COSIGN="$candidate"; fi
+done
+
+if [ -n "$COSIGN" ]; then
+  fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
+  fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
+  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" \
+    --signature "$TMP_DIR/betty.tar.gz.sig" \
+    --certificate "$TMP_DIR/betty.tar.gz.pem" \
+    --certificate-identity-regexp "$SIGNER_IDENTITY" \
+    --certificate-oidc-issuer "$SIGNER_ISSUER" 2>&1)"; then
+    echo "Signature verification failed for ${ASSET}:"
+    echo "$COSIGN_OUTPUT"
+    exit 1
+  fi
+  echo "Signature verification passed (signed by ${REPO}'s release workflow)."
+elif [ "$REQUIRE_SIGNATURE" = "true" ]; then
+  echo "BETTY_REQUIRE_SIGNATURE=true, but cosign is not installed."
+  echo "Install cosign (https://docs.sigstore.dev/cosign/system_config/installation/) and run the installer again."
+  exit 1
+else
+  echo "Signature not verified: cosign is not installed (checksum only)."
+fi
 
 tar -xzf "$TMP_DIR/betty.tar.gz" -C "$TMP_DIR"
 chmod +x "$TMP_DIR/betty"
