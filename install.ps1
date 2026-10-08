@@ -189,6 +189,38 @@ try {
 
   Write-Host 'Checksum verification passed.'
 
+  # The checksum proves the download is intact, not who built it. The archive
+  # is also signed with Sigstore (keyless) by this repository's release-binaries
+  # workflow; with cosign installed that signature is checked too, and
+  # BETTY_REQUIRE_SIGNATURE=true refuses to install without it.
+  $requireSignature = $env:BETTY_REQUIRE_SIGNATURE -eq 'true'
+  $signerIdentity = '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/'
+  $signerIssuer = 'https://token.actions.githubusercontent.com'
+
+  if ($null -ne (Get-Command cosign -ErrorAction SilentlyContinue)) {
+    $signaturePath = Join-Path $tmpDir 'betty.zip.sig'
+    $certificatePath = Join-Path $tmpDir 'betty.zip.pem'
+    Invoke-WebRequest -Uri "$url.sig" -OutFile $signaturePath
+    Invoke-WebRequest -Uri "$url.pem" -OutFile $certificatePath
+    # cosign reports even success on stderr; Windows PowerShell 5.1 would turn
+    # that into a terminating error under 'Stop', so judge by exit code only.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $cosignOutput = & cosign verify-blob $zipPath --signature $signaturePath --certificate $certificatePath --certificate-identity-regexp $signerIdentity --certificate-oidc-issuer $signerIssuer 2>&1
+    $cosignExit = $LASTEXITCODE
+    $ErrorActionPreference = $previousPreference
+    if ($cosignExit -ne 0) {
+      throw "Signature verification failed for ${asset}:`n$($cosignOutput -join "`n")"
+    }
+    Write-Host "Signature verification passed (signed by $repo's release workflow)."
+  }
+  elseif ($requireSignature) {
+    throw 'BETTY_REQUIRE_SIGNATURE=true, but cosign is not installed. Install cosign (e.g. winget install sigstore.cosign) and run the installer again.'
+  }
+  else {
+    Write-Host 'Signature not verified: cosign is not installed (checksum only).'
+  }
+
   Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
 
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null

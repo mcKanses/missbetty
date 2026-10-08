@@ -60,14 +60,28 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 
 Betty publishes standalone binaries on GitHub Releases.
 The installer scripts verify SHA256 checksums before installation.
-Release assets are also signed with Sigstore Cosign (keyless certificates);
-the installers do not check those signatures, but you can, for example:
+Release assets are also signed with Sigstore Cosign (keyless certificates)
+by this repository's release workflow. When
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) is
+installed, the installers verify that signature too and refuse to install if
+it does not match. Set `BETTY_REQUIRE_SIGNATURE=true` to refuse installing
+when cosign is missing:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_REQUIRE_SIGNATURE=true sh
+```
+
+```powershell
+$env:BETTY_REQUIRE_SIGNATURE = 'true'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+```
+
+To verify a downloaded asset by hand:
 
 ```sh
 cosign verify-blob betty-linux-x64.tar.gz \
   --signature betty-linux-x64.tar.gz.sig \
   --certificate betty-linux-x64.tar.gz.pem \
-  --certificate-identity-regexp '^https://github.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@' \
+  --certificate-identity-regexp '^https://github.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -95,11 +109,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.7.4 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.7.5 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.7.4'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.7.5'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Windows installer options:
