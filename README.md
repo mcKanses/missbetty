@@ -60,7 +60,16 @@ On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 
 Betty publishes standalone binaries on GitHub Releases.
 The installer scripts verify SHA256 checksums before installation.
-Release assets are also signed with Sigstore Cosign (keyless certificates).
+Release assets are also signed with Sigstore Cosign (keyless certificates);
+the installers do not check those signatures, but you can, for example:
+
+```sh
+cosign verify-blob betty-linux-x64.tar.gz \
+  --signature betty-linux-x64.tar.gz.sig \
+  --certificate betty-linux-x64.tar.gz.pem \
+  --certificate-identity-regexp '^https://github.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 Current prebuilt targets:
 
@@ -86,11 +95,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-BETTY_VERSION=v1.7.3 curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.7.4 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.7.3'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.7.4'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Windows installer options:
@@ -510,6 +519,13 @@ Publishing uses npm trusted publishing, so no npm token is stored in the
 repository. The `missbetty` package on npmjs.com lists this repository's
 `publish.yml` workflow as its trusted publisher, and the workflow has the
 `id-token: write` permission it needs to authenticate.
+
+To publish an already released version to npm (semantic-release never
+republishes a tag), start the Publish workflow by hand with that tag:
+
+```sh
+gh workflow run publish.yml -f tag=v1.7.4
+```
 
 The publish workflow uses Node.js 24. Betty itself requires Node.js 24 or newer at runtime.
 
