@@ -1,20 +1,60 @@
-name: Test install.sh
+name: Test installers
 
 on:
   pull_request:
     paths:
       - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/test-install.yml'
   push:
     paths:
       - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/test-install.yml'
+
+permissions:
+  contents: read
 
 jobs:
-  ubuntu:
-    runs-on: ubuntu-latest
+  install-sh:
+    name: install.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v3
-      - name: Test install.sh (pipe-kompatibel, wie README)
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Piped the way the README shows. The variables go to `sh`, after sudo,
+      # so they reach the script.
+      - name: Install a pinned version without dependencies
         run: |
-          curl -fsSL file://$PWD/install.sh | sudo sh
-          # Test mit Version Pinning
-          BETTY_SKIP_DEPS=true curl -fsSL file://$PWD/install.sh | sudo sh
+          curl -fsSL "file://$PWD/install.sh" | sudo BETTY_SKIP_DEPS=true BETTY_VERSION=v1.7.4 sh
+          betty --version | grep -q '1.7.4'
+
+  install-ps1:
+    name: install.ps1 (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Run through `iex` like `irm … | iex`, where there is no script file (the
+      # old elevation relaunch via $PSCommandPath broke exactly there). GitHub's
+      # Windows runners are elevated, so this cannot prove the non-admin path.
+      - name: Install a pinned version without dependencies
+        shell: pwsh
+        run: |
+          $env:BETTY_SKIP_DEPS = 'true'
+          $env:BETTY_VERSION = 'v1.7.4'
+          $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
+          $script = Get-Content -Raw ./install.ps1
+          $runner = "Invoke-Expression ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script)))')))"
+          $p = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', $runner -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "install.ps1 failed with exit code $($p.ExitCode)" }
+          $version = & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --version
+          if ($LASTEXITCODE -ne 0 -or ($version -join ' ') -notmatch '1\.7\.4') { throw "unexpected betty --version output: $version" }

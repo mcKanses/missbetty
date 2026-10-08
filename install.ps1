@@ -1,15 +1,23 @@
 $ErrorActionPreference = 'Stop'
 
-if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-  Write-Host "This script requires Administrator privileges. Re-running as Administrator..."
-  Start-Process powershell "-ExecutionPolicy Bypass -File `"$PSCommandPath`" $args" -Verb RunAs
-  exit
-}
+# No Administrator rights needed: betty installs into the user's profile and
+# user PATH. Dependency installers ask for elevation themselves where needed.
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 
 $repo = 'mcKanses/missbetty'
 $version = if ($env:BETTY_VERSION) { $env:BETTY_VERSION } else { 'latest' }
-$asset = 'betty-windows-x64.zip'
 $skipDeps = if ($env:BETTY_SKIP_DEPS) { $env:BETTY_SKIP_DEPS -eq 'true' } else { $false }
+
+# The OS architecture, not the process's: an x64 PowerShell under emulation on
+# ARM64 Windows still gets the native arm64 binary.
+$osArch = try { [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() } catch { $env:PROCESSOR_ARCHITECTURE }
+$asset = if ($osArch -match '^arm64$') { 'betty-windows-arm64.zip' } else { 'betty-windows-x64.zip' }
+
+$dockerWaitSeconds = 240
+if ($env:BETTY_DOCKER_WAIT_SECONDS) {
+  $parsedWait = 0
+  if ([int]::TryParse($env:BETTY_DOCKER_WAIT_SECONDS, [ref]$parsedWait)) { $dockerWaitSeconds = [Math]::Max(30, $parsedWait) }
+}
 
 function Refresh-ProcessPath {
   $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
@@ -24,7 +32,8 @@ function Install-PackageAuto {
     [string]$WingetId
   )
 
-  $hasChoco = $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
+  # Chocolatey needs an elevated shell; winget prompts for elevation itself.
+  $hasChoco = $isAdmin -and $null -ne (Get-Command choco -ErrorAction SilentlyContinue)
   $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
 
   if ($hasChoco) {
@@ -39,7 +48,7 @@ function Install-PackageAuto {
     return
   }
 
-  throw "Neither Chocolatey nor winget is available for automatic $Name installation."
+  throw "winget is not available for automatic $Name installation. Install $Name manually, or rerun this installer from an elevated PowerShell to use Chocolatey."
 }
 
 function Ensure-DockerDesktopRunning {
@@ -63,7 +72,8 @@ function Ensure-DockerDesktopRunning {
     Start-Process -FilePath $dockerDesktopExe | Out-Null
   }
 
-  for ($i = 1; $i -le 60; $i++) {
+  $deadline = (Get-Date).AddSeconds($dockerWaitSeconds)
+  while ((Get-Date) -lt $deadline) {
     if (docker info 1>$null 2>$null) {
       Write-Host '✓ Docker daemon is running'
       return
@@ -72,7 +82,7 @@ function Ensure-DockerDesktopRunning {
     Start-Sleep -Seconds 2
   }
 
-  throw 'Docker was installed but daemon did not become ready. A reboot or first-time Docker Desktop setup may be required.'
+  throw "Docker was installed but the daemon did not become ready within $dockerWaitSeconds seconds. A reboot or first-time Docker Desktop setup may be required; raise the wait with BETTY_DOCKER_WAIT_SECONDS."
 }
 
 function Ensure-MkcertInstalled {
