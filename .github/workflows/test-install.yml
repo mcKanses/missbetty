@@ -35,6 +35,23 @@ jobs:
           curl -fsSL "file://$PWD/install.sh" | sudo BETTY_SKIP_DEPS=true BETTY_VERSION=v1.7.4 sh
           betty --version | grep -q '1.7.4'
 
+      - name: Refuse to install without cosign when a signature is required
+        run: |
+          if command -v cosign >/dev/null 2>&1; then echo "cosign is preinstalled; skipping"; exit 0; fi
+          if curl -fsSL "file://$PWD/install.sh" | sudo BETTY_SKIP_DEPS=true BETTY_REQUIRE_SIGNATURE=true BETTY_VERSION=v1.7.5 sh; then
+            echo "The installer should have refused to install without cosign."
+            exit 1
+          fi
+
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign-installer puts cosign in a user directory, which sudo's PATH drops.
+      - name: Install with a verified signature
+        run: |
+          curl -fsSL "file://$PWD/install.sh" | sudo env "PATH=$PATH" BETTY_SKIP_DEPS=true BETTY_REQUIRE_SIGNATURE=true BETTY_VERSION=v1.7.5 sh | tee install.log
+          grep -q 'Signature verification passed' install.log
+          betty --version | grep -q '1.7.5'
+
   install-ps1:
     name: install.ps1 (windows)
     runs-on: windows-latest
@@ -58,3 +75,36 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "install.ps1 failed with exit code $($p.ExitCode)" }
           $version = & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --version
           if ($LASTEXITCODE -ne 0 -or ($version -join ' ') -notmatch '1\.7\.4') { throw "unexpected betty --version output: $version" }
+
+      - name: Refuse to install without cosign when a signature is required
+        shell: pwsh
+        run: |
+          if (Get-Command cosign -ErrorAction SilentlyContinue) { Write-Host 'cosign is preinstalled; skipping'; exit 0 }
+          $env:BETTY_SKIP_DEPS = 'true'
+          $env:BETTY_REQUIRE_SIGNATURE = 'true'
+          $env:BETTY_VERSION = 'v1.7.5'
+          $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-refused'
+          $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', './install.ps1' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -eq 0) { throw 'The installer should have refused to install without cosign.' }
+
+      - uses: sigstore/cosign-installer@v3
+
+      # Windows PowerShell 5.1, the shell `irm … | iex` usually runs in: it treats
+      # stderr from cosign differently from pwsh. The step runs in 5.1 itself;
+      # launched from pwsh, 5.1 would inherit pwsh's module path and miss cmdlets.
+      - name: Install with a verified signature (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $env:BETTY_SKIP_DEPS = 'true'
+          $env:BETTY_REQUIRE_SIGNATURE = 'true'
+          $env:BETTY_VERSION = 'v1.7.5'
+          $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-signed'
+          # The runner sets 'Stop'; the child's own output must not abort this step.
+          $ErrorActionPreference = 'Continue'
+          $output = powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1 | Out-String
+          $exitCode = $LASTEXITCODE
+          Write-Host $output
+          if ($exitCode -ne 0) { throw "install.ps1 failed with exit code $exitCode" }
+          if ($output -notmatch 'Signature verification passed') { throw 'The signature was not verified.' }
+          $version = & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --version
+          if (($version -join ' ') -notmatch '1\.7\.5') { throw "unexpected betty --version output: $version" }
