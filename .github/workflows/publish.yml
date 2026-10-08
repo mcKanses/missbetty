@@ -3,6 +3,13 @@ name: Publish
 on:
   push:
     branches: [main]
+  # Publishes an already released version to npm by hand, e.g. to retry after
+  # an npm failure. semantic-release never republishes a tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to npm, e.g. v1.7.4
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +21,7 @@ permissions:
 
 jobs:
   semantic-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       # Optional token for the release metadata PR. PRs opened with GITHUB_TOKEN
@@ -47,8 +55,8 @@ jobs:
       - name: Test
         run: npm test
 
-      # @semantic-release/npm verifies the OIDC trusted-publisher setup in its
-      # verifyConditions step, before anything is tagged or published.
+      # Tags, writes the changelog and creates the GitHub release. npm publishing
+      # happens in the npm-publish job below.
       - name: Release
         run: npm run release
         env:
@@ -88,3 +96,91 @@ jobs:
         run: gh pr merge "${{ steps.metadata-pr.outputs.pull-request-number }}" --auto --merge --delete-branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+
+  # npm publishing is its own job, after the release: an npm problem (registry
+  # outage, trusted-publisher setting) then cannot block the tag, the GitHub
+  # release or the binaries, and it can be retried per tag by hand. On a push
+  # it publishes the tag semantic-release just created; started by hand it
+  # publishes the given tag. Versions already on npm are skipped, so reruns are
+  # safe.
+  npm-publish:
+    needs: semantic-release
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.semantic-release.result == 'success')
+    # An automatic run reports an npm failure on this job without turning the
+    # whole Publish run red, which would stop release-binaries.
+    continue-on-error: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    # This job runs third-party install scripts (npm ci) and tests; it needs to
+    # read the repo and get an OIDC token for npm, nothing more.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+[.][0-9]+[.][0-9]+$' | head -n 1 || true)
+            if [ -z "$TAG" ]; then
+              echo "No release was cut for this commit; nothing to publish."
+              exit 0
+            fi
+          fi
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+[.][0-9]+[.][0-9]+$'; then
+            echo "Expected a release tag like v1.7.4, got: $TAG"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          if npm view "missbetty@$VERSION" version >/dev/null 2>&1; then
+            echo "missbetty@$VERSION is already on npm; nothing to publish."
+            exit 0
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # No registry-url here: with it, setup-node writes an .npmrc whose token
+      # defaults to a placeholder, and npm sends that instead of using the OIDC
+      # trusted-publishing login (the registry then answers 404).
+      - name: Setup Node.js
+        if: steps.tag.outputs.version != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - name: Update npm
+        if: steps.tag.outputs.version != ''
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        if: steps.tag.outputs.version != ''
+        run: npm ci
+
+      - name: Build
+        if: steps.tag.outputs.version != ''
+        run: npm run build
+
+      - name: Test
+        if: steps.tag.outputs.version != ''
+        run: npm test
+
+      # semantic-release bumps the version only in its own checkout; the tagged
+      # commit still carries the previous one.
+      - name: Set version from tag
+        if: steps.tag.outputs.version != ''
+        run: npm version "${{ steps.tag.outputs.version }}" --no-git-tag-version --allow-same-version --ignore-scripts
+
+      # The build above is what gets published; skip prepack's second build.
+      - name: Publish to npm
+        if: steps.tag.outputs.version != ''
+        run: npm publish --access public --ignore-scripts

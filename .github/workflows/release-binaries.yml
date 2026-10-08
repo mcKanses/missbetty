@@ -1,12 +1,19 @@
 name: Release Binaries
 
+# Builds the platform binaries that install.sh / install.ps1 download, from the
+# release tag, into the release semantic-release created as a draft. The draft
+# is published (and becomes "Latest") only once every binary is uploaded, so
+# installers never see a release without its assets.
 on:
   workflow_run:
     workflows: [Publish]
     types: [completed]
-  release:
-    types: [published]
+  # Rebuild a release by hand, e.g. after a failed build left it a draft.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build binaries for, e.g. v1.7.4
+        required: true
 
 permissions:
   contents: write
@@ -16,24 +23,45 @@ jobs:
   resolve-release:
     name: Resolve Release
     runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    # Only Publish runs from a push to main can cut a release; a hand-started
+    # Publish run (npm-only) never does.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'cancelled')
     outputs:
       tag_name: ${{ steps.resolve.outputs.tag_name }}
+      draft: ${{ steps.resolve.outputs.draft }}
     steps:
-      - name: Resolve tag name
+      - name: Resolve tag and release
         id: resolve
         uses: actions/github-script@v7
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         with:
           script: |
-            if (context.eventName === 'release')
-              return core.setOutput('tag_name', context.payload.release.tag_name)
+            const tagPattern = /^v\d+\.\d+\.\d+$/
+            let tag = ''
+            if (context.eventName === 'workflow_dispatch') {
+              tag = process.env.INPUT_TAG
+              if (!tagPattern.test(tag)) return core.setFailed(`Expected a release tag like v1.7.4, got: ${tag}`)
+            } else {
+              // A release exists only if semantic-release tagged the commit this
+              // Publish run was for. Without that, there is nothing to build,
+              // and the latest release's assets must stay untouched.
+              const sha = context.payload.workflow_run.head_sha
+              const tags = await github.paginate(github.rest.repos.listTags, { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 })
+              tag = tags.find((t) => t.commit.sha === sha && tagPattern.test(t.name))?.name ?? ''
+              if (tag === '') {
+                core.notice(`No release tag on ${sha}; nothing to build.`)
+                return core.setOutput('tag_name', '')
+              }
+            }
 
-            const { data: latestRelease } = await github.rest.repos.getLatestRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            })
+            // Drafts are not returned by the by-tag endpoint, so search the list.
+            const releases = await github.paginate(github.rest.repos.listReleases, { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 })
+            const release = releases.find((r) => r.tag_name === tag)
+            if (release === undefined) return core.setFailed(`No GitHub release exists for ${tag}.`)
 
-            core.setOutput('tag_name', latestRelease.tag_name)
+            core.setOutput('tag_name', tag)
+            core.setOutput('draft', String(release.draft))
 
   build-and-upload:
     needs: resolve-release
@@ -50,42 +78,37 @@ jobs:
             asset_name: betty-linux-x64.tar.gz
             binary_name: betty
             archive_kind: tar
-            smoke_test: true
           - runs_on: ubuntu-24.04-arm
             asset_name: betty-linux-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
-            smoke_test: true
           - runs_on: macos-latest
             asset_name: betty-darwin-x64.tar.gz
             binary_name: betty
             archive_kind: tar
             target_node_dist: darwin-x64
             target_node_binary: bin/node
-            smoke_test: false
           - runs_on: macos-latest
             asset_name: betty-darwin-arm64.tar.gz
             binary_name: betty
             archive_kind: tar
-            smoke_test: true
           - runs_on: windows-latest
             asset_name: betty-windows-x64.zip
             binary_name: betty.exe
             archive_kind: zip
-            smoke_test: true
           - runs_on: windows-latest
             asset_name: betty-windows-arm64.zip
             binary_name: betty.exe
             archive_kind: zip
             target_node_dist: win-arm64
             target_node_binary: node.exe
-            smoke_test: false
 
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ needs.resolve-release.outputs.tag_name }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -98,23 +121,27 @@ jobs:
 
       - name: Set binary version from release tag
         shell: bash
+        env:
+          TAG: ${{ needs.resolve-release.outputs.tag_name }}
         run: |
-          RELEASE_VERSION="${{ needs.resolve-release.outputs.tag_name }}"
-          RELEASE_VERSION="${RELEASE_VERSION#v}"
+          node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version=process.argv[1]; fs.writeFileSync(path, JSON.stringify(pkg, null, 2)+'\\n');" "${TAG#v}"
 
-          node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version=process.argv[1]; fs.writeFileSync(path, JSON.stringify(pkg, null, 2)+'\\n');" "$RELEASE_VERSION"
-
+      # Cross-built targets embed a Node runtime downloaded from nodejs.org; it is
+      # checked against the release's SHASUMS256.txt before it gets signed into
+      # Betty's binary.
       - name: Prepare target Node runtime (tar)
         if: matrix.target_node_dist != '' && matrix.archive_kind == 'tar'
         shell: bash
         run: |
           NODE_VERSION="$(node -p 'process.version.slice(1)')"
           ARCHIVE="node-v${NODE_VERSION}-${{ matrix.target_node_dist }}.tar.gz"
-          URL="https://nodejs.org/dist/v${NODE_VERSION}/${ARCHIVE}"
+          BASE="https://nodejs.org/dist/v${NODE_VERSION}"
 
           mkdir -p .node-runtime
-          curl -fsSL "$URL" -o .node-runtime/node.tar.gz
-          tar -xzf .node-runtime/node.tar.gz -C .node-runtime --strip-components=1
+          curl -fsSL "$BASE/$ARCHIVE" -o ".node-runtime/$ARCHIVE"
+          curl -fsSL "$BASE/SHASUMS256.txt" -o .node-runtime/SHASUMS256.txt
+          (cd .node-runtime && grep " $ARCHIVE\$" SHASUMS256.txt | shasum -a 256 -c -)
+          tar -xzf ".node-runtime/$ARCHIVE" -C .node-runtime --strip-components=1
           echo "BETTY_SEA_NODE_BINARY=$PWD/.node-runtime/${{ matrix.target_node_binary }}" >> "$GITHUB_ENV"
 
       - name: Prepare target Node runtime (zip)
@@ -123,10 +150,17 @@ jobs:
         run: |
           $nodeVersion = node -p "process.version.slice(1)"
           $archive = "node-v$nodeVersion-${{ matrix.target_node_dist }}.zip"
-          $url = "https://nodejs.org/dist/v$nodeVersion/$archive"
+          $base = "https://nodejs.org/dist/v$nodeVersion"
 
           New-Item -ItemType Directory -Force -Path .node-runtime | Out-Null
-          Invoke-WebRequest -Uri $url -OutFile .node-runtime\node.zip
+          Invoke-WebRequest -Uri "$base/$archive" -OutFile .node-runtime\node.zip
+          Invoke-WebRequest -Uri "$base/SHASUMS256.txt" -OutFile .node-runtime\SHASUMS256.txt
+          $line = Select-String -Path .node-runtime\SHASUMS256.txt -Pattern "  $([regex]::Escape($archive))$" | Select-Object -First 1
+          if (-not $line) { throw "No checksum for $archive in SHASUMS256.txt" }
+          $expected = ($line.Line -split '\s+')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 .node-runtime\node.zip).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Checksum mismatch for ${archive}: expected $expected, got $actual" }
+
           Expand-Archive -Path .node-runtime\node.zip -DestinationPath .node-runtime\expanded -Force
           $root = Get-ChildItem -Path .node-runtime\expanded | Select-Object -First 1
           $targetNode = Join-Path $root.FullName '${{ matrix.target_node_binary }}'
@@ -181,69 +215,81 @@ jobs:
           cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sig" --output-certificate "${{ matrix.asset_name }}.pem" "${{ matrix.asset_name }}"
           cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sha256.sig" --output-certificate "${{ matrix.asset_name }}.sha256.pem" "${{ matrix.asset_name }}.sha256"
 
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.resolve-release.outputs.tag_name }}
-          files: |
-            ${{ matrix.asset_name }}
-            ${{ matrix.asset_name }}.sha256
-            ${{ matrix.asset_name }}.sig
-            ${{ matrix.asset_name }}.pem
-            ${{ matrix.asset_name }}.sha256.sig
-            ${{ matrix.asset_name }}.sha256.pem
-          fail_on_unmatched_files: true
-          overwrite_files: true
-
-      - name: Smoke test installer (Linux/macOS)
-        if: matrix.archive_kind == 'tar' && matrix.smoke_test == true
+      # gh also finds draft releases by tag. --clobber lets a rerun replace the
+      # assets of the same tag, which were built from the same tagged commit.
+      - name: Upload release assets
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve-release.outputs.tag_name }}
+          ASSET: ${{ matrix.asset_name }}
         run: |
-          export BETTY_VERSION="${{ needs.resolve-release.outputs.tag_name }}"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$ASSET" "$ASSET.sha256" "$ASSET.sig" "$ASSET.pem" "$ASSET.sha256.sig" "$ASSET.sha256.pem"
+
+  # Publishes the draft only when every binary was uploaded. If a build failed,
+  # the release stays a draft and installers keep serving the previous one.
+  publish-release:
+    needs: [resolve-release, build-and-upload]
+    if: needs.resolve-release.outputs.draft == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve-release.outputs.tag_name }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+
+  # Installs the published release the way users do.
+  smoke-test:
+    needs: [resolve-release, publish-release]
+    if: always() && needs.resolve-release.outputs.tag_name != '' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
+    name: Smoke Test (${{ matrix.runs_on }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runs_on: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-release.outputs.tag_name }}
+          persist-credentials: false
+
+      - name: Install with install.sh
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          BETTY_VERSION: ${{ needs.resolve-release.outputs.tag_name }}
+          BETTY_SKIP_DEPS: 'true'
+        run: |
           export BETTY_INSTALL_DIR="$RUNNER_TEMP/betty-bin"
-          export BETTY_SKIP_DEPS="true"
           mkdir -p "$BETTY_INSTALL_DIR"
-
           for attempt in 1 2 3 4 5; do
-            if sh ./install.sh; then
-              break
-            fi
-
-            if [ "$attempt" = "5" ]; then
-              echo "Installer smoke test failed after retries."
-              exit 1
-            fi
-
+            if sh ./install.sh; then break; fi
+            if [ "$attempt" = "5" ]; then echo "Installer smoke test failed after retries."; exit 1; fi
             echo "Retrying installer smoke test ($attempt/5)..."
             sleep 5
           done
-
           "$BETTY_INSTALL_DIR/betty" --help > /dev/null
 
-      - name: Smoke test installer (Windows)
-        if: matrix.archive_kind == 'zip' && matrix.smoke_test == true
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          BETTY_VERSION: ${{ needs.resolve-release.outputs.tag_name }}
+          BETTY_SKIP_DEPS: 'true'
         run: |
-          $env:BETTY_VERSION = '${{ needs.resolve-release.outputs.tag_name }}'
           $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
-          $env:BETTY_SKIP_DEPS = 'true'
           New-Item -ItemType Directory -Force -Path $env:BETTY_INSTALL_DIR | Out-Null
-
-          $installed = $false
+          # A child pwsh reports failure through its exit code, not an exception.
           for ($i = 1; $i -le 5; $i++) {
-            try {
-              pwsh -NoProfile -ExecutionPolicy Bypass -File ./install.ps1
-              $installed = $true
-              break
-            }
-            catch {
-              if ($i -eq 5) { throw }
-              Write-Host "Retrying installer smoke test ($i/5)..."
-              Start-Sleep -Seconds 5
-            }
+            pwsh -NoProfile -ExecutionPolicy Bypass -File ./install.ps1
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($i -eq 5) { throw 'Installer smoke test failed after retries.' }
+            Write-Host "Retrying installer smoke test ($i/5)..."
+            Start-Sleep -Seconds 5
           }
-
-          if (-not $installed) { throw 'Installer smoke test failed.' }
-
           & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --help | Out-Null
-
+          if ($LASTEXITCODE -ne 0) { throw 'betty --help failed.' }

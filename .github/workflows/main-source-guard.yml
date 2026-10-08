@@ -5,6 +5,9 @@ on:
     branches: [main]
     types: [opened, reopened, synchronize, edited]
 
+permissions:
+  contents: read
+
 jobs:
   enforce-main-from-development:
     runs-on: ubuntu-latest
@@ -12,19 +15,23 @@ jobs:
       - name: Validate source and target branch
         env:
           SOURCE_BRANCH: ${{ github.event.pull_request.head.ref }}
+          SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          THIS_REPO: ${{ github.repository }}
         run: |
           if [ "$BASE_BRANCH" = "development" ]; then
             echo "PR target branch is development. Allowing."
             exit 0
           fi
 
-          if [ "$SOURCE_BRANCH" = "development" ]; then
+          # A fork can name its branch "development" too; only this repo's
+          # development branch may go to main.
+          if [ "$SOURCE_BRANCH" = "development" ] && [ "$SOURCE_REPO" = "$THIS_REPO" ]; then
             echo "PR source branch is development."
             exit 0
           fi
 
           echo "Only PRs from development to main are allowed."
-          echo "Current source branch: $SOURCE_BRANCH"
+          echo "Current source: $SOURCE_REPO:$SOURCE_BRANCH"
           echo "Current target branch: $BASE_BRANCH"
           exit 1
