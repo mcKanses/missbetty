@@ -89,19 +89,22 @@ jobs:
 
       - uses: sigstore/cosign-installer@v3
 
-      # Windows PowerShell 5.1 (`powershell`), the shell `irm … | iex` usually
-      # runs in: it treats stderr from cosign differently from pwsh.
+      # Windows PowerShell 5.1, the shell `irm … | iex` usually runs in: it treats
+      # stderr from cosign differently from pwsh. The step runs in 5.1 itself;
+      # launched from pwsh, 5.1 would inherit pwsh's module path and miss cmdlets.
       - name: Install with a verified signature (Windows PowerShell 5.1)
-        shell: pwsh
+        shell: powershell
         run: |
           $env:BETTY_SKIP_DEPS = 'true'
           $env:BETTY_REQUIRE_SIGNATURE = 'true'
           $env:BETTY_VERSION = 'v1.7.5'
           $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-signed'
-          $log = Join-Path $env:RUNNER_TEMP 'install.log'
-          $p = Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', './install.ps1' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $log
-          Get-Content $log
-          if ($p.ExitCode -ne 0) { throw "install.ps1 failed with exit code $($p.ExitCode)" }
-          if (-not (Select-String -Path $log -Pattern 'Signature verification passed' -Quiet)) { throw 'The signature was not verified.' }
+          # The runner sets 'Stop'; the child's own output must not abort this step.
+          $ErrorActionPreference = 'Continue'
+          $output = powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1 | Out-String
+          $exitCode = $LASTEXITCODE
+          Write-Host $output
+          if ($exitCode -ne 0) { throw "install.ps1 failed with exit code $exitCode" }
+          if ($output -notmatch 'Signature verification passed') { throw 'The signature was not verified.' }
           $version = & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --version
           if (($version -join ' ') -notmatch '1\.7\.5') { throw "unexpected betty --version output: $version" }
