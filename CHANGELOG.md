@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/mcKanses/missbetty/compare/v1.8.0...v1.9.0) (2026-10-09)
+
+
+### Features
+
+* Route PostgreSQL connections by domain ([39b4ae2](https://github.com/mcKanses/missbetty/commit/39b4ae278fd3426e161638d6876c6e9196b13a5e)), closes [#143](https://github.com/mcKanses/missbetty/issues/143)
+
 # [1.8.0](https://github.com/mcKanses/missbetty/compare/v1.7.5...v1.8.0) (2026-10-08)
 
 
