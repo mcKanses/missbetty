@@ -1,4 +1,7 @@
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 renders a progress bar per downloaded chunk, which makes
+# downloads many times slower.
+$ProgressPreference = 'SilentlyContinue'
 
 # No Administrator rights needed: betty installs into the user's profile and
 # user PATH. Dependency installers ask for elevation themselves where needed.
@@ -17,6 +20,25 @@ $dockerWaitSeconds = 240
 if ($env:BETTY_DOCKER_WAIT_SECONDS) {
   $parsedWait = 0
   if ([int]::TryParse($env:BETTY_DOCKER_WAIT_SECONDS, [ref]$parsedWait)) { $dockerWaitSeconds = [Math]::Max(30, $parsedWait) }
+}
+
+# Runs a native command and reports whether it exited with 0. `if (cmd)` would
+# test the command's output, not its exit code, and Windows PowerShell 5.1 turns
+# stderr output into a terminating error under 'Stop'.
+function Test-NativeCommand {
+  param([scriptblock]$Command)
+  $previousPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $Command *> $null
+    return $LASTEXITCODE -eq 0
+  }
+  catch {
+    return $false
+  }
+  finally {
+    $ErrorActionPreference = $previousPreference
+  }
 }
 
 function Refresh-ProcessPath {
@@ -60,7 +82,7 @@ function Ensure-DockerDesktopRunning {
     throw 'Docker CLI is still not available after installation.'
   }
 
-  if (docker info 1>$null 2>$null) {
+  if (Test-NativeCommand { docker info }) {
     Write-Host '✓ Docker daemon is running'
     return
   }
@@ -74,7 +96,7 @@ function Ensure-DockerDesktopRunning {
 
   $deadline = (Get-Date).AddSeconds($dockerWaitSeconds)
   while ((Get-Date) -lt $deadline) {
-    if (docker info 1>$null 2>$null) {
+    if (Test-NativeCommand { docker info }) {
       Write-Host '✓ Docker daemon is running'
       return
     }
@@ -94,11 +116,10 @@ function Ensure-MkcertInstalled {
     throw 'mkcert was not found after installation.'
   }
 
-  try {
-    mkcert -install | Out-Null
+  if (Test-NativeCommand { mkcert -install }) {
     Write-Host '✓ mkcert CA installed'
   }
-  catch {
+  else {
     Write-Host 'mkcert installed, but trust store setup may require additional permissions.'
   }
 }
@@ -171,8 +192,8 @@ try {
   $checksumPath = Join-Path $tmpDir 'betty.zip.sha256'
 
   Write-Host "Downloading $url"
-  Invoke-WebRequest -Uri $url -OutFile $zipPath
-  Invoke-WebRequest -Uri $checksumUrl -OutFile $checksumPath
+  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zipPath
+  Invoke-WebRequest -UseBasicParsing -Uri $checksumUrl -OutFile $checksumPath
 
   $expectedLine = Get-Content -Path $checksumPath | Select-Object -First 1
   $expectedHash = ($expectedLine -split '\s+')[0].ToLower()
@@ -194,14 +215,16 @@ try {
   # workflow; with cosign installed that signature is checked too, and
   # BETTY_REQUIRE_SIGNATURE=true refuses to install without it.
   $requireSignature = $env:BETTY_REQUIRE_SIGNATURE -eq 'true'
-  $signerIdentity = '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/'
+  # Only runs on main sign releases; a run from another branch could carry a
+  # modified workflow.
+  $signerIdentity = '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/main$'
   $signerIssuer = 'https://token.actions.githubusercontent.com'
 
   if ($null -ne (Get-Command cosign -ErrorAction SilentlyContinue)) {
     $signaturePath = Join-Path $tmpDir 'betty.zip.sig'
     $certificatePath = Join-Path $tmpDir 'betty.zip.pem'
-    Invoke-WebRequest -Uri "$url.sig" -OutFile $signaturePath
-    Invoke-WebRequest -Uri "$url.pem" -OutFile $certificatePath
+    Invoke-WebRequest -UseBasicParsing -Uri "$url.sig" -OutFile $signaturePath
+    Invoke-WebRequest -UseBasicParsing -Uri "$url.pem" -OutFile $certificatePath
     # cosign reports even success on stderr; Windows PowerShell 5.1 would turn
     # that into a terminating error under 'Stop', so judge by exit code only.
     $previousPreference = $ErrorActionPreference
