@@ -23,6 +23,17 @@ jest.mock('fs', () => ({
   existsSync: jest.fn(),
 }))
 
+// Pass-through lock that records whether it is held, so tests can check that
+// the proxy goes down under it.
+const mockLockState = { held: false }
+jest.mock('../utils/lock', () => ({
+  __esModule: true,
+  withLock: (fn: () => unknown) => {
+    mockLockState.held = true
+    try { return fn() } finally { mockLockState.held = false }
+  },
+}))
+
 jest.mock('inquirer', () => ({
   __esModule: true,
   default: { prompt: jest.fn() },
@@ -94,8 +105,12 @@ describe('rest command', () => {
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
+    let heldDuringDown = false
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => { heldDuringDown = mockLockState.held })
+
     await restCommand({ yes: true })
 
+    expect(heldDuringDown).toBe(true)
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(execSync).toHaveBeenCalledWith(`docker compose -f "${composePath}" down`, {
       cwd: homeDir,

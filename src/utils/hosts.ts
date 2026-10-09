@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 
 // Marker Betty appends to every hosts entry it creates. Removal is gated on this
@@ -20,8 +20,9 @@ const needsEntry = (domain: string): boolean => domain !== '' && !domain.toLower
 
 const entryFor = (domain: string): string => `127.0.0.1 ${domain} ${BETTY_HOSTS_MARKER}`
 
+// Host names are case-insensitive, as is the elevated script's PowerShell -match.
 const domainPattern = (domain: string): RegExp =>
-  new RegExp(`(^|\\s)${domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`)
+  new RegExp(`(^|\\s)${domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`, 'i')
 
 // Only the part before `#` maps a host: a disabled line such as
 // `# 127.0.0.1 app.test` does not count, and the marker's own words ("added",
@@ -86,8 +87,11 @@ const applyEdit = (content: string, edit: HostsEdit): string => {
 const elevateWithPowerShell = (script: string): boolean => {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   try {
-    execSync(
-      `powershell -NoProfile -Command "Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-EncodedCommand','${encoded}' -Wait"`,
+    // Started directly, not through cmd.exe: cmd caps a command line at 8191
+    // characters, which a hosts edit for many domains exceeds.
+    execFileSync(
+      'powershell',
+      ['-NoProfile', '-Command', `Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-EncodedCommand','${encoded}' -Wait`],
       { stdio: 'inherit' }
     )
     return true
@@ -147,6 +151,11 @@ const editHosts = (add: string[], remove: string[]): boolean => {
   if (!hasWork && unknownRemovals.length === 0) return true
 
   const appendOnly = edit.remove.length === 0
+  // Whether the file ends with a line break is unknown when it could not be
+  // read, so the new lines start on a line of their own.
+  const appended = (): string => content !== null
+    ? appendText(content, edit.add.map(entryFor))
+    : `${lineEnding('')}${appendText('', edit.add.map(entryFor))}`
   const applied = (): boolean => {
     const after = readOrNull(hostsPath)
     if (after === null) return false
@@ -157,7 +166,7 @@ const editHosts = (add: string[], remove: string[]): boolean => {
   const writeDirect = (): boolean => {
     try {
       // Appending touches only the new lines; a removal has to rewrite the file.
-      if (appendOnly) fs.appendFileSync(hostsPath, appendText(content ?? '', edit.add.map(entryFor)), 'utf8')
+      if (appendOnly) fs.appendFileSync(hostsPath, appended(), 'utf8')
       else fs.writeFileSync(hostsPath, applyEdit(content ?? '', edit), 'utf8')
       return true
     } catch {
@@ -173,7 +182,7 @@ const editHosts = (add: string[], remove: string[]): boolean => {
       // `sudo tee` receives the text on stdin, so nothing passes through a shell.
       // sudo reads its password from the tty.
       const args = appendOnly ? ['tee', '-a', hostsPath] : ['tee', hostsPath]
-      const input = appendOnly ? appendText(content ?? '', edit.add.map(entryFor)) : applyEdit(content ?? '', edit)
+      const input = appendOnly ? appended() : applyEdit(content ?? '', edit)
       execFileSync('sudo', args, { input, stdio: ['pipe', 'ignore', 'inherit'] })
       return applied()
     } catch {

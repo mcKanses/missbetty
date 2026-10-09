@@ -203,7 +203,7 @@ describe('serve command', () => {
 
     expect(execSync).toHaveBeenCalledWith(
       expect.stringContaining('docker network create'),
-      expect.objectContaining({ stdio: 'inherit' })
+      expect.objectContaining({ stdio: 'pipe' })
     )
 
     logSpy.mockRestore()
