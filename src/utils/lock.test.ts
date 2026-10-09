@@ -9,6 +9,7 @@ jest.mock('fs', () => ({
     readFileSync: jest.fn(),
     statSync: jest.fn(),
     rmSync: jest.fn(),
+    renameSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
@@ -16,6 +17,7 @@ jest.mock('fs', () => ({
   readFileSync: jest.fn(),
   statSync: jest.fn(),
   rmSync: jest.fn(),
+  renameSync: jest.fn(),
 }))
 
 jest.mock('./constants', () => ({
@@ -49,6 +51,8 @@ const processRunning = (running: boolean, code = 'ESRCH'): void => {
 beforeEach(() => {
   jest.resetAllMocks()
   ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+  // A lock written just now, unless a test ages it.
+  ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() })
   // By default this process owns whatever lock it reads back.
   ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(String(process.pid))
 })
@@ -109,6 +113,41 @@ describe('withLock', () => {
     expect(result).toBe('ok')
     expect(fn).toHaveBeenCalled()
     expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+  })
+
+  it('reclaims a lock older than an hour even if its PID is alive, since the PID may have been reused', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(true)
+    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() - 2 * 60 * 60_000 })
+
+    expect(withLock(() => 'ok')).toBe('ok')
+    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+  })
+
+  it('puts back a fresh lock that another process took between the check and the reclaim', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(false)
+    // The file moved away now belongs to a third process that reclaimed it first.
+    ;(fs.renameSync as unknown as jest.Mock).mockImplementationOnce(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('515151')
+    })
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+    expect(fs.renameSync).toHaveBeenLastCalledWith(expect.stringContaining('.stale'), LOCK_PATH)
+    expect(fs.writeFileSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('names the lock file in the busy message', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(true)
+    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() })
+
+    try {
+      withLock(() => 'x')
+    } catch (err) {
+      expect((err as BettyError).hints.join(' ')).toContain(LOCK_PATH)
+    }
+    expect.assertions(1)
   })
 
   it('falls back to the file age when the lock has no readable PID', () => {

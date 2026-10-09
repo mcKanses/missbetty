@@ -12,7 +12,14 @@ const LOCK_PATH = path.join(BETTY_HOME_DIR, '.lock')
 // Only for a lock file without a readable PID (e.g. caught mid-write).
 const UNREADABLE_STALE_MS = 60_000
 
-const busyError = (): BettyError => new BettyError('Another betty command is already running. Please retry in a moment.')
+// A lock older than this is reclaimed even if its PID is alive: the system may
+// have reused the PID of a betty process that was killed without cleaning up.
+// No betty command holds the lock for this long, prompts included.
+const MAX_LOCK_AGE_MS = 60 * 60_000
+
+const busyError = (): BettyError => new BettyError('Another betty command is already running. Please retry in a moment.', {
+  hints: [`If no other betty command is running, delete the lock file: ${LOCK_PATH}`],
+})
 
 const writeLockFile = (): void => {
   fs.writeFileSync(LOCK_PATH, String(process.pid), { flag: 'wx' })
@@ -37,12 +44,18 @@ const isRunning = (pid: number): boolean => {
   }
 }
 
-const isFresh = (): boolean => {
+const lockAge = (filePath: string): number => {
   try {
-    return Date.now() - fs.statSync(LOCK_PATH).mtimeMs < UNREADABLE_STALE_MS
+    return Date.now() - fs.statSync(filePath).mtimeMs
   } catch {
-    return false
+    return Infinity
   }
+}
+
+const isStale = (owner: number | null): boolean => {
+  const age = lockAge(LOCK_PATH)
+  if (owner === null) return age >= UNREADABLE_STALE_MS
+  return !isRunning(owner) || age >= MAX_LOCK_AGE_MS
 }
 
 const acquire = (): void => {
@@ -59,13 +72,33 @@ const acquire = (): void => {
   }
 
   const owner = readOwner()
-  if (owner !== null ? isRunning(owner) : isFresh()) throw busyError()
+  if (!isStale(owner)) throw busyError()
 
-  fs.rmSync(LOCK_PATH, { force: true })
+  // Reclaim by renaming: only one process can move a given lock file away. A
+  // plain delete could remove a lock another process has just reclaimed.
+  const claimed = `${LOCK_PATH}.${String(process.pid)}.stale`
+  try {
+    fs.renameSync(LOCK_PATH, claimed)
+  } catch {
+    // Another process reclaimed it first.
+    throw busyError()
+  }
+  // The file moved could already be a fresh lock taken between the check and
+  // the rename; that one goes back.
+  let movedOwner: number | null = null
+  try {
+    movedOwner = parseInt(fs.readFileSync(claimed, 'utf8'), 10)
+  } catch { /* unreadable: treated like the stale lock it replaced */ }
+  if (movedOwner !== owner && movedOwner !== null && !Number.isNaN(movedOwner)) {
+    try { fs.renameSync(claimed, LOCK_PATH) } catch { /* the other process keeps running either way */ }
+    throw busyError()
+  }
+  fs.rmSync(claimed, { force: true })
+
   try {
     writeLockFile()
   } catch {
-    // Another process reclaimed it between our remove and create.
+    // Another process created a lock between our rename and create.
     throw busyError()
   }
 }
