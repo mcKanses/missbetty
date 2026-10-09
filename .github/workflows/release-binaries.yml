@@ -8,7 +8,8 @@ on:
   workflow_run:
     workflows: [Publish]
     types: [completed]
-  # Rebuild a release by hand, e.g. after a failed build left it a draft.
+  # Rebuild a release by hand, e.g. after a failed build left it a draft. Only
+  # runs from main may sign: the installers accept no other signer.
   workflow_dispatch:
     inputs:
       tag:
@@ -25,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only Publish runs from a push to main can cut a release; a hand-started
     # Publish run (npm-only) never does.
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'cancelled')
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'cancelled')
     outputs:
       tag_name: ${{ steps.resolve.outputs.tag_name }}
       draft: ${{ steps.resolve.outputs.draft }}
@@ -238,18 +239,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve-release.outputs.tag_name }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        # A rebuilt older release must not become "Latest": the installers'
+        # default download would then go back a version. GitHub makes a newly
+        # published release Latest unless told otherwise.
+        run: |
+          newest="$( { gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1000 --json tagName --jq '.[].tagName'; echo "$TAG"; } | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          if [ "$newest" = "$TAG" ]; then latest=true; else latest=false; fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
 
   # Installs the published release the way users do.
+  # Covers every binary, including the two cross-built ones (macOS Intel,
+  # Windows arm64), on a runner of their own architecture.
   smoke-test:
-    needs: [resolve-release, publish-release]
-    if: always() && needs.resolve-release.outputs.tag_name != '' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
+    needs: [resolve-release, build-and-upload, publish-release]
+    if: always() && needs.resolve-release.outputs.tag_name != '' && needs.build-and-upload.result == 'success' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
     name: Smoke Test (${{ matrix.runs_on }})
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
-        runs_on: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        runs_on: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4

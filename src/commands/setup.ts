@@ -1,5 +1,6 @@
 import inquirer from 'inquirer'
 import { ensureHostsEntry } from '../utils/hosts'
+import { withLock } from '../utils/lock'
 import {
   checkMkcertCaInstalled,
   checkMkcertInstalled,
@@ -72,7 +73,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
 
   if (!status.hostsEntryExists) {
     const shouldAddHosts = await askYesNo(`Add a hosts entry for ${status.domain}? This may ask for admin rights. [Y/n]`, yes)
-    if (shouldAddHosts) ensureHostsEntry(status.domain)
+    if (shouldAddHosts) withLock(() => ensureHostsEntry(status.domain))
   }
 
   if (!status.dockerInstalled) printDockerInstallInstructions()

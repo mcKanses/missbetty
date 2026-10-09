@@ -208,6 +208,16 @@ describe('ensureProxyNetwork', () => {
     expect(execSync).toHaveBeenCalledTimes(2)
     expect(execSync).toHaveBeenLastCalledWith(expect.stringContaining('create'), expect.anything())
   })
+  it('says Docker may not be running when the network cannot be created', () => {
+    ;(execSync as unknown as jest.Mock).mockImplementation(() => {
+      throw Object.assign(new Error('Command failed'), { stderr: Buffer.from('Cannot connect to the Docker daemon') })
+    })
+
+    const err = captureBettyError(() => { ensureProxyNetwork() })
+
+    expect(err.message).toContain("Could not create the Docker network 'betty_proxy'. Cannot connect to the Docker daemon")
+    expect(err.hints.join(' ')).toContain('Make sure Docker is running')
+  })
 })
 
 describe('proxyStartError', () => {

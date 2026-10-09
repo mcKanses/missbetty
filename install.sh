@@ -11,6 +11,16 @@ if [ -z "${BETTY_INSTALL_DIR:-}" ] && [ "$(id -u)" -ne 0 ]; then
 fi
 
 REPO="mcKanses/missbetty"
+
+# Root needs no sudo, and minimal systems (containers, some WSL distros) run as
+# root without sudo installed.
+if [ "$(id -u)" -eq 0 ]; then
+  SUDO=""
+elif command -v sudo >/dev/null 2>&1; then
+  SUDO="sudo"
+else
+  SUDO=""
+fi
 VERSION="${BETTY_VERSION:-latest}"
 SKIP_DEPS="${BETTY_SKIP_DEPS:-false}"
 
@@ -47,7 +57,7 @@ install_dependencies_linux() {
     return
   fi
 
-  if ! command -v sudo >/dev/null 2>&1; then
+  if [ "$(id -u)" -ne 0 ] && [ -z "$SUDO" ]; then
     echo "sudo is required for automatic dependency installation."
     echo "Install manually: Docker, Docker Compose, mkcert"
     exit 1
@@ -57,39 +67,39 @@ install_dependencies_linux() {
     PKG="$1"
 
     if command -v apt-get >/dev/null 2>&1; then
-      sudo DEBIAN_FRONTEND=noninteractive apt-get update
-      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG"
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG"
       return 0
     fi
 
     if command -v apt >/dev/null 2>&1; then
-      sudo DEBIAN_FRONTEND=noninteractive apt update
-      sudo DEBIAN_FRONTEND=noninteractive apt install -y "$PKG"
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt update
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt install -y "$PKG"
       return 0
     fi
 
     if command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y "$PKG"
+      $SUDO dnf install -y "$PKG"
       return 0
     fi
 
     if command -v yum >/dev/null 2>&1; then
-      sudo yum install -y "$PKG"
+      $SUDO yum install -y "$PKG"
       return 0
     fi
 
     if command -v pacman >/dev/null 2>&1; then
-      sudo pacman -Sy --noconfirm "$PKG"
+      $SUDO pacman -Sy --noconfirm "$PKG"
       return 0
     fi
 
     if command -v zypper >/dev/null 2>&1; then
-      sudo zypper --non-interactive install "$PKG"
+      $SUDO zypper --non-interactive install "$PKG"
       return 0
     fi
 
     if command -v apk >/dev/null 2>&1; then
-      sudo apk add --no-cache "$PKG"
+      $SUDO apk add --no-cache "$PKG"
       return 0
     fi
 
@@ -103,22 +113,22 @@ install_dependencies_linux() {
 
     echo "Installing Docker Engine..."
     if command -v curl >/dev/null 2>&1; then
-      curl -fsSL https://get.docker.com | sudo sh
+      curl -fsSL https://get.docker.com | $SUDO sh
     elif command -v wget >/dev/null 2>&1; then
-      wget -qO- https://get.docker.com | sudo sh
+      wget -qO- https://get.docker.com | $SUDO sh
     else
       echo "Neither curl nor wget is available; cannot install Docker automatically."
       exit 1
     fi
 
     if command -v systemctl >/dev/null 2>&1; then
-      sudo systemctl enable --now docker || true
+      $SUDO systemctl enable --now docker || true
     elif command -v service >/dev/null 2>&1; then
-      sudo service docker start || true
+      $SUDO service docker start || true
     fi
 
     USER_TO_ADD="${SUDO_USER:-$USER}"
-    sudo usermod -aG docker "$USER_TO_ADD" 2>/dev/null || true
+    $SUDO usermod -aG docker "$USER_TO_ADD" 2>/dev/null || true
   }
 
   ensure_docker_running_linux() {
@@ -134,12 +144,12 @@ install_dependencies_linux() {
 
     echo "Starting Docker daemon..."
     if command -v systemctl >/dev/null 2>&1; then
-      sudo systemctl enable --now docker.service docker.socket >/dev/null 2>&1 || true
-      sudo systemctl start docker >/dev/null 2>&1 || true
+      $SUDO systemctl enable --now docker.service docker.socket >/dev/null 2>&1 || true
+      $SUDO systemctl start docker >/dev/null 2>&1 || true
     elif command -v service >/dev/null 2>&1; then
-      sudo service docker start >/dev/null 2>&1 || true
+      $SUDO service docker start >/dev/null 2>&1 || true
     elif command -v dockerd >/dev/null 2>&1; then
-      sudo nohup dockerd >/tmp/betty-dockerd.log 2>&1 &
+      $SUDO nohup dockerd >/tmp/betty-dockerd.log 2>&1 &
     fi
 
     for attempt in 1 2 3 4 5 6 7 8 9 10; do
@@ -147,7 +157,7 @@ install_dependencies_linux() {
         echo "✓ Docker daemon is running"
         return
       fi
-      if sudo docker info >/dev/null 2>&1; then
+      if $SUDO docker info >/dev/null 2>&1; then
         echo "✓ Docker daemon is running (current shell lacks docker group access yet)"
         echo "Re-login once to use docker without sudo."
         return
@@ -155,7 +165,7 @@ install_dependencies_linux() {
       sleep 1
     done
 
-    if sudo docker info >/dev/null 2>&1; then
+    if $SUDO docker info >/dev/null 2>&1; then
       echo "✓ Docker daemon is running (current shell lacks docker group access yet)"
       echo "Re-login once to use docker without sudo."
       return
@@ -167,12 +177,12 @@ install_dependencies_linux() {
         echo "This host does not run systemd as PID 1; service startup may be restricted."
       fi
       echo "Docker service status (if available):"
-      sudo systemctl --no-pager --full status docker 2>/dev/null | tail -n 25 || true
+      $SUDO systemctl --no-pager --full status docker 2>/dev/null | tail -n 25 || true
     fi
     echo "Try starting it manually and rerun:"
-    echo "  sudo systemctl start docker"
+    echo "  $SUDO systemctl start docker"
     echo "or"
-    echo "  sudo service docker start"
+    echo "  $SUDO service docker start"
     exit 1
   }
 
@@ -200,14 +210,14 @@ install_dependencies_linux() {
       MKCERT_URL="https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-${MKCERT_ARCH}"
 
       if command -v curl >/dev/null 2>&1; then
-        sudo curl -fsSL "$MKCERT_URL" -o /usr/local/bin/mkcert
+        $SUDO curl -fsSL "$MKCERT_URL" -o /usr/local/bin/mkcert
       elif command -v wget >/dev/null 2>&1; then
-        sudo wget -qO /usr/local/bin/mkcert "$MKCERT_URL"
+        $SUDO wget -qO /usr/local/bin/mkcert "$MKCERT_URL"
       else
         echo "Neither curl nor wget is available; cannot install mkcert automatically."
         exit 1
       fi
-      sudo chmod +x /usr/local/bin/mkcert
+      $SUDO chmod +x /usr/local/bin/mkcert
     fi
 
     mkcert -install >/dev/null 2>&1 || true
@@ -227,13 +237,13 @@ install_dependencies_linux() {
     exit 1
   fi
 
-  if ! docker compose version >/dev/null 2>&1 && ! sudo docker compose version >/dev/null 2>&1; then
+  if ! docker compose version >/dev/null 2>&1 && ! $SUDO docker compose version >/dev/null 2>&1; then
     echo "Docker is installed, but Docker Compose plugin is not available yet."
-    echo "Try: sudo apt-get install -y docker-compose-plugin (or your distro equivalent)."
+    echo "Try: $SUDO apt-get install -y docker-compose-plugin (or your distro equivalent)."
   fi
 
   echo "✓ Dependencies installed (Docker + mkcert)"
-  if ! docker info >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+  if ! docker info >/dev/null 2>&1 && $SUDO docker info >/dev/null 2>&1; then
     echo "Docker is ready, but this shell has not picked up docker group permissions yet."
     echo "Run 'newgrp docker' now, or re-login once, then use Betty without sudo."
   fi
@@ -370,7 +380,9 @@ echo "Checksum verification passed."
 # workflow; with cosign installed that signature is checked too, and
 # BETTY_REQUIRE_SIGNATURE=true refuses to install without it.
 REQUIRE_SIGNATURE="${BETTY_REQUIRE_SIGNATURE:-false}"
-SIGNER_IDENTITY='^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/'
+# Only runs on main sign releases; a workflow run from any other branch could
+# carry a modified workflow.
+SIGNER_IDENTITY='^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/main$'
 SIGNER_ISSUER='https://token.actions.githubusercontent.com'
 
 # sudo may drop cosign's directory from PATH (e.g. Homebrew's), so look in the
@@ -408,11 +420,13 @@ INSTALL_DIR="${BETTY_INSTALL_DIR:-/usr/local/bin}"
 TARGET="$INSTALL_DIR/betty"
 
 echo "Installing to $TARGET"
+# Create the directory as the current user first, so a custom directory in the
+# user's home does not end up owned by root.
+mkdir -p "$INSTALL_DIR" 2>/dev/null || $SUDO mkdir -p "$INSTALL_DIR"
 if [ -w "$INSTALL_DIR" ]; then
   mv "$TMP_DIR/betty" "$TARGET"
 else
-  sudo mkdir -p "$INSTALL_DIR"
-  sudo mv "$TMP_DIR/betty" "$TARGET"
+  $SUDO mv "$TMP_DIR/betty" "$TARGET"
 fi
 
 echo "betty installed: $TARGET"

@@ -140,10 +140,11 @@ export const createProgram = (): Command => {
   program
     .command('dev')
     .description('Start a project from .betty.yml (use "betty project" instead)')
-    .option('--config <path>', 'Path to .betty.yml')
+    .option('--file <path>', 'Path to .betty.yml')
+    .option('--config <path>', 'Path to .betty.yml (same as --file)')
     .option('--dry-run', 'Preview project configuration without applying changes')
     .option('-y, --yes', 'Accept all prompts automatically')
-    .action((opts: DevOptions) => devCommand(opts))
+    .action((opts: DevOptions & { file?: string }) => devCommand({ ...opts, config: opts.config ?? opts.file }))
 
   program
     .command('serve')
@@ -191,13 +192,13 @@ export const createProgram = (): Command => {
     .action((target: string | undefined, opts: RelinkOptions) => relinkCommand(target, opts))
 
   program
-    .command('unlink')
+    .command('unlink [target]')
     .description('Remove a local domain link')
     .option('--domain <domain>', 'Linked domain, e.g. my-app.localhost')
     .option('--project <name>', 'Project name to unlink all domains for')
     .option('--all', 'Remove all links at once')
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action((opts: UnlinkOptions) => unlinkCommand(opts))
+    .action((target: string | undefined, opts: UnlinkOptions) => unlinkCommand({ ...opts, domain: opts.domain ?? target }))
 
   program
     .command('config [action] [key] [value]')

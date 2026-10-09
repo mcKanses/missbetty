@@ -127,14 +127,18 @@ export const installMkcertPackage = (): { ok: boolean; warning?: string } => {
 }
 
 export const collectSetupStatus = (): SetupStatus => {
-  const domain = resolveSetupDomain()
+  const linkedDomain = findLinkedDomainFromDynamic()
+  const domain = linkedDomain ?? resolveSetupDomain()
   const mkcertInstalled = checkMkcertInstalled()
   return {
     dockerInstalled: checkDockerInstalled(),
     dockerRunning: checkDockerRunning(),
     mkcertInstalled,
     mkcertCaInstalled: mkcertInstalled ? checkMkcertCaInstalled() : false,
-    hostsEntryExists: hasHostsEntry(domain),
+    // Without a linked domain there is nothing to map. An entry for the
+    // placeholder domain would belong to no route, and no betty command would
+    // ever remove it.
+    hostsEntryExists: linkedDomain === null || hasHostsEntry(domain),
     domain,
   }
 }

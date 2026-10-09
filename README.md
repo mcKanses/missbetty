@@ -27,6 +27,7 @@ betty project create
 betty project link
 betty project stop
 betty project status
+betty project unlink
 betty serve
 betty link
 betty relink
@@ -35,6 +36,7 @@ betty doctor
 betty setup
 betty setup --fix
 betty unlink
+betty config
 betty stop
 betty rest
 ```
@@ -81,7 +83,7 @@ To verify a downloaded asset by hand:
 cosign verify-blob betty-linux-x64.tar.gz \
   --signature betty-linux-x64.tar.gz.sig \
   --certificate betty-linux-x64.tar.gz.pem \
-  --certificate-identity-regexp '^https://github.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/' \
+  --certificate-identity-regexp '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -109,22 +111,26 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.8.0 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.9.0 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.8.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.9.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
-Windows installer options:
+Installer options:
 
-- Skip dependency installation (Docker/mkcert):
+- Skip dependency installation (Docker/mkcert), on all platforms:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_SKIP_DEPS=true sh
+```
 
 ```powershell
 $env:BETTY_SKIP_DEPS = 'true'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
-- Increase Docker daemon wait timeout (seconds, default 240, minimum 30):
+- Windows only: increase Docker daemon wait timeout (seconds, default 240, minimum 30):
 
 ```powershell
 $env:BETTY_DOCKER_WAIT_SECONDS = '420'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
@@ -133,7 +139,7 @@ $env:BETTY_DOCKER_WAIT_SECONDS = '420'; irm https://raw.githubusercontent.com/mc
 The binary install path is:
 
 - Linux/macOS: `/usr/local/bin/betty` (or `$BETTY_INSTALL_DIR/betty`)
-- Windows: `%LOCALAPPDATA%\\Programs\\betty\\betty.exe` (or `$env:BETTY_INSTALL_DIR\\betty.exe`)
+- Windows: `%LOCALAPPDATA%\Programs\betty\betty.exe` (or `$env:BETTY_INSTALL_DIR\betty.exe`)
 
 You still need runtime tools for Betty workflows (Docker and optionally mkcert),
 but Node.js and npm are no longer required for using Betty.
@@ -301,8 +307,12 @@ The database is reachable on the HTTPS port, next to the web domains:
 psql "postgresql://shop@db.shop.localhost:443/shop?sslmode=verify-full&sslnegotiation=direct&sslrootcert=<mkcert root CA>"
 ```
 
-`betty project load` prints this connection string with the path of the
-mkcert root CA (`mkcert -CAROOT` shows the folder, the file is `rootCA.pem`).
+With the available URLs, `betty project load` and `betty project link` print a
+ready psql command for each database domain. It uses the `postgres` user and
+database (replace them with your own) and the path of the mkcert root CA
+(`mkcert -CAROOT` shows the folder, the file is `rootCA.pem`). A host can be
+listed only once in `.betty.yml`, so give the database its own, such as
+`db.shop.localhost`.
 
 - **Client:** PostgreSQL 17 or newer (psql/libpq, or a driver that supports
   `sslnegotiation=direct`). Only then does the TLS handshake carry the host
@@ -356,10 +366,22 @@ betty project status --file ./.betty.yml
 betty project status --name my-app
 ```
 
+#### `betty project unlink <name>`
+
+Removes all domain links of a loaded project by its name, without running its
+`down.command` and without needing its `.betty.yml`. Same as
+`betty unlink --project <name>`.
+
+```sh
+betty project unlink my-app
+betty project unlink my-app -y
+```
+
 #### `betty dev` (legacy)
 
 `betty dev` is a legacy alias for `betty project load`. Use `betty project load`
-instead.
+instead. It takes `--file` (or the older `--config`), `--dry-run` and `-y`, but
+does not ask for confirmation before loading.
 
 ### `betty serve`
 
@@ -391,8 +413,8 @@ Betty-specific files.
 Betty also maintains `~/.betty/links.json` — the source container for each
 linked route, written when you link and pruned when you unlink — and, when you
 change settings, `~/.betty/config.json`. Commands that change this shared state
-(`serve`, `link`, `relink`, `unlink`, `dev`/`project`) take a short exclusive
-lock on `~/.betty`, so running two Betty commands at once is refused with a
+(`serve`, `stop`, `setup`, `link`, `relink`, `unlink`, `dev`/`project`) take a
+short exclusive lock on `~/.betty`, so running two Betty commands at once is refused with a
 "please retry" hint instead of corrupting the files.
 
 ### `betty stop`
@@ -406,6 +428,10 @@ It runs Docker Compose down against Betty's global compose file:
 ```sh
 ~/.betty/docker-compose.yml
 ```
+
+| Option | Description |
+| --- | --- |
+| `-y, --yes` | Skip the confirmation prompt |
 
 ### `betty status`
 
@@ -455,6 +481,11 @@ mkcert should be installed before linking those domains.
 | `--port <port>` | Internal container port |
 | `--dry-run` | Preview planned changes without applying them |
 | `--open` | Open the linked domain in the browser after linking |
+| `-y, --yes` | Skip prompts: use the suggested domain and the first exposed port (or `80`) |
+
+The suggested domain is the container name with the configured domain suffix
+(`.dev` unless set otherwise with `betty config set domainSuffix .localhost` or
+the `BETTY_DOMAIN_SUFFIX` environment variable).
 
 ### `betty relink [target]`
 
@@ -470,24 +501,31 @@ betty relink my-app.localhost --container new-container --port 3000
 ```
 
 If values are missing, Betty asks interactively. When the domain changes to a
-custom domain outside `.localhost`, Betty attempts to add a new append-only
-hosts entry. It does not remove the previous hosts entry.
+custom domain outside `.localhost`, Betty adds a hosts entry for the new
+domain and removes the previous one unless another link still uses it.
+Database domains from `.betty.yml` are changed in `.betty.yml`, not with
+`relink`.
 
 | Option | Description |
 | --- | --- |
 | `--container <container>` | New target container |
 | `--domain <domain>` | New linked domain |
 | `--port <port>` | New internal container port |
+| `-y, --yes` | Keep current values for everything not given, without prompting |
 
 ### `betty unlink [target]`
 
 Removes an existing local domain link.
 
 ```sh
+betty unlink
 betty unlink my-app.localhost
 betty unlink --domain my-app.localhost
+betty unlink --project my-app
 betty unlink --all
 ```
+
+Without arguments, Betty lets you pick the links to remove.
 
 For custom domains that are not under `.localhost`, `betty unlink` removes
 the hosts entry when no other link uses the same domain. If removal fails,
@@ -495,8 +533,10 @@ Betty prints the domain so you can remove it manually.
 
 | Option | Description |
 | --- | --- |
-| `--domain <domain>` | Domain to unlink |
+| `--domain <domain>` | Domain to unlink (same as the argument) |
+| `--project <name>` | Remove all links of a project |
 | `--all` | Remove all links at once |
+| `-y, --yes` | Skip the confirmation prompt |
 
 ### `betty config [action] [key] [value]`
 
@@ -508,7 +548,7 @@ betty config get <key>
 betty config set <key> <value>
 ```
 
-Supported keys: `domainSuffix`, `httpPort`, `httpsPort`.
+Supported keys: `domainSuffix` (default `.dev`), `httpPort`, `httpsPort`.
 
 ```sh
 betty config set domainSuffix .localhost
@@ -516,8 +556,9 @@ betty config set httpPort 8080
 betty config set httpsPort 8443
 ```
 
-Ports set here are also overridable per shell via the `BETTY_HTTP_PORT` /
-`BETTY_HTTPS_PORT` environment variables, which take precedence.
+Each setting can also be overridden per shell with an environment variable,
+which takes precedence: `BETTY_DOMAIN_SUFFIX`, `BETTY_HTTP_PORT`,
+`BETTY_HTTPS_PORT`.
 
 ## Development
 

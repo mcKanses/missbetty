@@ -425,6 +425,14 @@ describe('setup utils', () => {
     expect(result.warning).toContain('still not found')
   })
 
+  test('collectSetupStatus does not ask for a hosts entry when no domain is linked', () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+
+    // An entry for the placeholder domain would belong to no route and never be removed.
+    expect(collectSetupStatus().hostsEntryExists).toBe(true)
+  })
+
   test('collectSetupStatus returns a complete status object', () => {
     ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
       const command = String(cmd)
