@@ -4,10 +4,10 @@ import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, runMkcertInstall } from '../utils/setup'
+import { checkDockerRunning, getMkcertRootCaPath, runMkcertInstall } from '../utils/setup'
 import { ensureCertificate, restartTraefik } from '../utils/docker'
 import { ensureHostsEntries, hasHostsEntry } from '../utils/hosts'
-import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import type { TraefikDynamicConfig, TraefikRouter, TraefikService, TraefikTcpService } from '../types'
 import {
   BETTY_HOME_DIR,
   BETTY_PROXY_COMPOSE,
@@ -15,10 +15,10 @@ import {
 } from '../utils/constants'
 import { sanitizeName, validateDomain } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
-import { domainUrl } from '../utils/config'
+import { databaseUrl, domainUrl } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock, withLockAsync } from '../utils/lock'
-import { findDomainConflict, loadedFromElsewhere, projectRouteFile, readRoutes } from '../utils/routes'
+import { findDomainConflict, loadedFromElsewhere, projectRouteFile, readRoutes, tlsOptionsName } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -54,6 +54,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const asString = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+
+// PostgreSQL 17+ clients can open TLS right away (sslnegotiation=direct), so the
+// ClientHello carries the host name and Traefik can route by it (HostSNI) on the
+// HTTPS entry point. Other database protocols have no such mode.
+const DATABASE_PROTOCOLS = ['postgres:', 'postgresql:']
+const DEFAULT_POSTGRES_PORT = '5432'
+
+export const isDatabaseTarget = (target: string): boolean => {
+  try {
+    return DATABASE_PROTOCOLS.includes(new URL(target).protocol)
+  } catch {
+    return false
+  }
+}
 
 const parsePermission = (value: unknown): PermissionMode | undefined => {
   if (value === undefined) return undefined
@@ -93,9 +107,10 @@ export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
     if (target === null) throw new Error(`domains[${String(index)}].target is required.`)
     try {
       const url = new URL(target)
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('bad protocol')
+      if (url.protocol !== 'http:' && url.protocol !== 'https:' && !DATABASE_PROTOCOLS.includes(url.protocol)) throw new Error('bad protocol')
+      if (url.hostname === '') throw new Error('no host')
     } catch {
-      throw new Error(`domains[${String(index)}].target must be an http(s) URL.`)
+      throw new Error(`domains[${String(index)}].target must be an http(s) or postgres URL.`)
     }
     return { host, target }
   })
@@ -108,6 +123,10 @@ export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
         certificateAuthority: asString(parsed.https.certificateAuthority) ?? undefined,
       }
     : undefined
+  // Without TLS the connection carries no host name to route by.
+  const databaseDomain = domains.find((domain) => isDatabaseTarget(domain.target))
+  if (databaseDomain !== undefined && https?.enabled !== true) throw new Error(`${databaseDomain.host}: postgres targets need https.enabled: true in .betty.yml.`)
+
   const permissions = isRecord(parsed.permissions)
     ? {
         hosts: parsePermission(parsed.permissions.hosts),
@@ -133,10 +152,18 @@ const confirmPermission = async (message: string, mode: PermissionMode | undefin
   return answer.ok
 }
 
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]']
+
 const targetForTraefik = (target: string): string => {
   const url = new URL(target)
-  if (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]') url.hostname = 'host.docker.internal'
+  if (LOOPBACK_HOSTS.includes(url.hostname)) url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
+}
+
+const databaseAddressForTraefik = (target: string): string => {
+  const url = new URL(target)
+  const hostname = LOOPBACK_HOSTS.includes(url.hostname) ? 'host.docker.internal' : url.hostname
+  return `${hostname}:${url.port !== '' ? url.port : DEFAULT_POSTGRES_PORT}`
 }
 
 const writeProjectRoute = (
@@ -148,9 +175,26 @@ const writeProjectRoute = (
 ): void => {
   const routers: Record<string, TraefikRouter> = {}
   const services: Record<string, TraefikService> = {}
+  const tcpRouters: Record<string, TraefikRouter> = {}
+  const tcpServices: Record<string, TraefikTcpService> = {}
+  const tlsOptions: Record<string, { alpnProtocols: string[] }> = {}
 
   domains.forEach((domain, index) => {
     const name = `${sanitizeName(project)}-${String(index + 1)}`
+    // Traefik terminates TLS with the domain's certificate and passes plain TCP
+    // on, so the database needs no certificate of its own. libpq insists on the
+    // ALPN protocol 'postgresql' in direct TLS mode.
+    if (isDatabaseTarget(domain.target)) {
+      tcpRouters[name] = {
+        rule: `HostSNI(\`${domain.host}\`)`,
+        entryPoints: ['websecure'],
+        service: name,
+        tls: { options: tlsOptionsName(name) },
+      }
+      tcpServices[name] = { loadBalancer: { servers: [{ address: databaseAddressForTraefik(domain.target) }] } }
+      tlsOptions[tlsOptionsName(name)] = { alpnProtocols: ['postgresql'] }
+      return
+    }
     routers[name] = {
       rule: `Host("${domain.host}")`,
       entryPoints: ['web'],
@@ -169,9 +213,12 @@ const writeProjectRoute = (
     }
   })
 
-  const config: TraefikDynamicConfig = { http: { routers, services } }
+  const config: TraefikDynamicConfig = {}
+  if (Object.keys(routers).length > 0) config.http = { routers, services }
+  if (Object.keys(tcpRouters).length > 0) config.tcp = { routers: tcpRouters, services: tcpServices }
   const certList = Object.values(certificates)
   if (certList.length > 0) config.tls = { certificates: certList }
+  if (Object.keys(tlsOptions).length > 0) config.tls = { ...config.tls, options: tlsOptions }
 
   const origin = configPath !== undefined ? `# betty-project-config: ${configPath}\n` : ''
   fs.writeFileSync(path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(project)}.yml`), `${origin}${yaml.stringify(config)}`, 'utf8')
@@ -247,8 +294,19 @@ export const runProjectCommand = (command: string, configPath: string): void => 
 export const printUrls = (config: DevProjectConfig): void => {
   console.log('\nAvailable URLs:')
   config.domains.forEach((domain) => {
-    console.log(`- ${domainUrl(domain.host, config.https?.enabled === true)} -> ${domain.target}`)
+    const url = isDatabaseTarget(domain.target)
+      ? `${databaseUrl(domain.host)} (sslnegotiation=direct)`
+      : domainUrl(domain.host, config.https?.enabled === true)
+    console.log(`- ${url} -> ${domain.target}`)
   })
+
+  const databaseDomain = config.domains.find((domain) => isDatabaseTarget(domain.target))
+  if (databaseDomain === undefined) return
+  // libpq's sslrootcert=system reads OpenSSL's store, which on Windows is not the
+  // one mkcert installs into, so point at the mkcert root CA file instead.
+  const rootCa = getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem'
+  printHint('Database domains need a PostgreSQL 17+ client with direct TLS, for example:')
+  printHint(`psql "${databaseUrl(databaseDomain.host).replace(/^postgres:\/\//, 'postgresql://postgres@')}/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=${rootCa}"`)
 }
 
 interface LinkProjectOptions {
