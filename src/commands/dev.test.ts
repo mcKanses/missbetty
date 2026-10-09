@@ -4,7 +4,9 @@ import fs from 'fs'
 import path from 'path'
 import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
+import yaml from 'yaml'
 import devCommand, { readDevProjectConfig } from './dev'
+import type { TraefikDynamicConfig } from '../types'
 import * as lockModule from '../utils/lock'
 
 const { lockState } = lockModule as unknown as { lockState: { held: boolean } }
@@ -115,7 +117,27 @@ describe('readDevProjectConfig', () => {
       '    target: tcp://127.0.0.1:1234',
     ].join('\n'))
 
-    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('target must be an http(s) URL')
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('target must be an http(s) or postgres URL')
+  })
+
+  test('accepts a postgres target when HTTPS is enabled', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG.replace(
+      '    target: http://127.0.0.1:5173',
+      '    target: http://127.0.0.1:5173\n  - host: db.mckansescloud.dev\n    target: postgres://127.0.0.1:5440'
+    ))
+
+    expect(readDevProjectConfig('/project/.betty.yml').domains[1]).toEqual({ host: 'db.mckansescloud.dev', target: 'postgres://127.0.0.1:5440' })
+  })
+
+  test('rejects a postgres target without HTTPS, since routing needs the TLS host name', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      'project: shop',
+      'domains:',
+      '  - host: db.shop.localhost',
+      '    target: postgres://127.0.0.1:5440',
+    ].join('\n'))
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('db.shop.localhost: postgres targets need https.enabled: true')
   })
 
   test('throws for invalid permission mode', () => {
@@ -279,6 +301,55 @@ describe('dev command', () => {
     }))
 
     logSpy.mockRestore()
+  })
+
+  test('routes a postgres target by HostSNI on the HTTPS entry point, next to the HTTP routes', async () => {
+    const config = SAMPLE_CONFIG.replace(
+      '    target: http://127.0.0.1:5173',
+      '    target: http://127.0.0.1:5173\n  - host: db.mckansescloud.dev\n    target: postgres://127.0.0.1:5440'
+    ).replace('  command: docker compose up -d', '  command: ""')
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      return normalized.endsWith('.betty.yml') ||
+        normalized.endsWith('/.betty/docker-compose.yml') ||
+        normalized.includes('/.betty/certs/') ||
+        normalized.endsWith('/rootCA.pem')
+    })
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return config
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty\n127.0.0.1 db.mckansescloud.dev # added by betty'
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      if (command.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (command.includes('mkcert -CAROOT')) return Buffer.from('/ca')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml' })
+
+    const routeWrite = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find((call) =>
+      String(call[0]).replace(/\\/g, '/').endsWith('/.betty/dynamic/mckanses-auth.yml')
+    )
+    const route = yaml.parse(String(routeWrite?.[1])) as TraefikDynamicConfig
+    expect(Object.keys(route.http?.routers ?? {})).toEqual(['mckanses-auth-1', 'mckanses-auth-1-secure'])
+    expect(route.tcp?.routers?.['mckanses-auth-2']).toEqual({
+      rule: 'HostSNI(`db.mckansescloud.dev`)',
+      entryPoints: ['websecure'],
+      service: 'mckanses-auth-2',
+      tls: { options: 'mckanses-auth-2-tls' },
+    })
+    expect(route.tcp?.services?.['mckanses-auth-2']).toEqual({ loadBalancer: { servers: [{ address: 'host.docker.internal:5440' }] } })
+    expect(route.tls?.options).toEqual({ 'mckanses-auth-2-tls': { alpnProtocols: ['postgresql'] } })
+    expect(route.tls?.certificates?.map((c) => path.basename(c.certFile))).toEqual(['ory-ui.mckansescloud.dev.pem', 'db.mckansescloud.dev.pem'])
+
+    expect(logSpy).toHaveBeenCalledWith('- postgres://db.mckansescloud.dev:443 (sslnegotiation=direct) -> postgres://127.0.0.1:5440')
+    const hints = errorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(hints).toContain('PostgreSQL 17+ client')
+    expect(hints).toContain('postgresql://postgres@db.mckansescloud.dev:443/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=')
   })
 
   test('fails when prompt permission is denied', async () => {

@@ -50,16 +50,19 @@ export const checkMkcertInstalled = (): boolean => runCheck('mkcert -help')
 
 const hasCommand = (command: string): boolean => runCheck(`command -v ${command} >/dev/null 2>&1`)
 
-export const checkMkcertCaInstalled = (): boolean => {
-  if (!checkMkcertInstalled()) return false
+// The mkcert root CA file, or null when mkcert or its CA is missing.
+export const getMkcertRootCaPath = (): string | null => {
   try {
     const caroot = execSync('mkcert -CAROOT', { stdio: 'pipe' }).toString().trim()
-    if (caroot === '') return false
-    return fs.existsSync(path.join(caroot, 'rootCA.pem'))
+    if (caroot === '') return null
+    const rootCa = path.join(caroot, 'rootCA.pem')
+    return fs.existsSync(rootCa) ? rootCa : null
   } catch {
-    return false
+    return null
   }
 }
+
+export const checkMkcertCaInstalled = (): boolean => checkMkcertInstalled() && getMkcertRootCaPath() !== null
 
 export const isHttpsRequestedDomain = (domain: string): boolean => domain.toLowerCase().endsWith('.dev')
 
