@@ -81,7 +81,7 @@ To verify a downloaded asset by hand:
 cosign verify-blob betty-linux-x64.tar.gz \
   --signature betty-linux-x64.tar.gz.sig \
   --certificate betty-linux-x64.tar.gz.pem \
-  --certificate-identity-regexp '^https://github.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/' \
+  --certificate-identity-regexp '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -116,15 +116,19 @@ curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh 
 $env:BETTY_VERSION = 'v1.9.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
-Windows installer options:
+Installer options:
 
-- Skip dependency installation (Docker/mkcert):
+- Skip dependency installation (Docker/mkcert), on all platforms:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_SKIP_DEPS=true sh
+```
 
 ```powershell
 $env:BETTY_SKIP_DEPS = 'true'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
-- Increase Docker daemon wait timeout (seconds, default 240, minimum 30):
+- Windows only: increase Docker daemon wait timeout (seconds, default 240, minimum 30):
 
 ```powershell
 $env:BETTY_DOCKER_WAIT_SECONDS = '420'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
@@ -133,7 +137,7 @@ $env:BETTY_DOCKER_WAIT_SECONDS = '420'; irm https://raw.githubusercontent.com/mc
 The binary install path is:
 
 - Linux/macOS: `/usr/local/bin/betty` (or `$BETTY_INSTALL_DIR/betty`)
-- Windows: `%LOCALAPPDATA%\\Programs\\betty\\betty.exe` (or `$env:BETTY_INSTALL_DIR\\betty.exe`)
+- Windows: `%LOCALAPPDATA%\Programs\betty\betty.exe` (or `$env:BETTY_INSTALL_DIR\betty.exe`)
 
 You still need runtime tools for Betty workflows (Docker and optionally mkcert),
 but Node.js and npm are no longer required for using Betty.
