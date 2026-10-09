@@ -301,8 +301,12 @@ The database is reachable on the HTTPS port, next to the web domains:
 psql "postgresql://shop@db.shop.localhost:443/shop?sslmode=verify-full&sslnegotiation=direct&sslrootcert=<mkcert root CA>"
 ```
 
-`betty project load` prints this connection string with the path of the
-mkcert root CA (`mkcert -CAROOT` shows the folder, the file is `rootCA.pem`).
+With the available URLs, `betty project load` and `betty project link` print a
+ready psql command for each database domain. It uses the `postgres` user and
+database (replace them with your own) and the path of the mkcert root CA
+(`mkcert -CAROOT` shows the folder, the file is `rootCA.pem`). A host can be
+listed only once in `.betty.yml`, so give the database its own, such as
+`db.shop.localhost`.
 
 - **Client:** PostgreSQL 17 or newer (psql/libpq, or a driver that supports
   `sslnegotiation=direct`). Only then does the TLS handshake carry the host

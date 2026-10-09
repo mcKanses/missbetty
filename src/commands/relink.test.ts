@@ -479,6 +479,53 @@ describe('relink command', () => {
     await expect(relinkCommand('a.localhost', { container: 'web', domain: 'b.localhost', yes: true })).rejects.toThrow("Domain 'b.localhost' is already linked by myproj-2")
   })
 
+  test('refuses to move a project domain into its own project file, which would replace the other domains', async () => {
+    // Project `api-dev` lives in api-dev.yml, and a link for api.dev would be written to api-dev.yml too.
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/api-dev.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['api-dev.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      '# betty-project-config: /work/api/.betty.yml',
+      'http:',
+      '  routers:',
+      '    api-dev-1:',
+      '      rule: \'Host("api.dev")\'',
+      '      service: api-dev-1',
+      '    api-dev-2:',
+      '      rule: \'Host("web.api.dev")\'',
+      '      service: api-dev-2',
+    ].join('\n'))
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({} as never)
+
+    await expect(relinkCommand('api.dev', { container: 'web', port: '5000', yes: true })).rejects.toThrow('The route file api-dev.yml already holds the routes of another project')
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
+  test('refuses to relink a database domain, which is a TCP route from .betty.yml', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/shop.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
+      'tcp:',
+      '  routers:',
+      '    shop-1:',
+      '      rule: HostSNI(`db.shop.localhost`)',
+      '      service: shop-1',
+      '  services:',
+      '    shop-1:',
+      '      loadBalancer:',
+      '        servers:',
+      '          - address: host.docker.internal:5440',
+    ].join('\n'))
+
+    await expect(relinkCommand('db.shop.localhost', { container: 'pg', yes: true })).rejects.toThrow("'db.shop.localhost' is a database domain from a .betty.yml project (tcp://host.docker.internal:5440).")
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
   const mockProjectRoute = (): void => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

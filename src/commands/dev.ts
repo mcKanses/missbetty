@@ -15,7 +15,7 @@ import {
 } from '../utils/constants'
 import { sanitizeName, validateDomain } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
-import { databaseUrl, domainUrl } from '../utils/config'
+import { DATABASE_PROTOCOLS, databaseUrl, domainUrl, isDatabaseTarget } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLock, withLockAsync } from '../utils/lock'
 import { findDomainConflict, loadedFromElsewhere, projectRouteFile, readRoutes, tlsOptionsName } from '../utils/routes'
@@ -55,19 +55,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asString = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 
-// PostgreSQL 17+ clients can open TLS right away (sslnegotiation=direct), so the
-// ClientHello carries the host name and Traefik can route by it (HostSNI) on the
-// HTTPS entry point. Other database protocols have no such mode.
-const DATABASE_PROTOCOLS = ['postgres:', 'postgresql:']
 const DEFAULT_POSTGRES_PORT = '5432'
-
-export const isDatabaseTarget = (target: string): boolean => {
-  try {
-    return DATABASE_PROTOCOLS.includes(new URL(target).protocol)
-  } catch {
-    return false
-  }
-}
 
 const parsePermission = (value: unknown): PermissionMode | undefined => {
   if (value === undefined) return undefined
@@ -123,6 +111,16 @@ export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
         certificateAuthority: asString(parsed.https.certificateAuthority) ?? undefined,
       }
     : undefined
+  // Traefik matches TCP routers before HTTP routers, so a host used twice (say
+  // once for the web app and once for the database) would send its HTTPS
+  // traffic to the database.
+  const seenHosts = new Set<string>()
+  for (const domain of domains) {
+    const key = domain.host.toLowerCase()
+    if (seenHosts.has(key)) throw new Error(`domains: ${domain.host} is listed more than once. Give each target its own host, e.g. db.${domain.host}.`)
+    seenHosts.add(key)
+  }
+
   // Without TLS the connection carries no host name to route by.
   const databaseDomain = domains.find((domain) => isDatabaseTarget(domain.target))
   if (databaseDomain !== undefined && https?.enabled !== true) throw new Error(`${databaseDomain.host}: postgres targets need https.enabled: true in .betty.yml.`)
@@ -156,13 +154,14 @@ const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]']
 
 const targetForTraefik = (target: string): string => {
   const url = new URL(target)
-  if (LOOPBACK_HOSTS.includes(url.hostname)) url.hostname = 'host.docker.internal'
+  if (LOOPBACK_HOSTS.includes(url.hostname.toLowerCase())) url.hostname = 'host.docker.internal'
   return url.toString().replace(/\/$/, '')
 }
 
 const databaseAddressForTraefik = (target: string): string => {
   const url = new URL(target)
-  const hostname = LOOPBACK_HOSTS.includes(url.hostname) ? 'host.docker.internal' : url.hostname
+  // postgres: is not a special URL scheme, so URL keeps the host's case.
+  const hostname = LOOPBACK_HOSTS.includes(url.hostname.toLowerCase()) ? 'host.docker.internal' : url.hostname
   return `${hostname}:${url.port !== '' ? url.port : DEFAULT_POSTGRES_PORT}`
 }
 
@@ -300,13 +299,14 @@ export const printUrls = (config: DevProjectConfig): void => {
     console.log(`- ${url} -> ${domain.target}`)
   })
 
-  const databaseDomain = config.domains.find((domain) => isDatabaseTarget(domain.target))
-  if (databaseDomain === undefined) return
+  const databaseDomains = config.domains.filter((domain) => isDatabaseTarget(domain.target))
+  if (databaseDomains.length === 0) return
   // libpq's sslrootcert=system reads OpenSSL's store, which on Windows is not the
-  // one mkcert installs into, so point at the mkcert root CA file instead.
-  const rootCa = getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem'
+  // one mkcert installs into, so point at the mkcert root CA file instead. The
+  // URI percent-decodes its values; spaces (e.g. in a user folder) are encoded.
+  const rootCa = (getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem').replace(/ /g, '%20')
   printHint('Database domains need a PostgreSQL 17+ client with direct TLS, for example:')
-  printHint(`psql "${databaseUrl(databaseDomain.host).replace(/^postgres:\/\//, 'postgresql://postgres@')}/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=${rootCa}"`)
+  for (const domain of databaseDomains) printHint(`psql "${databaseUrl(domain.host).replace(/^postgres:\/\//, 'postgresql://postgres@')}/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=${rootCa}"`)
 }
 
 interface LinkProjectOptions {
