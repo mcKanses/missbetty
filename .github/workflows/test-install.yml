@@ -22,7 +22,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-15-intel runs the cross-built Intel binary.
+        os: [ubuntu-latest, macos-latest, macos-15-intel]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,6 +60,26 @@ jobs:
           curl -fsSL "file://$PWD/install.sh" | sudo env "PATH=$PATH" BETTY_SKIP_DEPS=true BETTY_REQUIRE_SIGNATURE=true BETTY_VERSION=v1.7.5 sh | tee install.log
           grep -q 'Signature verification passed' install.log
           betty --version | grep -q '1.7.5'
+
+  # The arm64 binary is cross-built on x64; this runs it on arm64 Windows.
+  install-ps1-arm64:
+    name: install.ps1 (windows arm64)
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install a pinned version without dependencies
+        shell: pwsh
+        run: |
+          $env:BETTY_SKIP_DEPS = 'true'
+          $env:BETTY_VERSION = 'v1.7.5'
+          $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
+          pwsh -NoProfile -File ./install.ps1
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed with exit code $LASTEXITCODE" }
+          $version = & (Join-Path $env:BETTY_INSTALL_DIR 'betty.exe') --version
+          if ($LASTEXITCODE -ne 0 -or ($version -join ' ') -notmatch '1\.7\.5') { throw "unexpected betty --version output: $version" }
 
   install-ps1:
     name: install.ps1 (windows)
