@@ -91,6 +91,12 @@ describe('createProgram dispatch', () => {
     )
   })
 
+  test('unlink takes the domain as an argument, as in `betty unlink my-app.localhost`', () => {
+    parse('unlink', 'my-app.localhost', '-y')
+
+    expect(unlinkCommand).toHaveBeenCalledWith(expect.objectContaining({ domain: 'my-app.localhost', yes: true }))
+  })
+
   test('status forwards options', () => {
     parse('status', '--long', '--json')
 
@@ -103,6 +109,12 @@ describe('createProgram dispatch', () => {
     expect(devCommand).toHaveBeenCalledWith(
       expect.objectContaining({ config: '/tmp/.betty.yml', dryRun: true, yes: true })
     )
+  })
+
+  test('dev accepts --file like project load', () => {
+    parse('dev', '--file', '/tmp/.betty.yml')
+
+    expect(devCommand).toHaveBeenCalledWith(expect.objectContaining({ config: '/tmp/.betty.yml' }))
   })
 
   test('config forwards positional arguments', () => {

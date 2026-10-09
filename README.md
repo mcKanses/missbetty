@@ -27,6 +27,7 @@ betty project create
 betty project link
 betty project stop
 betty project status
+betty project unlink
 betty serve
 betty link
 betty relink
@@ -35,6 +36,7 @@ betty doctor
 betty setup
 betty setup --fix
 betty unlink
+betty config
 betty stop
 betty rest
 ```
@@ -364,10 +366,22 @@ betty project status --file ./.betty.yml
 betty project status --name my-app
 ```
 
+#### `betty project unlink <name>`
+
+Removes all domain links of a loaded project by its name, without running its
+`down.command` and without needing its `.betty.yml`. Same as
+`betty unlink --project <name>`.
+
+```sh
+betty project unlink my-app
+betty project unlink my-app -y
+```
+
 #### `betty dev` (legacy)
 
 `betty dev` is a legacy alias for `betty project load`. Use `betty project load`
-instead.
+instead. It takes `--file` (or the older `--config`), `--dry-run` and `-y`, but
+does not ask for confirmation before loading.
 
 ### `betty serve`
 
@@ -399,8 +413,8 @@ Betty-specific files.
 Betty also maintains `~/.betty/links.json` — the source container for each
 linked route, written when you link and pruned when you unlink — and, when you
 change settings, `~/.betty/config.json`. Commands that change this shared state
-(`serve`, `link`, `relink`, `unlink`, `dev`/`project`) take a short exclusive
-lock on `~/.betty`, so running two Betty commands at once is refused with a
+(`serve`, `stop`, `setup`, `link`, `relink`, `unlink`, `dev`/`project`) take a
+short exclusive lock on `~/.betty`, so running two Betty commands at once is refused with a
 "please retry" hint instead of corrupting the files.
 
 ### `betty stop`
@@ -414,6 +428,10 @@ It runs Docker Compose down against Betty's global compose file:
 ```sh
 ~/.betty/docker-compose.yml
 ```
+
+| Option | Description |
+| --- | --- |
+| `-y, --yes` | Skip the confirmation prompt |
 
 ### `betty status`
 
@@ -463,6 +481,11 @@ mkcert should be installed before linking those domains.
 | `--port <port>` | Internal container port |
 | `--dry-run` | Preview planned changes without applying them |
 | `--open` | Open the linked domain in the browser after linking |
+| `-y, --yes` | Skip prompts: use the suggested domain and the first exposed port (or `80`) |
+
+The suggested domain is the container name with the configured domain suffix
+(`.dev` unless set otherwise with `betty config set domainSuffix .localhost` or
+the `BETTY_DOMAIN_SUFFIX` environment variable).
 
 ### `betty relink [target]`
 
@@ -478,24 +501,31 @@ betty relink my-app.localhost --container new-container --port 3000
 ```
 
 If values are missing, Betty asks interactively. When the domain changes to a
-custom domain outside `.localhost`, Betty attempts to add a new append-only
-hosts entry. It does not remove the previous hosts entry.
+custom domain outside `.localhost`, Betty adds a hosts entry for the new
+domain and removes the previous one unless another link still uses it.
+Database domains from `.betty.yml` are changed in `.betty.yml`, not with
+`relink`.
 
 | Option | Description |
 | --- | --- |
 | `--container <container>` | New target container |
 | `--domain <domain>` | New linked domain |
 | `--port <port>` | New internal container port |
+| `-y, --yes` | Keep current values for everything not given, without prompting |
 
 ### `betty unlink [target]`
 
 Removes an existing local domain link.
 
 ```sh
+betty unlink
 betty unlink my-app.localhost
 betty unlink --domain my-app.localhost
+betty unlink --project my-app
 betty unlink --all
 ```
+
+Without arguments, Betty lets you pick the links to remove.
 
 For custom domains that are not under `.localhost`, `betty unlink` removes
 the hosts entry when no other link uses the same domain. If removal fails,
@@ -503,8 +533,10 @@ Betty prints the domain so you can remove it manually.
 
 | Option | Description |
 | --- | --- |
-| `--domain <domain>` | Domain to unlink |
+| `--domain <domain>` | Domain to unlink (same as the argument) |
+| `--project <name>` | Remove all links of a project |
 | `--all` | Remove all links at once |
+| `-y, --yes` | Skip the confirmation prompt |
 
 ### `betty config [action] [key] [value]`
 
@@ -516,7 +548,7 @@ betty config get <key>
 betty config set <key> <value>
 ```
 
-Supported keys: `domainSuffix`, `httpPort`, `httpsPort`.
+Supported keys: `domainSuffix` (default `.dev`), `httpPort`, `httpsPort`.
 
 ```sh
 betty config set domainSuffix .localhost
@@ -524,8 +556,9 @@ betty config set httpPort 8080
 betty config set httpsPort 8443
 ```
 
-Ports set here are also overridable per shell via the `BETTY_HTTP_PORT` /
-`BETTY_HTTPS_PORT` environment variables, which take precedence.
+Each setting can also be overridden per shell with an environment variable,
+which takes precedence: `BETTY_DOMAIN_SUFFIX`, `BETTY_HTTP_PORT`,
+`BETTY_HTTPS_PORT`.
 
 ## Development
 
