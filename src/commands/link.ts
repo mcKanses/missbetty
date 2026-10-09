@@ -85,6 +85,10 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   let resolvedDomain = opts.domain
   let resolvedPort = opts.port
 
+  // --yes never prompts: the domain falls back to the suggested one.
+  if (opts.yes === true && resolvedContainer === undefined) throw new BettyError('No container given.', { hints: ['With --yes, pass the container: betty link <container> -y'] })
+  if (opts.yes === true && resolvedDomain === undefined && resolvedContainer !== undefined) resolvedDomain = suggestDomain(resolvedContainer)
+
   if (resolvedContainer === undefined || resolvedDomain === undefined) {
     const runningContainers = getRunningContainers()
 
@@ -198,8 +202,10 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   const linkedContainer = connectContainerToNetwork(containerNameResolved)
   const certificate = ensureCertificate(domainResolved)
   writeRouteConfig(linkedContainer, domainResolved, port, certificate)
-  restartTraefik(traefikComposePath)
+  // The hosts entry goes in before the restart, so a failed restart does not
+  // leave a route without one (a second `betty link` would report it linked).
   const hostsUpdated = ensureHostsEntry(domainResolved)
+  restartTraefik(traefikComposePath)
   if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domainResolved}`)
 
   const hostsStatus = domainResolved.toLowerCase().endsWith('.localhost')

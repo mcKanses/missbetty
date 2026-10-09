@@ -64,13 +64,14 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
     removedDomains.push(route.domain)
   }
   // One hosts edit for all domains: a single elevation prompt on Windows.
-  removeHostsEntries(removedDomains)
+  const hostsRemoved = removeHostsEntries(removedDomains)
 
   restartTraefik(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
   for (const d of failedDomains) console.log(`  ❌ failed:  ${d}`)
+  if (!hostsRemoved) console.log('- hosts: manual action required (see above)')
   console.log('- traefik: restarted')
 }
 
@@ -83,12 +84,13 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
     const stillUsed = remainingRoutes.some((rem) => rem.domain === r.domain)
     if (!stillUsed) removedDomains.push(r.domain)
   }
-  removeHostsEntries(removedDomains)
+  const hostsRemoved = removeHostsEntries(removedDomains)
   restartTraefik(composePath)
   const projectName = path.basename(route.filePath, path.extname(route.filePath))
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`- removed domain: ${d}`)
   console.log(`- removed route file: ${route.fileName}`)
+  if (!hostsRemoved) console.log('- hosts: manual action required (see above)')
   console.log('- traefik: restarted')
   console.log(`\n✅ Removed project: ${projectName} (${String(removedDomains.length)} domain(s))`)
 }
@@ -214,12 +216,13 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   }
 
   // One hosts edit for all selected domains: a single elevation prompt on Windows.
-  removeHostsEntries(removedDomains)
+  const hostsRemoved = removeHostsEntries(removedDomains)
   restartTraefik(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
   for (const d of failedItems) console.log(`  ❌ failed:  ${d}`)
+  if (!hostsRemoved) console.log('- hosts: manual action required (see above)')
   console.log('- traefik: restarted')
 }
 

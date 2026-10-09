@@ -53,7 +53,15 @@ export const ensureProxyNetwork = (): void => {
   try {
     execSync(`docker network inspect ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' })
   } catch {
-    execSync(`docker network create ${BETTY_PROXY_NETWORK}`, { stdio: 'inherit' })
+    try {
+      execSync(`docker network create ${BETTY_PROXY_NETWORK}`, { stdio: 'pipe' })
+    } catch (err) {
+      // Most often Docker is not running; say so instead of a raw command error.
+      const detail = err instanceof Error && 'stderr' in err ? String((err as { stderr: unknown }).stderr).trim() : ''
+      throw new BettyError(`Could not create the Docker network '${BETTY_PROXY_NETWORK}'.${detail !== '' ? ` ${detail}` : ''}`, {
+        hints: ['Make sure Docker is running (docker info), then try again.'],
+      })
+    }
     console.log(`Created Docker network '${BETTY_PROXY_NETWORK}'.`)
   }
 }
