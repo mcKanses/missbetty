@@ -260,10 +260,11 @@ jobs:
       matrix:
         runs_on: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel, windows-latest, windows-11-arm]
     steps:
-      - name: Checkout release tag
+      # The installers users run come from main, not from the release tag, so
+      # test those against the release (an old tag's installer may be outdated).
+      - name: Checkout the current installers
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.resolve-release.outputs.tag_name }}
           persist-credentials: false
 
       - name: Install with install.sh
