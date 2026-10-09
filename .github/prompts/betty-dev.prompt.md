@@ -31,15 +31,25 @@ Betty should be:
 The current workflow is:
 
 ```sh
+betty project load
+betty project create
+betty project link
+betty project stop
+betty project status
+betty project unlink
 betty serve
 betty link
 betty relink
 betty status
 betty unlink
 betty stop
+betty config
+betty doctor
+betty setup
 ```
 
-`betty rest` exists as a legacy alias for `betty stop`.
+`betty rest` exists as a legacy alias for `betty stop`, and `betty dev` for
+`betty project load`.
 
 Do not assume commands such as `betty list` exist unless you implement them
 intentionally with compatibility notes.
