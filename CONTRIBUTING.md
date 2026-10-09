@@ -22,6 +22,7 @@ betty project create
 betty project link
 betty project stop
 betty project status
+betty project unlink
 betty serve
 betty link
 betty relink
