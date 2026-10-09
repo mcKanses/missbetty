@@ -93,6 +93,19 @@ export const domainUrl = (domain: string, https: boolean): string => {
   return `${https ? 'https' : 'http'}://${domain}${port === defaultPort ? '' : `:${String(port)}`}`
 }
 
+// PostgreSQL 17+ clients can open TLS right away (sslnegotiation=direct), so the
+// ClientHello carries the host name and Traefik can route by it (HostSNI) on the
+// HTTPS entry point. Other database protocols have no such mode.
+export const DATABASE_PROTOCOLS = ['postgres:', 'postgresql:']
+
+export const isDatabaseTarget = (target: string): boolean => {
+  try {
+    return DATABASE_PROTOCOLS.includes(new URL(target).protocol)
+  } catch {
+    return false
+  }
+}
+
 // A database domain is reached through the HTTPS entry point. The port is always
 // spelled out: database clients default to their own port (5432), not 443.
 export const databaseUrl = (domain: string): string => `postgres://${domain}:${String(getHttpsPort())}`

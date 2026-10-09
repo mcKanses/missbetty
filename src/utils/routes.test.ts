@@ -402,9 +402,9 @@ describe('TCP (database) routes', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
     ;(yaml.parse as unknown as jest.Mock).mockReturnValue(projectDoc())
 
-    expect(readRoutes().map((r) => [r.routerName, r.domain, r.target, r.port])).toEqual([
-      ['shop-1', 'app.shop.localhost', 'http://host.docker.internal:5180', '5180'],
-      ['shop-2', 'db.shop.localhost', 'tcp://host.docker.internal:5440', '5440'],
+    expect(readRoutes().map((r) => [r.routerName, r.domain, r.target, r.port, r.tcp])).toEqual([
+      ['shop-1', 'app.shop.localhost', 'http://host.docker.internal:5180', '5180', false],
+      ['shop-2', 'db.shop.localhost', 'tcp://host.docker.internal:5440', '5440', true],
     ])
   })
 

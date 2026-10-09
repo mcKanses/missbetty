@@ -177,6 +177,61 @@ describe('link command', () => {
     logSpy.mockRestore()
   })
 
+  test('sets the hosts entry before restarting traefik, so a failed restart leaves no route without one', async () => {
+    const events: string[] = []
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { events.push('hosts') })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('EncodedCommand') || c.startsWith('sudo')) events.push('hosts')
+      if (c.includes('restart traefik')) {
+        events.push('restart')
+        throw new Error('docker hiccup')
+      }
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await expect(linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })).rejects.toThrow()
+
+    expect(events[0]).toBe('hosts')
+    expect(events).toContain('restart')
+  })
+
+  test('uses the suggested domain with --yes instead of prompting for one', async () => {
+    const previousSuffix = process.env.BETTY_DOMAIN_SUFFIX
+    process.env.BETTY_DOMAIN_SUFFIX = '.localhost'
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const c = String(cmd)
+      if (c.includes('docker ps')) return Buffer.from('betty-traefik\t0.0.0.0:443->443/tcp\n')
+      if (c.includes('docker inspect')) return Buffer.from(DOCKER_INSPECT)
+      if (c.includes('docker network inspect')) return Buffer.from('[]')
+      return Buffer.from('')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    try {
+      await linkCommand('myapp', { port: '3000', yes: true })
+    } finally {
+      if (previousSuffix === undefined) delete process.env.BETTY_DOMAIN_SUFFIX
+      else process.env.BETTY_DOMAIN_SUFFIX = previousSuffix
+    }
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining('myapp-localhost.yml'), expect.any(String), 'utf8')
+  })
+
+  test('refuses --yes without a container instead of prompting', async () => {
+    await expect(linkCommand(undefined, { yes: true })).rejects.toThrow('No container given.')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
   test('writes the canonical container name into the route when linked by ID', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')

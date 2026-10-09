@@ -129,6 +129,15 @@ describe('readDevProjectConfig', () => {
     expect(readDevProjectConfig('/project/.betty.yml').domains[1]).toEqual({ host: 'db.mckansescloud.dev', target: 'postgres://127.0.0.1:5440' })
   })
 
+  test('rejects a host listed twice, e.g. once for the web app and once for its database', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG.replace(
+      '    target: http://127.0.0.1:5173',
+      '    target: http://127.0.0.1:5173\n  - host: ORY-UI.mckansescloud.dev\n    target: postgres://127.0.0.1:5440'
+    ))
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow('domains: ORY-UI.mckansescloud.dev is listed more than once.')
+  })
+
   test('rejects a postgres target without HTTPS, since routing needs the TLS host name', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
       'project: shop',
@@ -306,7 +315,7 @@ describe('dev command', () => {
   test('routes a postgres target by HostSNI on the HTTPS entry point, next to the HTTP routes', async () => {
     const config = SAMPLE_CONFIG.replace(
       '    target: http://127.0.0.1:5173',
-      '    target: http://127.0.0.1:5173\n  - host: db.mckansescloud.dev\n    target: postgres://127.0.0.1:5440'
+      '    target: http://127.0.0.1:5173\n  - host: db.mckansescloud.dev\n    target: postgres://LOCALHOST:5440'
     ).replace('  command: docker compose up -d', '  command: ""')
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
@@ -346,7 +355,7 @@ describe('dev command', () => {
     expect(route.tls?.options).toEqual({ 'mckanses-auth-2-tls': { alpnProtocols: ['postgresql'] } })
     expect(route.tls?.certificates?.map((c) => path.basename(c.certFile))).toEqual(['ory-ui.mckansescloud.dev.pem', 'db.mckansescloud.dev.pem'])
 
-    expect(logSpy).toHaveBeenCalledWith('- postgres://db.mckansescloud.dev:443 (sslnegotiation=direct) -> postgres://127.0.0.1:5440')
+    expect(logSpy).toHaveBeenCalledWith('- postgres://db.mckansescloud.dev:443 (sslnegotiation=direct) -> postgres://LOCALHOST:5440')
     const hints = errorSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(hints).toContain('PostgreSQL 17+ client')
     expect(hints).toContain('postgresql://postgres@db.mckansescloud.dev:443/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=')

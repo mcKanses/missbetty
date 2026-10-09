@@ -7,6 +7,7 @@ import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand,
 import unlinkCommand from './unlink'
 import { loadedFromElsewhere, readRoutes } from '../utils/routes'
 import { sanitizeName, validateDomain } from '../utils/names'
+import { isDatabaseTarget } from '../utils/config'
 
 interface ProjectCreateOptions {
   name?: string;
@@ -21,10 +22,10 @@ interface ProjectLoadOptions {
 export const validateHttpTarget = (value: string): true | string => {
   try {
     const url = new URL(value.trim())
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'Must be an http(s) URL.'
+    if (url.protocol !== 'http:' && url.protocol !== 'https:' && !isDatabaseTarget(value.trim())) return 'Must be an http(s) or postgres URL.'
     return true
   } catch {
-    return 'Must be a valid http(s) URL.'
+    return 'Must be a valid http(s) or postgres URL.'
   }
 }
 
@@ -67,7 +68,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
       {
         type: 'input',
         name: 'target',
-        message: `Domain ${String(idx)} target URL (e.g. http://127.0.0.1:3000):`,
+        message: `Domain ${String(idx)} target URL (e.g. http://127.0.0.1:3000 or postgres://127.0.0.1:5432):`,
         validate: validateHttpTarget,
       },
     ]) as { host: string; target: string }
@@ -82,13 +83,16 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     addingDomains = another
   }
 
-  const { httpsEnabled, upCommand, downCommand, autoApprove } = await inquirer.prompt([
-    {
+  // Database domains are routed by the TLS host name, so they need HTTPS.
+  const hasDatabase = domains.some((domain) => isDatabaseTarget(domain.target))
+  if (hasDatabase) console.log('HTTPS is enabled: database domains need it.')
+  const answers = await inquirer.prompt([
+    ...(hasDatabase ? [] : [{
       type: 'confirm',
       name: 'httpsEnabled',
       message: 'Enable HTTPS (requires mkcert)?',
       default: false,
-    },
+    }]),
     {
       type: 'input',
       name: 'upCommand',
@@ -105,7 +109,9 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
       message: 'Auto-approve all system prompts (hosts, Docker, mkcert)?',
       default: true,
     },
-  ]) as { httpsEnabled: boolean; upCommand: string; downCommand: string; autoApprove: boolean }
+  ]) as { httpsEnabled?: boolean; upCommand: string; downCommand: string; autoApprove: boolean }
+  const { upCommand, downCommand, autoApprove } = answers
+  const httpsEnabled = hasDatabase || answers.httpsEnabled === true
 
   const config: Record<string, unknown> = { project: projectName.trim() }
   if (upCommand.trim()) config.up = { command: upCommand.trim() }

@@ -22,6 +22,8 @@ export interface RouteEntry {
   domain: string;
   target: string;
   port: string;
+  // A database (TCP) route from a .betty.yml postgres:// target.
+  tcp?: boolean;
 }
 
 export interface ParsedRoute {
@@ -91,6 +93,7 @@ export const readRoutes = (): RouteEntry[] => {
         domain: route.domain,
         target: route.target,
         port: route.port,
+        tcp: route.tcp,
       })
     } catch {
       // Ignore malformed route files.

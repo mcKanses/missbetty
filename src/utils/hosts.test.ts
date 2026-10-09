@@ -15,7 +15,7 @@ jest.mock('fs', () => ({
 }))
 
 import fs from 'fs'
-import { execFileSync, execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { ensureHostsEntries, ensureHostsEntry, hasHostsEntry, removeHostsEntries, removeHostsEntry } from './hosts'
 
 const originalPlatform = process.platform
@@ -41,8 +41,8 @@ const setPlatform = (platform: string): void => {
 
 // The PowerShell script Betty elevated, decoded from its -EncodedCommand argument.
 const elevatedScript = (): string => {
-  const calls = (execSync as unknown as jest.Mock).mock.calls as [string][]
-  const command = calls[calls.length - 1]?.[0] ?? ''
+  const calls = (execFileSync as unknown as jest.Mock).mock.calls as [string, string[]][]
+  const command = calls[calls.length - 1]?.[1]?.[2] ?? ''
   const encoded = /'-EncodedCommand','([^']+)'/.exec(command)?.[1] ?? ''
   return Buffer.from(encoded, 'base64').toString('utf16le')
 }
@@ -144,11 +144,23 @@ describe('ensureHostsEntry', () => {
     expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'utf8')
   })
 
-  it('continues to append when the hosts file cannot be read', () => {
-    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('ENOENT') })
+  it('continues to append on a line of its own when the hosts file cannot be read', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.appendFileSync).toHaveBeenCalled()
+    // The file may not end with a line break, so the entry must not join its last line.
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'utf8')
+  })
+
+  it('treats an existing entry in other letter case as present, like the elevated script does', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 MyApp.dev\n')
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(true)
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
   })
 
   it('writes to the Windows hosts file on WSL when it is writable', () => {
@@ -163,7 +175,7 @@ describe('ensureHostsEntry', () => {
       expect.stringContaining('myapp.dev'),
       'utf8'
     )
-    expect(execSync).not.toHaveBeenCalled()
+    expect(execFileSync).not.toHaveBeenCalled()
   })
 
   it('falls back to manual instructions on WSL when the Windows hosts file is not writable', () => {
@@ -173,7 +185,7 @@ describe('ensureHostsEntry', () => {
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
-    expect(execSync).not.toHaveBeenCalled()
+    expect(execFileSync).not.toHaveBeenCalled()
   })
 
   it('uses sudo fallback when append fails on linux and returns true', () => {
@@ -211,7 +223,7 @@ describe('ensureHostsEntry', () => {
       elevated ? '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n' : '127.0.0.1 other.dev\n'
     )
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
     const script = elevatedScript()
@@ -228,7 +240,7 @@ describe('ensureHostsEntry', () => {
     process.env.USERNAME = 'testuser'
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('elevation failed') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('elevation failed') })
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
@@ -239,7 +251,7 @@ describe('ensureHostsEntry', () => {
     process.env.USERNAME = 'testuser'
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
@@ -354,7 +366,7 @@ describe('removeHostsEntry', () => {
       elevated ? '127.0.0.1 other.dev\n' : '127.0.0.1 other.dev\n127.0.0.1 myapp.dev # added by betty\n'
     )
     ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(removeHostsEntry('myapp.dev')).toBe(true)
     const script = elevatedScript()
@@ -368,7 +380,7 @@ describe('removeHostsEntry', () => {
     process.env.USERDOMAIN = 'WORKSTATION'
     process.env.USERNAME = 'testuser'
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('elevation failed') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('elevation failed') })
 
     expect(removeHostsEntry('myapp.dev')).toBe(false)
   })
@@ -382,10 +394,10 @@ describe('batched hosts edits', () => {
       elevated ? '127.0.0.1 a.dev # added by betty\r\n127.0.0.1 b.dev # added by betty\r\n' : ''
     )
     ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { elevated = true })
 
     expect(ensureHostsEntries(['a.dev', 'b.dev', 'c.localhost'])).toBe(true)
-    expect(execSync).toHaveBeenCalledTimes(1)
+    expect(execFileSync).toHaveBeenCalledTimes(1)
     expect(elevatedScript()).toContain("$add = @('a.dev', 'b.dev')")
   })
 
@@ -394,11 +406,11 @@ describe('batched hosts edits', () => {
     const bigHosts = `${'127.0.0.1 filler.example # some long comment\r\n'.repeat(400)}127.0.0.1 app.dev # added by betty\r\n`
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(bigHosts)
     ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execSync as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
 
     removeHostsEntry('app.dev')
 
-    const command = String((execSync as unknown as jest.Mock).mock.calls[0][0])
+    const command = ((execFileSync as unknown as jest.Mock).mock.calls[0][1] as string[]).join(' ')
     expect(bigHosts.length).toBeGreaterThan(15000)
     expect(command.length).toBeLessThan(8191)
   })

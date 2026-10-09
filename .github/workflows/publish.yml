@@ -11,18 +11,19 @@ on:
         description: Existing release tag to publish to npm, e.g. v1.7.4
         required: true
 
+# Each job gets only what it needs. npm trusted publishing trusts this workflow
+# file, not a job, so only npm-publish may mint the OIDC token that publishes.
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  # npm trusted publishing: the job proves its identity to npm with an OIDC
-  # token, so no long-lived NPM_TOKEN secret is needed.
-  id-token: write
+  contents: read
 
 jobs:
   semantic-release:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     env:
       # Optional token for the release metadata PR. PRs opened with GITHUB_TOKEN
       # do not trigger other workflows, so the required CI check never runs on
