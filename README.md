@@ -272,12 +272,47 @@ Config fields:
 | `up.command` | Shell command run after hosts, certificates, and proxy routes are ready |
 | `down.command` | Shell command run on project stop |
 | `domains[].host` | Local domain Betty should expose |
-| `domains[].target` | Local HTTP(S) target for the domain, for example `http://127.0.0.1:5173` |
+| `domains[].target` | Local target for the domain: HTTP(S), for example `http://127.0.0.1:5173`, or PostgreSQL, for example `postgres://127.0.0.1:5440` (see [Database domains](#database-domains-postgresql)) |
 | `https.enabled` | Enables HTTPS routes and mkcert certificates |
 | `https.certificateAuthority` | Currently supports `missbetty` |
 | `permissions.hosts` | `prompt`, `allowed`, `manual`, or `denied` for hosts-file changes |
 | `permissions.trustStore` | `prompt`, `allowed`, `manual`, or `denied` for mkcert CA setup |
 | `permissions.docker` | `prompt`, `allowed`, `manual`, or `denied` for Docker commands |
+
+##### Database domains (PostgreSQL)
+
+A `postgres://` target gives a project's database a domain, so clients connect
+by name instead of a per-project port:
+
+```yaml
+domains:
+  - host: app.shop.localhost
+    target: http://127.0.0.1:5180
+  - host: db.shop.localhost
+    target: postgres://127.0.0.1:5440
+
+https:
+  enabled: true
+```
+
+The database is reachable on the HTTPS port, next to the web domains:
+
+```sh
+psql "postgresql://shop@db.shop.localhost:443/shop?sslmode=verify-full&sslnegotiation=direct&sslrootcert=<mkcert root CA>"
+```
+
+`betty project load` prints this connection string with the path of the
+mkcert root CA (`mkcert -CAROOT` shows the folder, the file is `rootCA.pem`).
+
+- **Client:** PostgreSQL 17 or newer (psql/libpq, or a driver that supports
+  `sslnegotiation=direct`). Only then does the TLS handshake carry the host
+  name Betty routes by. Older clients cannot be routed and time out.
+- **Server:** any PostgreSQL version. Betty terminates TLS with the mkcert
+  certificate and passes a plain connection on, so the database needs no
+  certificates of its own.
+- **HTTPS:** `postgres://` targets require `https.enabled: true`.
+- Other databases (MySQL/MariaDB, Redis …) are not supported: their protocols
+  have no TLS mode that carries the host name.
 
 #### `betty project create`
 

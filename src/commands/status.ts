@@ -3,8 +3,9 @@ import { execSync } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import yaml from 'yaml'
-import type { DockerInspectEntry, TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
-import { domainUrl } from '../utils/config'
+import type { DockerInspectEntry, TraefikDynamicConfig } from '../types'
+import { databaseUrl, domainUrl } from '../utils/config'
+import { parseRoutes } from '../utils/routes'
 import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 
 interface ProjectStatus {
@@ -98,33 +99,15 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
   let containers: DockerInspectEntry[] | null = null
 
   for (const file of files) try {
-      const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig
-      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-      const services: Record<string, TraefikService> = doc.http?.services ?? {}
-
-      const nonSecureKeys = Object.keys(routers).filter((key) => !key.endsWith('-secure'))
-      const routerKeys = nonSecureKeys.length > 0 ? nonSecureKeys
-        : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
-        : [path.basename(file, path.extname(file))]
-
+      const doc = yaml.parse(fs.readFileSync(path.join(dynamicDir, file), 'utf8')) as TraefikDynamicConfig | null
       const projectName = path.basename(file, path.extname(file))
 
-      for (const routerKey of routerKeys) {
-        const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
-        const domainMatch = /Host\("([^"]+)"\)/.exec(rule)
-        const domain = domainMatch?.[1] ?? 'n/a'
-        const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
-        const url = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
-        const portMatch = url !== '' ? /:(\d+)(?:\/)?$/.exec(url) : null
-        const port = portMatch?.[1] ?? 'n/a'
-
-        const isHttps = `${routerKey}-secure` in routers
-          || routerKey.endsWith('-secure')
-          || url.startsWith('https://')
-          || port === '443'
-        const domainWithProtocol = domain !== 'n/a'
-          ? domainUrl(domain, isHttps)
-          : domain
+      for (const route of parseRoutes(doc, projectName)) {
+        const url = route.target
+        const port = route.port !== '' ? route.port : 'n/a'
+        const domainWithProtocol = route.domain === '' ? 'n/a'
+          : route.tcp ? databaseUrl(route.domain)
+          : domainUrl(route.domain, route.https)
 
         const target = url !== '' ? url : 'n/a'
         const host = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)?.[1] ?? ''

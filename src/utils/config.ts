@@ -93,6 +93,10 @@ export const domainUrl = (domain: string, https: boolean): string => {
   return `${https ? 'https' : 'http'}://${domain}${port === defaultPort ? '' : `:${String(port)}`}`
 }
 
+// A database domain is reached through the HTTPS entry point. The port is always
+// spelled out: database clients default to their own port (5432), not 443.
+export const databaseUrl = (domain: string): string => `postgres://${domain}:${String(getHttpsPort())}`
+
 export const setHttpPort = (value: string): number => {
   const port = normalizePort(value)
   if (port === null) throw new Error('Invalid port. Example: betty config set httpPort 8080')

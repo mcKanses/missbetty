@@ -373,3 +373,83 @@ describe('removeRouteFromFile', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(filePath, '# betty-project-config: /a/app/.betty.yml\nyaml-out\n', 'utf8')
   })
 })
+
+describe('TCP (database) routes', () => {
+  const projectDoc = () => ({
+    http: {
+      routers: {
+        'shop-1': { rule: 'Host("app.shop.localhost")', entryPoints: ['web'], service: 'shop-1' },
+        'shop-1-secure': { rule: 'Host("app.shop.localhost")', entryPoints: ['websecure'], service: 'shop-1', tls: {} },
+      },
+      services: { 'shop-1': { loadBalancer: { servers: [{ url: 'http://host.docker.internal:5180' }] } } },
+    },
+    tcp: {
+      routers: { 'shop-2': { rule: 'HostSNI(`db.shop.localhost`)', entryPoints: ['websecure'], service: 'shop-2', tls: { options: 'shop-2-tls' } } },
+      services: { 'shop-2': { loadBalancer: { servers: [{ address: 'host.docker.internal:5440' }] } } },
+    },
+    tls: {
+      certificates: [
+        { certFile: '/certs/app.shop.localhost.pem', keyFile: '/certs/app.shop.localhost-key.pem' },
+        { certFile: '/certs/db.shop.localhost.pem', keyFile: '/certs/db.shop.localhost-key.pem' },
+      ],
+      options: { 'shop-2-tls': { alpnProtocols: ['postgresql'] } },
+    },
+  })
+
+  it('reads TCP routers next to HTTP routers', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(projectDoc())
+
+    expect(readRoutes().map((r) => [r.routerName, r.domain, r.target, r.port])).toEqual([
+      ['shop-1', 'app.shop.localhost', 'http://host.docker.internal:5180', '5180'],
+      ['shop-2', 'db.shop.localhost', 'tcp://host.docker.internal:5440', '5440'],
+    ])
+  })
+
+  it('reads a file with only TCP routers without a nameless placeholder route', () => {
+    const doc = projectDoc()
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({ tcp: doc.tcp, tls: doc.tls })
+
+    expect(readRoutes().map((r) => r.domain)).toEqual(['db.shop.localhost'])
+  })
+
+  it('removes a TCP route with its service, TLS options and certificate, and keeps the HTTP route', () => {
+    const filePath = path.join(DYNAMIC_DIR, 'shop.yml')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('http: {}\n')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(projectDoc())
+    ;(yaml.stringify as unknown as jest.Mock).mockReturnValue('yaml-out\n')
+
+    const deleted = removeRouteFromFile({ filePath, fileName: 'shop.yml', routerName: 'shop-2', container: 'shop-2', domain: 'db.shop.localhost', target: '', port: '' })
+
+    expect(deleted).toBe(false)
+    const written = (yaml.stringify as unknown as jest.Mock).mock.calls[0][0] as ReturnType<typeof projectDoc>
+    expect(written.tcp).toBeUndefined()
+    expect(Object.keys(written.http.routers)).toEqual(['shop-1', 'shop-1-secure'])
+    expect(written.tls).toEqual({ certificates: [{ certFile: '/certs/app.shop.localhost.pem', keyFile: '/certs/app.shop.localhost-key.pem' }] })
+  })
+
+  it('deletes the file once the last route, a TCP route, is removed', () => {
+    const filePath = path.join(DYNAMIC_DIR, 'shop.yml')
+    const doc = projectDoc()
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('tcp: {}\n')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue({ tcp: doc.tcp, tls: doc.tls })
+
+    expect(removeRouteFromFile({ filePath, fileName: 'shop.yml', routerName: 'shop-2', container: 'shop-2', domain: 'db.shop.localhost', target: '', port: '' })).toBe(true)
+    expect(fs.unlinkSync).toHaveBeenCalledWith(filePath)
+  })
+
+  it('keeps a file whose HTTP route is removed while a TCP route remains', () => {
+    const filePath = path.join(DYNAMIC_DIR, 'shop.yml')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('http: {}\n')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(projectDoc())
+    ;(yaml.stringify as unknown as jest.Mock).mockReturnValue('yaml-out\n')
+
+    expect(removeRouteFromFile({ filePath, fileName: 'shop.yml', routerName: 'shop-1', container: 'shop-1', domain: 'app.shop.localhost', target: '', port: '' })).toBe(false)
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+  })
+})
