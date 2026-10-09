@@ -1,7 +1,7 @@
 import path from 'path'
 import fs from 'fs'
 import yaml from 'yaml'
-import type { TraefikDynamicConfig, TraefikRouter, TraefikService } from '../types'
+import type { TraefikDynamicConfig, TraefikRouter, TraefikService, TraefikTcpService } from '../types'
 import { BETTY_DYNAMIC_DIR } from './constants'
 import { certificateBaseName, normalizeServiceName, sanitizeName } from './names'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
@@ -24,6 +24,51 @@ export interface RouteEntry {
   port: string;
 }
 
+export interface ParsedRoute {
+  routerName: string;
+  domain: string;
+  target: string;
+  port: string;
+  https: boolean;
+  // A TCP route (database domain) rather than an HTTP route.
+  tcp: boolean;
+}
+
+// The routes of one dynamic file: one per HTTP router (its -secure twin folded
+// in) and one per TCP router. A file without routers yields one empty route
+// named after the file, so callers can still list and remove it.
+export const parseRoutes = (doc: TraefikDynamicConfig | null, fallbackName: string): ParsedRoute[] => {
+  const routers: Record<string, TraefikRouter> = doc?.http?.routers ?? {}
+  const services: Record<string, TraefikService> = doc?.http?.services ?? {}
+  const tcpRouters: Record<string, TraefikRouter> = doc?.tcp?.routers ?? {}
+  const tcpServices: Record<string, TraefikTcpService> = doc?.tcp?.services ?? {}
+
+  const nonSecureKeys = Object.keys(routers).filter((key) => !key.endsWith('-secure'))
+  const routerKeys = nonSecureKeys.length > 0 ? nonSecureKeys
+    : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
+    : Object.keys(tcpRouters).length > 0 ? []
+    : [fallbackName]
+
+  const httpRoutes = routerKeys.map((routerKey): ParsedRoute => {
+    const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
+    const domain = /Host\("([^"]+)"\)/.exec(rule)?.[1] ?? ''
+    const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
+    const target = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
+    const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? ''
+    const https = `${routerKey}-secure` in routers || routerKey.endsWith('-secure') || target.startsWith('https://') || port === '443'
+    return { routerName: routerKey, domain, target, port, https, tcp: false }
+  })
+
+  const tcpRoutes = Object.entries(tcpRouters).map(([routerKey, router]): ParsedRoute => {
+    const domain = /HostSNI\(`([^`]+)`\)/.exec(router.rule ?? '')?.[1] ?? ''
+    const address = (tcpServices[router.service ?? routerKey] as TraefikTcpService | undefined)?.loadBalancer?.servers?.[0]?.address ?? ''
+    const port = /:(\d+)$/.exec(address)?.[1] ?? ''
+    return { routerName: routerKey, domain, target: address !== '' ? `tcp://${address}` : '', port, https: true, tcp: true }
+  })
+
+  return [...httpRoutes, ...tcpRoutes]
+}
+
 export const readRoutes = (): RouteEntry[] => {
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return []
 
@@ -33,25 +78,20 @@ export const readRoutes = (): RouteEntry[] => {
     const filePath = path.join(BETTY_DYNAMIC_DIR, file)
     try {
       const content = fs.readFileSync(filePath, 'utf8')
-      const doc = yaml.parse(content) as TraefikDynamicConfig
+      const doc = yaml.parse(content) as TraefikDynamicConfig | null
       const storedContainer = CONTAINER_COMMENT.exec(content)?.[1]
-      const routers: Record<string, TraefikRouter> = doc.http?.routers ?? {}
-      const services: Record<string, TraefikService> = doc.http?.services ?? {}
+      const knownContainer = getLinkContainer(file) ?? storedContainer
 
-      const nonSecureKeys = Object.keys(routers).filter((key) => !key.endsWith('-secure'))
-      const routerKeys = nonSecureKeys.length > 0 ? nonSecureKeys
-        : Object.keys(routers).length > 0 ? [Object.keys(routers)[0]]
-        : [path.basename(file, path.extname(file))]
-
-      for (const routerKey of routerKeys) {
-        const rule = (routers[routerKey] as TraefikRouter | undefined)?.rule ?? ''
-        const domain = /Host\("([^"]+)"\)/.exec(rule)?.[1] ?? ''
-        const serviceKey = routerKey in services ? routerKey : (Object.keys(services)[0] ?? routerKey)
-        const target = (services[serviceKey] as TraefikService | undefined)?.loadBalancer?.servers?.[0]?.url ?? ''
-        const port = /:(\d+)(?:\/)?$/.exec(target)?.[1] ?? ''
-        const knownContainer = getLinkContainer(file) ?? storedContainer
-        entries.push({ filePath, fileName: file, routerName: routerKey, container: knownContainer ?? routerKey, containerKnown: knownContainer !== undefined, domain, target, port })
-      }
+      for (const route of parseRoutes(doc, path.basename(file, path.extname(file)))) entries.push({
+        filePath,
+        fileName: file,
+        routerName: route.routerName,
+        container: knownContainer ?? route.routerName,
+        containerKnown: knownContainer !== undefined,
+        domain: route.domain,
+        target: route.target,
+        port: route.port,
+      })
     } catch {
       // Ignore malformed route files.
     }
@@ -99,6 +139,10 @@ export const routeFileOccupant = (domain: string, ignoreFilePath?: string): Rout
   )
 }
 
+// The TLS options of a TCP route. Named per router, so removing one route takes
+// its options along and two files never define the same options.
+export const tlsOptionsName = (routerName: string): string => `${routerName}-tls`
+
 // Removes one route (router, its -secure twin, service and certificate) from its
 // file, and deletes the file once no router is left. Returns true when deleted.
 // Project files hold several domains, so the other routes must survive.
@@ -118,14 +162,28 @@ export const removeRouteFromFile = (route: RouteEntry): boolean => {
   if (doc.http?.services !== undefined) doc.http.services = Object.fromEntries(
     Object.entries(doc.http.services).filter(([k]) => k !== route.routerName)
   )
+  if (doc.tcp?.routers !== undefined) doc.tcp.routers = Object.fromEntries(
+    Object.entries(doc.tcp.routers).filter(([k]) => k !== route.routerName)
+  )
+  if (doc.tcp?.services !== undefined) doc.tcp.services = Object.fromEntries(
+    Object.entries(doc.tcp.services).filter(([k]) => k !== route.routerName)
+  )
+  if (doc.tls?.options !== undefined) {
+    const optionsName = tlsOptionsName(route.routerName)
+    doc.tls.options = Object.fromEntries(Object.entries(doc.tls.options).filter(([k]) => k !== optionsName))
+    if (Object.keys(doc.tls.options).length === 0) delete doc.tls.options
+  }
 
   if (doc.tls?.certificates !== undefined) {
     const certFileName = `${certificateBaseName(route.domain)}.pem`
     doc.tls.certificates = doc.tls.certificates.filter((c) => path.basename(c.certFile) !== certFileName)
-    if (doc.tls.certificates.length === 0) delete doc.tls
+    if (doc.tls.certificates.length === 0) delete doc.tls.certificates
   }
+  if (doc.tls !== undefined && Object.keys(doc.tls).length === 0) delete doc.tls
+  if (doc.tcp?.routers !== undefined && Object.keys(doc.tcp.routers).length === 0) delete doc.tcp
 
-  const hasRouters = doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0
+  const hasRouters = (doc.http?.routers !== undefined && Object.keys(doc.http.routers).length > 0)
+    || (doc.tcp?.routers !== undefined && Object.keys(doc.tcp.routers).length > 0)
   if (!hasRouters) {
     fs.unlinkSync(route.filePath)
     removeLinkContainer(route.fileName)

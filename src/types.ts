@@ -31,12 +31,23 @@ export interface TraefikService {
   };
 }
 
+export interface TraefikTcpService {
+  loadBalancer?: {
+    servers?: { address?: string }[];
+  };
+}
+
 export interface TraefikDynamicConfig {
   http?: {
     routers?: Record<string, TraefikRouter>;
     services?: Record<string, TraefikService>;
   };
+  tcp?: {
+    routers?: Record<string, TraefikRouter>;
+    services?: Record<string, TraefikTcpService>;
+  };
   tls?: {
     certificates?: { certFile: string; keyFile: string }[];
+    options?: Record<string, { alpnProtocols?: string[] }>;
   };
 }
