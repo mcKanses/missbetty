@@ -77,11 +77,15 @@ describe('validateHttpTarget', () => {
   })
 
   test('returns error string for a non-URL value', () => {
-    expect(validateHttpTarget('not-a-url')).toBe('Must be a valid http(s) URL.')
+    expect(validateHttpTarget('not-a-url')).toBe('Must be a valid http(s) or postgres URL.')
+  })
+
+  test('accepts a postgres URL', () => {
+    expect(validateHttpTarget('postgres://127.0.0.1:5440')).toBe(true)
   })
 
   test('returns error string for a non-http(s) protocol', () => {
-    expect(validateHttpTarget('ftp://example.com')).toBe('Must be an http(s) URL.')
+    expect(validateHttpTarget('ftp://example.com')).toBe('Must be an http(s) or postgres URL.')
   })
 })
 
@@ -161,6 +165,26 @@ describe('projectCreateCommand', () => {
     expect(content).toContain('http://127.0.0.1:8080')
     expect(content).toContain('docker compose up')
     expect(content).toContain('docker compose down')
+  })
+
+  test('accepts a postgres target and enables HTTPS without asking, since database domains need it', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    mockPromptSequence(
+      { projectName: 'shop' },
+      { host: 'db.shop.localhost', target: 'postgres://127.0.0.1:5440' },
+      { another: false },
+      { upCommand: '', downCommand: '', autoApprove: false },
+      { startNow: false }
+    )
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectCreateCommand({})
+
+    const httpsPrompt = (inquirer.prompt as unknown as jest.Mock).mock.calls.flatMap((call) => call[0] as { name: string }[]).find((q) => q.name === 'httpsEnabled')
+    expect(httpsPrompt).toBeUndefined()
+    const content = String((fs.writeFileSync as unknown as jest.Mock).mock.calls[0][1])
+    expect(content).toContain('postgres://127.0.0.1:5440')
+    expect(content).toContain('enabled: true')
   })
 
   test('includes https block when enabled', async () => {
