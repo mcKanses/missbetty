@@ -76,6 +76,10 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   }
 
   const route = await selectRoute(routes, target, opts?.yes)
+  // A database domain is a TCP route; relink writes HTTP routes to containers.
+  if (route.tcp === true) throw new BettyError(`'${route.domain}' is a database domain from a .betty.yml project (${route.target}).`, {
+    hints: ['Change its postgres:// target in .betty.yml and run `betty project load`.'],
+  })
   const runningContainers = getRunningContainers()
   const shouldPromptValues = opts?.yes !== true && opts?.container === undefined && opts?.domain === undefined && opts?.port === undefined
 
@@ -123,7 +127,11 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
 
   const conflict = findDomainConflict(domain, route)
   if (conflict !== null) throw new BettyError(`Domain '${domain}' is already linked by ${conflict.routerName} (${conflict.fileName}).`)
-  const occupant = routeFileOccupant(domain, route.filePath)
+  // A project file holds several domains. Relinking one of them writes it to its
+  // own file, which must not be the project file itself (project `api-dev`,
+  // domain `api.dev`): that would replace the project's other routes.
+  const sharesFile = routes.some((r) => r.filePath === route.filePath && r.routerName !== route.routerName)
+  const occupant = routeFileOccupant(domain, sharesFile ? undefined : route.filePath)
   if (occupant !== undefined) throw new BettyError(`The route file ${occupant.fileName} already holds the routes of another project (e.g. ${occupant.domain}).`, { hints: ["Choose another domain, or stop that project first: betty project stop"] })
 
   if (port === null) throw new BettyError('Invalid port. Example: --port 3000')
@@ -141,9 +149,8 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   const linkedContainer = connectContainerToNetwork(containerName)
   const certificate = ensureCertificate(domain)
   const routeFileName = `${normalizeServiceName(domain)}.yml`
-  // A project file holds several domains. Replacing it would drop the others, so
-  // only this route is taken out and the new one is written as its own file.
-  const sharesFile = routes.some((r) => r.filePath === route.filePath && r.routerName !== route.routerName)
+  // Replacing a shared file would drop the other domains, so only this route is
+  // taken out and the new one is written as its own file.
   if (sharesFile) {
     removeRouteFromFile(route)
     writeRouteConfig(linkedContainer, domain, port, certificate)
