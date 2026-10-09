@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/mcKanses/missbetty/compare/v1.7.5...v1.8.0) (2026-10-08)
+
+
+### Features
+
+* Verify the release signature in the installers when cosign is available ([9a54124](https://github.com/mcKanses/missbetty/commit/9a541247d26b64242643b0fdaf6a116c9c328219))
+
 ## [1.7.5](https://github.com/mcKanses/missbetty/compare/v1.7.4...v1.7.5) (2026-10-08)
 
 
