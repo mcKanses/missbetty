@@ -587,9 +587,13 @@ betty update -y
 | `--check` | Only report whether an update is available |
 | `-y, --yes` | Install without asking |
 
-The standalone binary is updated through the installer script, with the same
-checksum and signature checks as a fresh install; an npm install is updated
-with `npm install -g`. A source checkout is updated with `git pull`.
+The standalone binary is updated through the installer script of the new
+release, with the same checksum and signature checks as a fresh install. In a
+root-owned directory such as `/usr/local/bin`, the installer asks for your sudo
+password. A global npm install is updated with `npm install -g`.
+
+Installs through pnpm, yarn, bun or npx, project dependencies and source
+checkouts are not updated by Betty; it prints the command to run instead.
 
 Betty also looks for a new release on its own, at most once a day, after a
 command has finished. When one is out, it asks once a day whether to install it
