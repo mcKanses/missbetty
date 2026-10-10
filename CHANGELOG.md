@@ -1,3 +1,12 @@
+## [1.10.2](https://github.com/mcKanses/missbetty/compare/v1.10.1...v1.10.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* Keep PATH variables unexpanded and verify the mkcert fallback download ([0c76e40](https://github.com/mcKanses/missbetty/commit/0c76e40059275892c9332b7ec2be47b5ae21da05))
+* Keep project commands to their own routes and start the proxy on relink ([aaf9bc5](https://github.com/mcKanses/missbetty/commit/aaf9bc5b18e6be7b361f2f0da5e213bf2a9624c3))
+* Keep the hosts file intact and make doctor and setup check every domain ([602d437](https://github.com/mcKanses/missbetty/commit/602d4378e474fb7ba5c5c1b12cc60c964a241f5f))
+
 ## [1.10.1](https://github.com/mcKanses/missbetty/compare/v1.10.0...v1.10.1) (2026-10-10)
 
 
