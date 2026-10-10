@@ -25,16 +25,20 @@ const readState = (): UpdateCheckState => {
   }
 }
 
+// Written to a temporary file and renamed: two terminals finishing at once must
+// not leave a torn file behind.
 const writeState = (state: UpdateCheckState): void => {
   try {
     fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
-    fs.writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+    const tmp = `${STATE_PATH}.${String(process.pid)}.tmp`
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+    fs.renameSync(tmp, STATE_PATH)
   } catch { /* the next run checks again */ }
 }
 
 // Arguments after which betty must not ask anything: machine-readable output,
-// help and version, and the update command itself.
-const QUIET_ARGS = ['update', 'help', '--help', '-h', '--version', '-V', '--json', '--format']
+// help and version, --yes (scripts), and the update command itself.
+const QUIET_ARGS = ['update', 'help', '--help', '-h', '--version', '-V', '--json', '--format', '-y', '--yes']
 
 export const updateCheckApplies = (argv: string[]): boolean =>
   getUpdateCheck() &&
@@ -54,14 +58,17 @@ export const offerUpdate = async (argv: string[], currentVersion: string): Promi
 
   let latest = state.latest ?? null
   if (state.checkedAt === undefined || now - state.checkedAt >= DAY_MS) {
+    // A failed lookup counts too: offline or behind a proxy, betty must not
+    // wait for it after every command.
     latest = await fetchLatestVersion(LOOKUP_TIMEOUT_MS)
-    if (latest === null) return
     state.checkedAt = now
-    state.latest = latest
+    if (latest !== null) state.latest = latest
     writeState(state)
   }
   if (latest === null || !isNewer(latest, currentVersion) || state.skipped === latest) return
 
+  // Recorded before asking: a prompt cancelled with Ctrl+C counts as "Not now".
+  writeState({ ...state, askedAt: now })
   console.log(`\nBetty ${latest} is available (you have ${currentVersion}). What's new: ${releaseUrl(latest)}`)
   const { choice } = await inquirer.prompt<{ choice: 'install' | 'later' | 'skip' }>([{
     type: 'list',
@@ -73,7 +80,7 @@ export const offerUpdate = async (argv: string[], currentVersion: string): Promi
       { name: 'Skip this version', value: 'skip' },
     ],
   }])
-  writeState({ ...state, askedAt: now, ...(choice === 'skip' ? { skipped: latest } : {}) })
+  if (choice === 'skip') writeState({ ...state, askedAt: now, skipped: latest })
   if (choice !== 'install') {
     if (choice === 'later') console.log('Run `betty update` any time. Turn this off with `betty config set updateCheck false`.')
     return

@@ -255,7 +255,6 @@ export const run = async (argv = process.argv): Promise<void> => {
   const program = createProgram()
   try {
     await program.parseAsync(argv)
-    await offerUpdate(argv, version)
   } catch (err) {
     if (err instanceof BettyError) {
       printError(err.message)
@@ -268,6 +267,15 @@ export const run = async (argv = process.argv): Promise<void> => {
     printError(err instanceof Error ? err.message : String(err))
     printHint('If this looks like a bug in betty, please report it: https://github.com/mcKanses/missbetty/issues')
     process.exit(1)
+  }
+
+  // Separate from the command: the command already succeeded, so a failed or
+  // declined update must not turn it into a failure.
+  try {
+    await offerUpdate(argv, version)
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err))
+    if (err instanceof BettyError) err.hints.forEach((hint) => { printHint(hint) })
   }
 }
 
