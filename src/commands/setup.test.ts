@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import inquirer from 'inquirer'
 import setupCommand from './setup'
-import { ensureHostsEntry } from '../utils/hosts'
+import { ensureHostsEntries } from '../utils/hosts'
 import {
   checkMkcertCaInstalled,
   checkMkcertInstalled,
@@ -20,7 +20,7 @@ jest.mock('inquirer', () => ({
 
 jest.mock('../utils/hosts', () => ({
   __esModule: true,
-  ensureHostsEntry: jest.fn(),
+  ensureHostsEntries: jest.fn(),
 }))
 
 jest.mock('../utils/setup', () => ({
@@ -47,6 +47,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: false,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: ['myapp.dev'],
     })
     ;(installMkcertPackage as unknown as jest.Mock).mockReturnValue({ ok: true })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -58,7 +60,7 @@ describe('setup command', () => {
     expect(installMkcertPackage).toHaveBeenCalled()
     expect(runMkcertInstall).toHaveBeenCalled()
     expect(inquirer.prompt).not.toHaveBeenCalled()
-    expect(ensureHostsEntry).not.toHaveBeenCalled()
+    expect(ensureHostsEntries).not.toHaveBeenCalled()
   })
 
   test('asks for mkcert install and CA setup in interactive mode', async () => {
@@ -69,6 +71,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: false,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: ['myapp.dev'],
     })
     ;(installMkcertPackage as unknown as jest.Mock).mockReturnValue({ ok: true })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -81,7 +85,7 @@ describe('setup command', () => {
     expect(installMkcertPackage).toHaveBeenCalled()
     expect(inquirer.prompt).toHaveBeenCalledTimes(3)
     expect(runMkcertInstall).toHaveBeenCalled()
-    expect(ensureHostsEntry).toHaveBeenCalledWith('myapp.dev')
+    expect(ensureHostsEntries).toHaveBeenCalledWith(['myapp.dev'])
   })
 
   test('prints installation instructions when automatic mkcert installation is declined', async () => {
@@ -92,6 +96,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock)
       .mockReturnValueOnce(false)
@@ -112,6 +118,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(installMkcertPackage as unknown as jest.Mock).mockReturnValue({ ok: false, warning: 'brew failed' })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(false)
@@ -131,6 +139,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true }))
     ;(installMkcertPackage as unknown as jest.Mock).mockReturnValue({ ok: false, warning: 'install failed' })
@@ -151,6 +161,8 @@ describe('setup command', () => {
       mkcertCaInstalled: true,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -170,6 +182,8 @@ describe('setup command', () => {
       mkcertCaInstalled: true,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -187,6 +201,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
@@ -207,6 +223,8 @@ describe('setup command', () => {
       mkcertCaInstalled: true,
       hostsEntryExists: false,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: ['myapp.dev'],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -214,7 +232,7 @@ describe('setup command', () => {
 
     await setupCommand()
 
-    expect(ensureHostsEntry).toHaveBeenCalledWith('myapp.dev')
+    expect(ensureHostsEntries).toHaveBeenCalledWith(['myapp.dev'])
   })
 
   test('interactive mode skips CA install when user declines', async () => {
@@ -225,6 +243,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
@@ -243,6 +263,8 @@ describe('setup command', () => {
       mkcertCaInstalled: true,
       hostsEntryExists: false,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: ['myapp.dev'],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -250,7 +272,7 @@ describe('setup command', () => {
 
     await setupCommand()
 
-    expect(ensureHostsEntry).not.toHaveBeenCalled()
+    expect(ensureHostsEntries).not.toHaveBeenCalled()
   })
 
   test('interactive mode logs CA install warning when runMkcertInstall fails', async () => {
@@ -261,6 +283,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(false)
@@ -282,6 +306,8 @@ describe('setup command', () => {
       mkcertCaInstalled: false,
       hostsEntryExists: false,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: ['myapp.dev'],
     })
     ;(installMkcertPackage as unknown as jest.Mock).mockReturnValue({ ok: true })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
@@ -293,7 +319,7 @@ describe('setup command', () => {
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(installMkcertPackage).toHaveBeenCalled()
     expect(runMkcertInstall).toHaveBeenCalled()
-    expect(ensureHostsEntry).toHaveBeenCalledWith('myapp.dev')
+    expect(ensureHostsEntries).toHaveBeenCalledWith(['myapp.dev'])
   })
 
   test('interactive mode logs docker-not-running when docker installed but not running', async () => {
@@ -304,6 +330,8 @@ describe('setup command', () => {
       mkcertCaInstalled: true,
       hostsEntryExists: true,
       domain: 'myapp.dev',
+      linkedDomains: ['myapp.dev'],
+      missingHostsEntries: [],
     })
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)

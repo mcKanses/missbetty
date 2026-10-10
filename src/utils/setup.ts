@@ -2,8 +2,8 @@ import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { getDomainSuffix } from './config'
-import { BETTY_DYNAMIC_DIR } from './constants'
 import { hasHostsEntry, isWsl } from './hosts'
+import { readRoutes } from './routes'
 
 export interface SetupStatus {
   dockerInstalled: boolean;
@@ -12,6 +12,9 @@ export interface SetupStatus {
   mkcertCaInstalled: boolean;
   hostsEntryExists: boolean;
   domain: string;
+  // Every linked domain that needs a hosts entry, and those still without one.
+  linkedDomains: string[];
+  missingHostsEntries: string[];
 }
 
 export interface PlatformInfo {
@@ -30,9 +33,13 @@ export const getPlatformInfo = (): PlatformInfo => {
   }
 }
 
+// A Docker Desktop that is still starting can leave `docker info` hanging; a
+// check gives up instead of blocking doctor or setup for good.
+const CHECK_TIMEOUT_MS = 15_000
+
 const runCheck = (command: string): boolean => {
   try {
-    execSync(command, { stdio: 'pipe' })
+    execSync(command, { stdio: 'pipe', timeout: CHECK_TIMEOUT_MS })
     return true
   } catch {
     return false
@@ -53,7 +60,7 @@ const hasCommand = (command: string): boolean => runCheck(`command -v ${command}
 // The mkcert root CA file, or null when mkcert or its CA is missing.
 export const getMkcertRootCaPath = (): string | null => {
   try {
-    const caroot = execSync('mkcert -CAROOT', { stdio: 'pipe' }).toString().trim()
+    const caroot = execSync('mkcert -CAROOT', { stdio: 'pipe', timeout: CHECK_TIMEOUT_MS }).toString().trim()
     if (caroot === '') return null
     const rootCa = path.join(caroot, 'rootCA.pem')
     return fs.existsSync(rootCa) ? rootCa : null
@@ -66,29 +73,13 @@ export const checkMkcertCaInstalled = (): boolean => checkMkcertInstalled() && g
 
 export const isHttpsRequestedDomain = (domain: string): boolean => domain.toLowerCase().endsWith('.dev')
 
-const findLinkedDomainFromDynamic = (): string | null => {
-  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return null
+// Linked domains that need a hosts entry: HTTP and database routes alike, and
+// none for .localhost, which resolves on its own.
+const linkedDomainsNeedingHosts = (): string[] => [...new Set(readRoutes()
+  .map((route) => route.domain.toLowerCase())
+  .filter((domain) => domain !== '' && !domain.endsWith('.localhost')))]
 
-  const files = fs.readdirSync(BETTY_DYNAMIC_DIR)
-    .filter((file) => file.endsWith('.yml') || file.endsWith('.yaml'))
-
-  for (const file of files) try {
-    const content = fs.readFileSync(path.join(BETTY_DYNAMIC_DIR, file), 'utf8')
-    const match = /Host\("([^"]+)"\)/.exec(content)
-    const domain = match?.[1] ?? ''
-    if (domain !== '') return domain
-  } catch {
-    // Ignore malformed route files.
-  }
-
-  return null
-}
-
-export const resolveSetupDomain = (): string => {
-  const fromLinkedRoute = findLinkedDomainFromDynamic()
-  if (fromLinkedRoute !== null) return fromLinkedRoute
-  return `betty${getDomainSuffix()}`
-}
+export const resolveSetupDomain = (): string => [...linkedDomainsNeedingHosts(), `betty${getDomainSuffix()}`][0]
 
 export const runMkcertInstall = (): { ok: boolean; warning?: string } => {
   if (!checkMkcertInstalled()) return { ok: false, warning: 'mkcert is not installed.' }
@@ -127,19 +118,20 @@ export const installMkcertPackage = (): { ok: boolean; warning?: string } => {
 }
 
 export const collectSetupStatus = (): SetupStatus => {
-  const linkedDomain = findLinkedDomainFromDynamic()
-  const domain = linkedDomain ?? resolveSetupDomain()
+  const linkedDomains = linkedDomainsNeedingHosts()
+  // Without a linked domain there is nothing to map. An entry for a placeholder
+  // domain would belong to no route, and no betty command would ever remove it.
+  const missingHostsEntries = linkedDomains.filter((domain) => !hasHostsEntry(domain))
   const mkcertInstalled = checkMkcertInstalled()
   return {
     dockerInstalled: checkDockerInstalled(),
     dockerRunning: checkDockerRunning(),
     mkcertInstalled,
     mkcertCaInstalled: mkcertInstalled ? checkMkcertCaInstalled() : false,
-    // Without a linked domain there is nothing to map. An entry for the
-    // placeholder domain would belong to no route, and no betty command would
-    // ever remove it.
-    hostsEntryExists: linkedDomain === null || hasHostsEntry(domain),
-    domain,
+    hostsEntryExists: missingHostsEntries.length === 0,
+    domain: [...missingHostsEntries, ...linkedDomains, `betty${getDomainSuffix()}`][0],
+    linkedDomains,
+    missingHostsEntries,
   }
 }
 

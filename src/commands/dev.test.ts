@@ -14,8 +14,8 @@ const { lockState } = lockModule as unknown as { lockState: { held: boolean } }
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
 }))
 
 jest.mock('child_process', () => ({
@@ -32,6 +32,7 @@ jest.mock('fs', () => ({
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
     appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
     unlinkSync: jest.fn(),
     readdirSync: jest.fn(),
   },
@@ -40,6 +41,7 @@ jest.mock('fs', () => ({
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
   appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
   unlinkSync: jest.fn(),
   readdirSync: jest.fn(),
 }))
@@ -454,10 +456,10 @@ describe('dev command', () => {
     )
     expect(checkboxCall).toBeDefined()
     expect(fs.appendFileSync).toHaveBeenCalledWith(
-      expect.any(String), expect.stringContaining('ui.dev'), 'utf8'
+      expect.any(String), expect.stringContaining('ui.dev'), 'latin1'
     )
     expect(fs.appendFileSync).not.toHaveBeenCalledWith(
-      expect.any(String), expect.stringContaining('api.dev'), 'utf8'
+      expect.any(String), expect.stringContaining('api.dev'), 'latin1'
     )
   })
 
@@ -513,7 +515,7 @@ describe('dev command', () => {
     )
     expect(confirmCall).toBeDefined()
     expect(fs.appendFileSync).toHaveBeenCalledWith(
-      expect.any(String), expect.stringContaining('api.test.dev'), 'utf8'
+      expect.any(String), expect.stringContaining('api.test.dev'), 'latin1'
     )
   })
 
