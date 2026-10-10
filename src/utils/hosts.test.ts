@@ -8,10 +8,12 @@ jest.mock('fs', () => ({
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
     appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
   },
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
   appendFileSync: jest.fn(),
+  rmSync: jest.fn(),
 }))
 
 import fs from 'fs'
@@ -59,7 +61,7 @@ describe('hasHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 myapp.dev # added by betty\n')
 
     expect(hasHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.readFileSync).toHaveBeenCalledWith('/etc/hosts', 'utf8')
+    expect(fs.readFileSync).toHaveBeenCalledWith('/etc/hosts', 'latin1')
   })
 
   it('reads the Windows hosts file under WSL, where Betty writes the entry', () => {
@@ -68,7 +70,7 @@ describe('hasHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 myapp.dev # added by betty\n')
 
     expect(hasHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.readFileSync).toHaveBeenCalledWith('/mnt/c/Windows/System32/drivers/etc/hosts', 'utf8')
+    expect(fs.readFileSync).toHaveBeenCalledWith('/mnt/c/Windows/System32/drivers/etc/hosts', 'latin1')
   })
 
   it('does not match a domain that only shares a prefix', () => {
@@ -106,7 +108,7 @@ describe('ensureHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# 127.0.0.1 myapp.dev\n')
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('127.0.0.1 myapp.dev # added by betty'), 'utf8')
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('127.0.0.1 myapp.dev # added by betty'), 'latin1')
   })
 
   it('returns true when entry already exists in hosts file', () => {
@@ -123,7 +125,7 @@ describe('ensureHostsEntry', () => {
     expect(fs.appendFileSync).toHaveBeenCalledWith(
       expect.any(String),
       expect.stringContaining('127.0.0.1 myapp.dev'),
-      'utf8'
+      'latin1'
     )
   })
 
@@ -132,7 +134,7 @@ describe('ensureHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\r\n')
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.appendFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 myapp.dev # added by betty\r\n', 'utf8')
+    expect(fs.appendFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 myapp.dev # added by betty\r\n', 'latin1')
   })
 
   it('starts a new line first when the file does not end with one', () => {
@@ -141,7 +143,7 @@ describe('ensureHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost')
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
-    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'utf8')
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'latin1')
   })
 
   it('continues to append on a line of its own when the hosts file cannot be read', () => {
@@ -151,7 +153,7 @@ describe('ensureHostsEntry', () => {
 
     expect(ensureHostsEntry('myapp.dev')).toBe(true)
     // The file may not end with a line break, so the entry must not join its last line.
-    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'utf8')
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '\n127.0.0.1 myapp.dev # added by betty\n', 'latin1')
   })
 
   it('treats an existing entry in other letter case as present, like the elevated script does', () => {
@@ -173,7 +175,7 @@ describe('ensureHostsEntry', () => {
     expect(fs.appendFileSync).toHaveBeenCalledWith(
       '/mnt/c/Windows/System32/drivers/etc/hosts',
       expect.stringContaining('myapp.dev'),
-      'utf8'
+      'latin1'
     )
     expect(execFileSync).not.toHaveBeenCalled()
   })
@@ -202,7 +204,7 @@ describe('ensureHostsEntry', () => {
     expect(execFileSync).toHaveBeenCalledWith(
       'sudo',
       ['tee', '-a', '/etc/hosts'],
-      expect.objectContaining({ input: '127.0.0.1 myapp.dev # added by betty\n' })
+      expect.objectContaining({ input: Buffer.from('127.0.0.1 myapp.dev # added by betty\n', 'latin1') })
     )
   })
 
@@ -274,7 +276,7 @@ describe('removeHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 app.dev # added by betty\n127.0.0.1 betty # added by betty\n')
 
     expect(removeHostsEntry('betty')).toBe(true)
-    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.dev # added by betty\n', 'latin1')
   })
 
   it('keeps CRLF line endings and adds no trailing blank line when removing', () => {
@@ -282,7 +284,7 @@ describe('removeHostsEntry', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 localhost\r\n127.0.0.1 app.dev # added by betty\r\n')
 
     expect(removeHostsEntry('app.dev')).toBe(true)
-    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 localhost\r\n', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.any(String), '127.0.0.1 localhost\r\n', 'latin1')
   })
 
   it('leaves a commented-out line alone', () => {
@@ -311,7 +313,7 @@ describe('removeHostsEntry', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/etc/hosts',
       expect.not.stringContaining('myapp.dev'),
-      'utf8'
+      'latin1'
     )
   })
 
@@ -326,7 +328,7 @@ describe('removeHostsEntry', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/mnt/c/Windows/System32/drivers/etc/hosts',
       expect.not.stringContaining('myapp.dev'),
-      'utf8'
+      'latin1'
     )
   })
 
@@ -423,10 +425,63 @@ describe('batched hosts edits', () => {
       written ? '127.0.0.1 localhost\n' : '127.0.0.1 localhost\n127.0.0.1 a.test # added by betty\n127.0.0.1 b.test # added by betty\n'
     )
     ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
-    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { written = true })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation((_cmd: unknown, args: unknown) => { if ((args as string[]).includes('tee')) written = true })
 
     expect(removeHostsEntries(['a.test', 'b.test'])).toBe(true)
-    expect(execFileSync).toHaveBeenCalledTimes(1)
-    expect(execFileSync).toHaveBeenCalledWith('sudo', ['tee', '/etc/hosts'], expect.objectContaining({ input: '127.0.0.1 localhost\n' }))
+    expect(execFileSync).toHaveBeenNthCalledWith(1, 'sudo', ['-v'], expect.anything())
+    expect(execFileSync).toHaveBeenNthCalledWith(2, 'sudo', ['-n', 'tee', '/etc/hosts'], expect.objectContaining({ input: Buffer.from('127.0.0.1 localhost\n', 'latin1') }))
+  })
+
+  it('keeps lines added to /etc/hosts while sudo waited for the password', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    let file = '127.0.0.1 localhost\n127.0.0.1 a.test # added by betty\n'
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => file)
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation((_cmd: unknown, args: unknown, opts: unknown) => {
+      // A VPN client adds a line while the password prompt is open.
+      if ((args as string[])[0] === '-v') file += '10.0.0.5 vpn.internal\n'
+      else file = String((opts as { input: Buffer }).input)
+    })
+
+    expect(removeHostsEntry('a.test')).toBe(true)
+    expect(file).toBe('127.0.0.1 localhost\n10.0.0.5 vpn.internal\n')
+  })
+
+  it('does not count a blocklist mapping as an entry, and warns about it', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('0.0.0.0 app.test\n')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(hasHostsEntry('app.test')).toBe(false)
+    ensureHostsEntry('app.test')
+
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 app.test # added by betty\n', 'latin1')
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('also mapped to 0.0.0.0'))
+    logSpy.mockRestore()
+  })
+
+  it('keeps non-UTF-8 bytes of the hosts file when rewriting it', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    // "# Büro" saved as Windows-1252: 0xFC is not valid UTF-8.
+    const original = Buffer.concat([Buffer.from('# B'), Buffer.from([0xfc]), Buffer.from('ro\n127.0.0.1 a.test # added by betty\n')]).toString('latin1')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(original)
+
+    removeHostsEntry('a.test')
+
+    const [, written, encoding] = (fs.writeFileSync as unknown as jest.Mock).mock.calls[0] as [string, string, BufferEncoding]
+    expect(Buffer.from(written, encoding)).toEqual(Buffer.concat([Buffer.from('# B'), Buffer.from([0xfc]), Buffer.from('ro\n')]))
+  })
+
+  it('never writes an invalid host name', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+
+    expect(ensureHostsEntries(["x'; Remove-Item C:\\ ; '.test", 'bad\nline.test'])).toBe(true)
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+    expect(execFileSync).not.toHaveBeenCalled()
   })
 })

@@ -10,6 +10,7 @@ jest.mock('fs', () => ({
     statSync: jest.fn(),
     rmSync: jest.fn(),
     renameSync: jest.fn(),
+    linkSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
@@ -18,6 +19,7 @@ jest.mock('fs', () => ({
   statSync: jest.fn(),
   rmSync: jest.fn(),
   renameSync: jest.fn(),
+  linkSync: jest.fn(),
 }))
 
 jest.mock('./constants', () => ({
@@ -25,6 +27,7 @@ jest.mock('./constants', () => ({
 }))
 
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { withLock, withLockAsync } from './lock'
 import { BettyError } from './errors'
@@ -32,6 +35,7 @@ import { BettyError } from './errors'
 // Match the platform-specific separators that path.join uses in lock.ts.
 const LOCK_PATH = path.join('/home/test/.betty', '.lock')
 const OTHER_PID = 424242
+const OWN_LOCK = `${String(process.pid)}\n${os.hostname()}`
 
 // What fs throws for an O_EXCL create when the file already exists.
 const eexist = (): Error => Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' })
@@ -66,7 +70,7 @@ describe('withLock', () => {
     const result = withLock(() => 'done')
 
     expect(result).toBe('done')
-    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, OWN_LOCK, { flag: 'wx' })
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
   })
 
@@ -112,7 +116,7 @@ describe('withLock', () => {
 
     expect(result).toBe('ok')
     expect(fn).toHaveBeenCalled()
-    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, OWN_LOCK, { flag: 'wx' })
   })
 
   it('reclaims a lock older than an hour even if its PID is alive, since the PID may have been reused', () => {
@@ -121,7 +125,7 @@ describe('withLock', () => {
     ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() - 2 * 60 * 60_000 })
 
     expect(withLock(() => 'ok')).toBe('ok')
-    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, OWN_LOCK, { flag: 'wx' })
   })
 
   it('puts back a fresh lock that another process took between the check and the reclaim', () => {
@@ -133,8 +137,30 @@ describe('withLock', () => {
     })
 
     expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
-    expect(fs.renameSync).toHaveBeenLastCalledWith(expect.stringContaining('.stale'), LOCK_PATH)
+    // Put back with linkSync, which cannot replace a lock created meanwhile.
+    expect(fs.linkSync).toHaveBeenCalledWith(expect.stringContaining('.stale'), LOCK_PATH)
     expect(fs.writeFileSync).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not judge a lock from another machine by its PID', () => {
+    lockHeldBy(`${String(OTHER_PID)}\nother-host`)
+    processRunning(false)
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+    expect(fs.renameSync).not.toHaveBeenCalled()
+  })
+
+  it('reclaims a lock from another machine once it is older than an hour', () => {
+    lockHeldBy(`${String(OTHER_PID)}\nother-host`)
+    processRunning(true)
+    ;(fs.statSync as unknown as jest.Mock).mockReturnValue({ mtimeMs: Date.now() - 2 * 60 * 60_000 })
+
+    const result = withLock(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(OWN_LOCK)
+      return 'ok'
+    })
+
+    expect(result).toBe('ok')
   })
 
   it('names the lock file in the busy message', () => {
@@ -179,7 +205,7 @@ describe('withLockAsync', () => {
     const result = await withLockAsync(async () => Promise.resolve('done'))
 
     expect(result).toBe('done')
-    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, String(process.pid), { flag: 'wx' })
+    expect(fs.writeFileSync).toHaveBeenCalledWith(LOCK_PATH, OWN_LOCK, { flag: 'wx' })
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
   })
 

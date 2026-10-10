@@ -7,8 +7,8 @@ import { removeLinkContainer } from '../utils/state'
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
 }))
 
 jest.mock('child_process', () => ({
@@ -897,7 +897,7 @@ describe('unlink command', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringMatching(/hosts$/),
       expect.not.stringContaining('ory-ui.mckanses-auth.dev'),
-      'utf8'
+      'latin1'
     )
     expect(logSpy).toHaveBeenCalledWith('Removed hosts entry for: ory-ui.mckanses-auth.dev')
 
