@@ -773,6 +773,25 @@ describe('dev command', () => {
     errorSpy.mockRestore()
   })
 
+  test('adds no hosts entries when a later step fails, e.g. the certificate', async () => {
+    mockProjectEnv()
+    const denied = SAMPLE_CONFIG.replace('  trustStore: allowed', '  trustStore: denied')
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return denied
+      return ''
+    })
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('trustStore permission was not granted')
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+  })
+
+  test('rejects a project name with nothing usable for file names', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG.replace('project: mckanses-auth', "project: '日本'"))
+
+    expect(() => readDevProjectConfig('.betty.yml')).toThrow('needs at least one letter or digit')
+  })
+
   test('treats an up command that exits with 130 (it trapped Ctrl+C) as an interrupt and cleans up', async () => {
     mockProjectEnv()
     const existing = (fs.existsSync as unknown as jest.Mock).getMockImplementation() as (p: unknown) => boolean

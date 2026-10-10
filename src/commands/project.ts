@@ -244,8 +244,9 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
 
     if (opts.name !== undefined) {
       const projectName = opts.name.trim()
+      const name = sanitizeName(projectName).toLowerCase()
       const projectRoutes = routes.filter(
-        (r) => path.basename(r.fileName, path.extname(r.fileName)) === sanitizeName(projectName)
+        (r) => path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name && isProjectRouter(r.routerName, name)
       )
       if (projectRoutes.length === 0) throw new BettyError(`No linked project found with name '${projectName}'.`)
       printStatusTable(

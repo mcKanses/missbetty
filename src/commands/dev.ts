@@ -18,7 +18,7 @@ import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureP
 import { DATABASE_PROTOCOLS, databaseUrl, domainUrl, isDatabaseTarget } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
-import { findDomainConflict, isProjectRouter, loadedFromElsewhere, projectRouteFile, readRoutes, tlsOptionsName } from '../utils/routes'
+import { findDomainConflict, isProjectRouter, loadedFromElsewhere, projectRouteFile, readRoutes, samePath, tlsOptionsName } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -81,6 +81,8 @@ export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
 
   const project = asString(parsed.project)
   if (project === null) throw new Error('.betty.yml requires a non-empty project name.')
+  // The name becomes the route file and router names.
+  if (sanitizeName(project) === '') throw new Error(`.betty.yml: project name '${project}' needs at least one letter or digit (a-z, 0-9).`)
 
   const domainsRaw = parsed.domains
   if (!Array.isArray(domainsRaw) || domainsRaw.length === 0) throw new Error('.betty.yml requires at least one domain.')
@@ -337,7 +339,9 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   })
   // Project routers are named <project>-<n>. Anything else in the file means it
   // is a `betty link` route file whose name happens to match the project.
-  const previousRoutes = readRoutes().filter((r) => r.filePath === ownRouteFile)
+  // Compared like the file system does: on Windows and macOS a link's
+  // API-dev.yml is the same file as project api-dev's api-dev.yml.
+  const previousRoutes = readRoutes().filter((r) => samePath(r.filePath, ownRouteFile))
   const foreign = previousRoutes.find((r) => !isProjectRouter(r.routerName, config.project))
   if (foreign !== undefined) throw new BettyError(`The route file ${foreign.fileName} already belongs to the link for ${foreign.domain}.`, {
     hints: ['Give this project another name in .betty.yml, or run `betty unlink --domain ' + foreign.domain + '` first.'],
@@ -354,23 +358,27 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   if (!dockerAllowed) throw new Error('Docker permission was not granted.')
   if (!checkDockerRunning()) throw new Error('Docker is not running or is not available.')
 
-  await prepareHosts(effectiveConfig)
+  // Everything that commonly fails (mkcert, a taken port, the proxy) comes
+  // before the hosts entries: once those are added, a failure would leave them
+  // behind with no route that `betty project stop` could find.
   const certificates = await prepareCertificates(effectiveConfig)
-
   ensureProxySetup({ certs: true })
   ensureHttpsPortAvailable()
   ensureProxyNetwork()
   ensureProxyRunning(BETTY_PROXY_COMPOSE, 'project load')
 
+  await prepareHosts(effectiveConfig)
   writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true, opts.configPath)
-  restartTraefik(BETTY_PROXY_COMPOSE)
 
   // Domains dropped from .betty.yml since the last load would keep their hosts
-  // entries forever: nothing else knows they belonged to this project.
+  // entries forever: nothing else knows they belonged to this project. Done
+  // before the restart, which can fail, while the old routes are still known.
   const kept = new Set(config.domains.map((d) => d.host.toLowerCase()))
   const linked = new Set(readRoutes().map((r) => r.domain.toLowerCase()))
   const dropped = [...new Set(previousRoutes.map((r) => r.domain.toLowerCase()))].filter((d) => d !== '' && !kept.has(d) && !linked.has(d))
   if (dropped.length > 0) removeHostsEntries(dropped)
+
+  restartTraefik(BETTY_PROXY_COMPOSE)
 }
 
 // The lock covers only the route and hosts changes. The project's up command can
@@ -415,7 +423,12 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
       if (interrupted) {
         // Removes the routes and the hosts entries no other link needs, as
         // `betty project stop` would.
-        if (fs.existsSync(ownRouteFile)) try { await unlinkCommand({ project: sanitizeName(config.project), yes: true }) } catch { /* best-effort */ }
+        if (fs.existsSync(ownRouteFile)) try {
+          await unlinkCommand({ project: sanitizeName(config.project), yes: true })
+        } catch (err) {
+          printWarn(`Could not remove the project's links: ${err instanceof Error ? err.message : String(err)}`)
+          printHint('Remove them with: betty project stop')
+        }
         if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
         cleanExit = true
       } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
