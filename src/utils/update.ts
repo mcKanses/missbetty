@@ -106,9 +106,12 @@ const runInstaller = (cmd: string, args: string[], env: NodeJS.ProcessEnv): void
 }
 
 const installBinary = async (version: string): Promise<void> => {
-  const name = path.basename(process.execPath).toLowerCase()
-  if (name !== 'betty' && name !== 'betty.exe') throw new BettyError(`This binary is named ${path.basename(process.execPath)}; the installer only replaces betty${process.platform === 'win32' ? '.exe' : ''}.`, {
-    hints: [`Rename it to betty${process.platform === 'win32' ? '.exe' : ''}, or install the update with the installer: ${releaseUrl(version)}`],
+  const windows = process.platform === 'win32'
+  const platformPath = windows ? path.win32 : path.posix
+  const fileName = platformPath.basename(process.execPath)
+  const expected = windows ? 'betty.exe' : 'betty'
+  if (fileName.toLowerCase() !== expected) throw new BettyError(`This binary is named ${fileName}; the installer only replaces ${expected}.`, {
+    hints: [`Rename it to ${expected}, or install the update with the installer: ${releaseUrl(version)}`],
   })
 
   const env: NodeJS.ProcessEnv = {
@@ -116,9 +119,8 @@ const installBinary = async (version: string): Promise<void> => {
     BETTY_VERSION: `v${version}`,
     BETTY_SKIP_DEPS: 'true',
     BETTY_SKIP_PATH: 'true',
-    BETTY_INSTALL_DIR: path.dirname(process.execPath),
+    BETTY_INSTALL_DIR: platformPath.dirname(process.execPath),
   }
-  const windows = process.platform === 'win32'
   const installer = await downloadInstaller(version, windows ? 'install.ps1' : 'install.sh')
   try {
     if (windows) {
