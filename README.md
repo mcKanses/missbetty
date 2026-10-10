@@ -37,6 +37,7 @@ betty setup
 betty setup --fix
 betty unlink
 betty config
+betty update
 betty stop
 betty rest
 ```
@@ -111,11 +112,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.9.0 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.9.1 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.9.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.9.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Installer options:
@@ -143,6 +144,16 @@ The binary install path is:
 
 You still need runtime tools for Betty workflows (Docker and optionally mkcert),
 but Node.js and npm are no longer required for using Betty.
+
+### Update
+
+```sh
+betty update
+```
+
+Betty checks the latest GitHub release and, after asking, installs it the same
+way it was installed: the standalone binary through the installer above (with
+the same checksum and signature checks), an npm install through npm.
 
 ### Uninstall standalone binary
 
@@ -548,7 +559,8 @@ betty config get <key>
 betty config set <key> <value>
 ```
 
-Supported keys: `domainSuffix` (default `.dev`), `httpPort`, `httpsPort`.
+Supported keys: `domainSuffix` (default `.dev`), `httpPort`, `httpsPort`,
+`updateCheck` (default `true`, see [`betty update`](#betty-update)).
 
 ```sh
 betty config set domainSuffix .localhost
@@ -559,6 +571,34 @@ betty config set httpsPort 8443
 Each setting can also be overridden per shell with an environment variable,
 which takes precedence: `BETTY_DOMAIN_SUFFIX`, `BETTY_HTTP_PORT`,
 `BETTY_HTTPS_PORT`.
+
+### `betty update`
+
+Checks for a newer release of Betty and installs it after asking.
+
+```sh
+betty update
+betty update --check
+betty update -y
+```
+
+| Option | Description |
+| --- | --- |
+| `--check` | Only report whether an update is available |
+| `-y, --yes` | Install without asking |
+
+The standalone binary is updated through the installer script, with the same
+checksum and signature checks as a fresh install; an npm install is updated
+with `npm install -g`. A source checkout is updated with `git pull`.
+
+Betty also looks for a new release on its own, at most once a day, after a
+command has finished. When one is out, it asks once a day whether to install it
+now, later, or skip that version. It only asks in an interactive terminal: not
+with `--json`, in CI, or when output is piped.
+
+The lookup is a single request to `github.com/mcKanses/missbetty/releases/latest`;
+Betty sends nothing else. Turn it off with `betty config set updateCheck false`,
+or for one shell with `BETTY_NO_UPDATE_CHECK=1`.
 
 ## Development
 

@@ -44,6 +44,7 @@ betty status
 betty unlink
 betty stop
 betty config
+betty update
 betty doctor
 betty setup
 ```
