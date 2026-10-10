@@ -8,6 +8,7 @@ import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntries, removeHostsEntry } from '../utils/hosts'
 import { isProjectRouter, readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
 import { removeLinkContainer } from '../utils/state'
+import { sanitizeName } from '../utils/names'
 
 interface ConfirmAnswer { confirm: boolean; }
 interface ConfirmAllAnswer { confirmAll: boolean; }
@@ -249,7 +250,8 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
 
   // betty unlink --project <name>
   if (opts.project !== undefined) {
-    const name = opts.project.toLowerCase()
+    // Route files carry the sanitized name: "My App" is my-app.yml.
+    const name = sanitizeName(opts.project).toLowerCase()
     const projectRoutes = routes.filter((r) =>
       path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name && isProjectRouter(r.routerName, name)
     )
