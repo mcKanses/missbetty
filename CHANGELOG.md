@@ -1,3 +1,11 @@
+## [1.10.1](https://github.com/mcKanses/missbetty/compare/v1.10.0...v1.10.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* Harden betty update and the daily update check ([cb58b73](https://github.com/mcKanses/missbetty/commit/cb58b730154dc6483571b64c066715ba065829a8))
+* Use the platform's path rules for the binary name in betty update ([2c4cd5f](https://github.com/mcKanses/missbetty/commit/2c4cd5fbf57df187ebbe4ed38bd7fc6253ab8c98))
+
 # [1.10.0](https://github.com/mcKanses/missbetty/compare/v1.9.1...v1.10.0) (2026-10-10)
 
 
