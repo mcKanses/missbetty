@@ -37,6 +37,7 @@ betty setup
 betty setup --fix
 betty unlink
 betty config
+betty update
 betty stop
 betty rest
 ```
@@ -143,6 +144,16 @@ The binary install path is:
 
 You still need runtime tools for Betty workflows (Docker and optionally mkcert),
 but Node.js and npm are no longer required for using Betty.
+
+### Update
+
+```sh
+betty update
+```
+
+Betty checks the latest GitHub release and, after asking, installs it the same
+way it was installed: the standalone binary through the installer above (with
+the same checksum and signature checks), an npm install through npm.
 
 ### Uninstall standalone binary
 
@@ -559,6 +570,25 @@ betty config set httpsPort 8443
 Each setting can also be overridden per shell with an environment variable,
 which takes precedence: `BETTY_DOMAIN_SUFFIX`, `BETTY_HTTP_PORT`,
 `BETTY_HTTPS_PORT`.
+
+### `betty update`
+
+Checks for a newer release of Betty and installs it after asking.
+
+```sh
+betty update
+betty update --check
+betty update -y
+```
+
+| Option | Description |
+| --- | --- |
+| `--check` | Only report whether an update is available |
+| `-y, --yes` | Install without asking |
+
+The standalone binary is updated through the installer script, with the same
+checksum and signature checks as a fresh install; an npm install is updated
+with `npm install -g`. A source checkout is updated with `git pull`.
 
 ## Development
 

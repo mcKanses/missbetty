@@ -29,6 +29,7 @@ betty link
 betty relink
 betty status
 betty unlink
+betty update
 betty stop
 ```
 
