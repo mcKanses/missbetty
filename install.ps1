@@ -270,20 +270,26 @@ try {
     Remove-Item $previous -Force -ErrorAction SilentlyContinue
   }
 
-  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-  if (-not $userPath) {
-    $userPath = ''
-  }
-
-  $segments = $userPath -split ';' | Where-Object { $_ -ne '' }
+  # The user PATH is read and written unexpanded, as REG_EXPAND_SZ:
+  # [Environment]::Get/SetEnvironmentVariable would expand every %VAR% entry and
+  # store it as a fixed path.
+  $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+  $userPath = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  $segments = @($userPath -split ';' | Where-Object { $_ -ne '' })
+  $listed = @($segments | Where-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -eq $installDir.TrimEnd('\') }).Count -gt 0
 
   # `betty update` sets BETTY_SKIP_PATH: an existing install keeps its PATH as it is.
-  if ($env:BETTY_SKIP_PATH -ne 'true' -and $segments -notcontains $installDir) {
-    $newPath = if ($userPath -eq '') { $installDir } else { "$userPath;$installDir" }
-    [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
+  if ($env:BETTY_SKIP_PATH -ne 'true' -and -not $listed) {
+    $newPath = if ($userPath -eq '') { $installDir } else { "$($userPath.TrimEnd(';'));$installDir" }
+    $envKey.SetValue('Path', $newPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    # Setting a variable through .NET tells running programs (Explorer, new
+    # terminals) that the environment changed; the registry write alone does not.
+    [Environment]::SetEnvironmentVariable('BETTY_PATH_CHANGED', '1', 'User')
+    [Environment]::SetEnvironmentVariable('BETTY_PATH_CHANGED', $null, 'User')
     Write-Host "Added $installDir to user PATH."
     Write-Host "Open a new terminal to use betty."
   }
+  $envKey.Close()
 
   Write-Host "betty installed: $(Join-Path $installDir 'betty.exe')"
 

@@ -49,10 +49,11 @@ domains. Projects that want a single command can add `.betty.yml` and run
 
 ## Requirements
 
-- Node.js 24 or newer
 - Docker with Docker Compose
 - Access to the Docker socket
-- mkcert for HTTPS support
+- mkcert for HTTPS support (optional: without it Betty serves HTTP only)
+- Node.js 24 or newer, only for the npm install or a source checkout; the
+  standalone binary needs no Node.js
 
 On Linux, macOS, WSL, and devcontainers, Betty expects Docker commands such as
 `docker ps` and `docker compose version` to work from the shell where Betty runs.
@@ -548,6 +549,34 @@ Betty prints the domain so you can remove it manually.
 | `--project <name>` | Remove all links of a project |
 | `--all` | Remove all links at once |
 | `-y, --yes` | Skip the confirmation prompt |
+
+### `betty doctor`
+
+Checks, without changing anything, whether Docker is installed and running,
+whether mkcert and its local CA exist, and whether every linked domain that
+needs one has a hosts entry. Exits with a non-zero status when Docker or a
+hosts entry is missing, so it can be used in scripts.
+
+```sh
+betty doctor
+```
+
+### `betty setup`
+
+Fixes what `betty doctor` finds: installs mkcert when it is missing, runs
+`mkcert -install` so browsers trust the local CA, and adds missing hosts
+entries. Hosts changes may ask for admin rights.
+
+```sh
+betty setup
+betty setup --fix
+betty setup -y
+```
+
+| Option | Description |
+| --- | --- |
+| `--fix` | Apply the safe fixes without asking; hosts entries are only reported |
+| `-y, --yes` | Answer every prompt with yes |
 
 ### `betty config [action] [key] [value]`
 
