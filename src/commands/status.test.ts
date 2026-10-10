@@ -628,4 +628,39 @@ describe('status command', () => {
 
     logSpy.mockRestore()
   })
+
+  test('shows container metadata for a database domain', () => {
+    mockRunningProxy()
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const p = normalizePath(String(args[0]))
+      return p.endsWith('/.betty/docker-compose.yml') || p.endsWith('/.betty/dynamic')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      if (!normalizePath(String(args[0])).endsWith('/.betty/dynamic/shop.yml')) return ''
+      return [
+        'tcp:',
+        '  routers:',
+        '    shop-1:',
+        '      rule: HostSNI(`db.shop.localhost`)',
+        '      service: shop-1',
+        '  services:',
+        '    shop-1:',
+        '      loadBalancer:',
+        '        servers:',
+        '          - address: myapp:5432',
+        '',
+      ].join('\n')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    const payload = JSON.parse(logSpy.mock.calls[0][0] as string) as { projects: { uptime: string; health: string; restarts: string }[] }
+    expect(payload.projects[0].uptime).toMatch(/^\d+m$/)
+    expect(payload.projects[0].health).toBe('running')
+    expect(payload.projects[0].restarts).toBe('1')
+
+    logSpy.mockRestore()
+  })
 })

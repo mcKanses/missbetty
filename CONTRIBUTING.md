@@ -1,6 +1,7 @@
-# Betty AI Contract
+# Contributing to Betty
 
-This repo contains Betty, a CLI for local Docker development domains.
+Betty is a CLI for local Docker development domains. These are the rules
+changes to it follow.
 
 ## Product Principles
 
@@ -28,6 +29,7 @@ betty link
 betty relink
 betty status
 betty unlink
+betty update
 betty stop
 ```
 
@@ -51,7 +53,7 @@ backward compatibility.
 
 ## Coding Rules
 
-- Follow the existing TypeScript style.
+- Follow the existing TypeScript style; ESLint enforces most of it.
 - Prefer arrow functions over function declarations.
 - Use `T[]` instead of `Array<T>`.
 - Use `??` for nullable coalescing.

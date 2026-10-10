@@ -11,6 +11,7 @@ import unlinkCommand from './commands/unlink'
 import configCommand from './commands/config'
 import doctorCommand from './commands/doctor'
 import setupCommand from './commands/setup'
+import updateCommand from './commands/update'
 import devCommand from './commands/dev'
 import { projectCreateCommand, projectLoadCommand, projectLinkCommand, projectStopCommand, projectStatusCommand } from './commands/project'
 
@@ -20,6 +21,8 @@ import { AUTHOR_INFO } from './cli/ui/meta'
 import { printError, printHint } from './cli/ui/output'
 import { BettyError } from './utils/errors'
 import { sanitizeName } from './utils/names'
+import { cleanupOldBinary } from './utils/update'
+import { offerUpdate } from './utils/updateCheck'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string }
@@ -217,10 +220,18 @@ export const createProgram = (): Command => {
     .option('-y, --yes', 'Auto-confirm all prompts')
     .action((opts: SetupOptions) => setupCommand(opts))
 
+  program
+    .command('update')
+    .description('Update betty to the latest release')
+    .option('--check', 'Only check whether an update is available')
+    .option('-y, --yes', 'Install without asking')
+    .action((opts: { check?: boolean; yes?: boolean }) => updateCommand(opts))
+
   return program
 }
 
 export const run = async (argv = process.argv): Promise<void> => {
+  cleanupOldBinary()
   const cmd = argv[2]
 
   if (!cmd) {
@@ -244,6 +255,7 @@ export const run = async (argv = process.argv): Promise<void> => {
   const program = createProgram()
   try {
     await program.parseAsync(argv)
+    await offerUpdate(argv, version)
   } catch (err) {
     if (err instanceof BettyError) {
       printError(err.message)

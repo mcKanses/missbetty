@@ -1,3 +1,14 @@
+## [1.9.1](https://github.com/mcKanses/missbetty/compare/v1.9.0...v1.9.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* Accept the domain as argument in betty unlink and sync the docs ([585be1d](https://github.com/mcKanses/missbetty/commit/585be1d59ac38939ed6e15209a99bc89a68ed17a))
+* Detect a running Docker daemon in the Windows installer ([c0bc285](https://github.com/mcKanses/missbetty/commit/c0bc285c20c4c42bd315f2d7e0455acc1f47c675))
+* Harden the lock, hosts edits and link against partial failures ([42dbb14](https://github.com/mcKanses/missbetty/commit/42dbb1460519b62cc2e7df5f9378458460be972c))
+* Keep relink from overwriting project routes and database domains ([138b246](https://github.com/mcKanses/missbetty/commit/138b246a5d05687f22804cad55b0b06cf5c6dd06))
+* Tighten release workflow permissions and publishing ([376d1c5](https://github.com/mcKanses/missbetty/commit/376d1c554e494327c0338dcf381eba7ea1827c2e))
+
 # [1.9.0](https://github.com/mcKanses/missbetty/compare/v1.8.0...v1.9.0) (2026-10-09)
 
 

@@ -28,6 +28,7 @@ describe('cli command registration', () => {
       'config',
       'doctor',
       'setup',
+      'update',
     ])
   })
 
