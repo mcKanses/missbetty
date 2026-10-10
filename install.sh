@@ -127,8 +127,11 @@ install_dependencies_linux() {
       $SUDO service docker start || true
     fi
 
-    USER_TO_ADD="${SUDO_USER:-$USER}"
-    $SUDO usermod -aG docker "$USER_TO_ADD" 2>/dev/null || true
+    # USER is unset in many root containers, which set -u would abort on.
+    USER_TO_ADD="${SUDO_USER:-${USER:-}}"
+    if [ -n "$USER_TO_ADD" ]; then
+      $SUDO usermod -aG docker "$USER_TO_ADD" 2>/dev/null || true
+    fi
   }
 
   ensure_docker_running_linux() {
@@ -419,7 +422,9 @@ else
   echo "Signature not verified: cosign is not installed (checksum only)."
 fi
 
-tar -xzf "$TMP_DIR/betty.tar.gz" -C "$TMP_DIR"
+# --no-same-owner: as root, tar would otherwise restore the owner stored in the
+# archive (the CI build user), and that user could replace /usr/local/bin/betty.
+tar --no-same-owner -xzf "$TMP_DIR/betty.tar.gz" -C "$TMP_DIR"
 chmod +x "$TMP_DIR/betty"
 
 INSTALL_DIR="${BETTY_INSTALL_DIR:-/usr/local/bin}"

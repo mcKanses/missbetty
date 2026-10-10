@@ -90,7 +90,14 @@ const downloadInstaller = async (version: string, name: string): Promise<{ file:
 // overwritten while running); the leftover is removed on the next start.
 export const cleanupOldBinary = (): void => {
   if (process.platform !== 'win32' || !isSea()) return
-  try { fs.rmSync(`${process.execPath}.old`, { force: true }) } catch { /* still locked: next start */ }
+  const dir = path.win32.dirname(process.execPath)
+  const name = path.win32.basename(process.execPath).toLowerCase()
+  let leftovers: string[] = []
+  try {
+    leftovers = fs.readdirSync(dir).filter((file) => file.toLowerCase().startsWith(`${name}.`) && file.toLowerCase().endsWith('.old'))
+  } catch { /* unreadable directory: nothing to clean */ }
+  // A copy still held by another running betty stays until a later start.
+  for (const file of leftovers) try { fs.rmSync(path.win32.join(dir, file), { force: true }) } catch { /* still locked */ }
 }
 
 // Ctrl+C reaches both betty and the installer. Without a listener Node would exit
