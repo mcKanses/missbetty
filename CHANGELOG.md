@@ -1,3 +1,16 @@
+# [1.10.0](https://github.com/mcKanses/missbetty/compare/v1.9.1...v1.10.0) (2026-10-10)
+
+
+### Bug Fixes
+
+* Show uptime, health and restarts for database domains in status ([d58fc14](https://github.com/mcKanses/missbetty/commit/d58fc14bc61e2acfb4767f7bd30edfe1386f2750))
+
+
+### Features
+
+* Add betty update to install the latest release ([bbefbad](https://github.com/mcKanses/missbetty/commit/bbefbad86ec09f1853d40ca877dc3f5bc7013aa0))
+* Offer new releases once a day after a command ([7160c39](https://github.com/mcKanses/missbetty/commit/7160c39d7df2648e4ed2fce5a399089693c3b4a6))
+
 ## [1.9.1](https://github.com/mcKanses/missbetty/compare/v1.9.0...v1.9.1) (2026-10-09)
 
 
