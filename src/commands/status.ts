@@ -110,7 +110,8 @@ const readProjectsFromDynamicFiles = (composePath: string): ProjectStatus[] => {
           : domainUrl(route.domain, route.https)
 
         const target = url !== '' ? url : 'n/a'
-        const host = /^https?:\/\/([^:/]+)(?::\d+)?/i.exec(url)?.[1] ?? ''
+        // Database routes keep their target as tcp://host:port.
+        const host = /^(?:https?|tcp):\/\/([^:/]+)(?::\d+)?/i.exec(url)?.[1] ?? ''
         if (host !== '' && containers === null) containers = inspectRunningContainers()
         const meta = host !== '' ? metaForTarget(containers ?? [], host) : NO_META
 
