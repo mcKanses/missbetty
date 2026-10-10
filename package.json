@@ -24,9 +24,9 @@
   "scripts": {
     "build": "node -e \"require('fs').rmSync('bin',{recursive:true,force:true})\" && tsc",
     "binary": "node scripts/build-binary.mjs",
-    "lint": "eslint src/**/*.ts",
+    "lint": "eslint \"src/**/*.ts\"",
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"!node_modules/**\"",
-    "lint:fix": "eslint src/**/*.ts --fix",
+    "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "start": "node bin/betty.js",
     "test": "jest --runInBand",
     "test:serial": "jest --runInBand",

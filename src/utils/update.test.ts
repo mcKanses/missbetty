@@ -12,6 +12,7 @@ jest.mock('fs', () => ({
   mkdtempSync: jest.fn(() => '/tmp/betty-update-x'),
   writeFileSync: jest.fn(),
   rmSync: jest.fn(),
+  readdirSync: jest.fn(() => []),
 }))
 
 const mockFetch = (impl: () => Promise<unknown>): jest.Mock => {
@@ -153,11 +154,15 @@ describe('update utils', () => {
     expect(execFileSync).not.toHaveBeenCalled()
   })
 
-  test('cleanupOldBinary removes the leftover exe on Windows only', () => {
+  test('cleanupOldBinary removes every leftover aside copy on Windows only', () => {
     setPlatform('win32')
+    setExecPath('C:\\betty\\betty.exe')
     ;(isSea as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as jest.Mock).mockReturnValue(['betty.exe', 'betty.exe.old', 'betty.exe.0a1b.old', 'other.old'])
     cleanupOldBinary()
-    expect(fs.rmSync).toHaveBeenCalledWith(`${process.execPath}.old`, { force: true })
+    expect(fs.readdirSync).toHaveBeenCalledWith('C:\\betty')
+    const removed = (fs.rmSync as jest.Mock).mock.calls.map((c) => String(c[0]))
+    expect(removed).toEqual(['C:\\betty\\betty.exe.old', 'C:\\betty\\betty.exe.0a1b.old'])
 
     ;(fs.rmSync as jest.Mock).mockClear()
     setPlatform('linux')
