@@ -67,6 +67,40 @@ describeOnWindows('elevated hosts script (Windows PowerShell)', () => {
     expect(fs.readFileSync(hostsPath, 'latin1')).toBe('127.0.0.1 a.test\n')
   })
 
+  test('keeps a UTF-8 byte-order mark and the bytes after it when removing', () => {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf])
+    const umlaut = Buffer.from('# Büro\r\n', 'utf8')
+    fs.writeFileSync(hostsPath, Buffer.concat([bom, umlaut, Buffer.from('127.0.0.1 a.test # added by betty\r\n')]))
+
+    expect(run([], ['a.test'])).toBe(0)
+
+    expect(fs.readFileSync(hostsPath)).toEqual(Buffer.concat([bom, umlaut]))
+  })
+
+  test('sees an entry on the first line behind a byte-order mark', () => {
+    fs.writeFileSync(hostsPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('127.0.0.1 a.test\r\n')]))
+
+    expect(run(['a.test'], [])).toBe(0)
+
+    expect(fs.readFileSync(hostsPath).length).toBe(3 + '127.0.0.1 a.test\r\n'.length)
+  })
+
+  test('counts ::1 and tab-separated lines as entries, and adds each domain once', () => {
+    fs.writeFileSync(hostsPath, '::1 a.test\n127.0.0.1\tb.test\n')
+
+    expect(run(['a.test', 'b.test', 'c.test', 'C.test'], [])).toBe(0)
+
+    expect(fs.readFileSync(hostsPath, 'latin1')).toBe('::1 a.test\n127.0.0.1\tb.test\n127.0.0.1 c.test # added by betty\n')
+  })
+
+  test('writes an empty hosts file with Windows line endings', () => {
+    fs.writeFileSync(hostsPath, '')
+
+    expect(run(['a.test'], [])).toBe(0)
+
+    expect(fs.readFileSync(hostsPath, 'latin1')).toBe('127.0.0.1 a.test # added by betty\r\n')
+  })
+
   test('reports why it failed, e.g. a read-only hosts file', () => {
     fs.writeFileSync(hostsPath, '127.0.0.1 localhost\r\n127.0.0.1 a.test # added by betty\r\n')
     fs.chmodSync(hostsPath, 0o444)
