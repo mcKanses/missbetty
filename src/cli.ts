@@ -22,6 +22,7 @@ import { printError, printHint } from './cli/ui/output'
 import { BettyError } from './utils/errors'
 import { sanitizeName } from './utils/names'
 import { cleanupOldBinary } from './utils/update'
+import { offerUpdate } from './utils/updateCheck'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string }
@@ -254,6 +255,7 @@ export const run = async (argv = process.argv): Promise<void> => {
   const program = createProgram()
   try {
     await program.parseAsync(argv)
+    await offerUpdate(argv, version)
   } catch (err) {
     if (err instanceof BettyError) {
       printError(err.message)

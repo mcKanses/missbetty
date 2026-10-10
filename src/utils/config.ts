@@ -5,6 +5,7 @@ interface BettyConfig {
   domainSuffix?: string;
   httpPort?: number;
   httpsPort?: number;
+  updateCheck?: boolean;
 }
 const DEFAULT_DOMAIN_SUFFIX = '.dev'
 const DEFAULT_HTTP_PORT = 80
@@ -117,6 +118,23 @@ export const setHttpPort = (value: string): number => {
   const current = readBettyConfig()
   writeBettyConfig({ ...current, httpPort: port })
   return port
+}
+
+// Whether betty looks for a new release once a day and offers to install it.
+// BETTY_NO_UPDATE_CHECK turns it off for a shell, e.g. in scripts.
+export const getUpdateCheck = (): boolean => {
+  const env = (process.env.BETTY_NO_UPDATE_CHECK ?? '').trim().toLowerCase()
+  if (env !== '' && env !== '0' && env !== 'false') return false
+  return readBettyConfig().updateCheck !== false
+}
+
+export const setUpdateCheck = (value: string): boolean => {
+  const normalized = value.trim().toLowerCase()
+  if (!['true', 'false', 'on', 'off'].includes(normalized)) throw new Error('Invalid value. Example: betty config set updateCheck false')
+
+  const enabled = normalized === 'true' || normalized === 'on'
+  writeBettyConfig({ ...readBettyConfig(), updateCheck: enabled })
+  return enabled
 }
 
 export const setHttpsPort = (value: string): number => {
