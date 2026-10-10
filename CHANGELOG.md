@@ -1,3 +1,13 @@
+## [1.10.3](https://github.com/mcKanses/missbetty/compare/v1.10.2...v1.10.3) (2026-10-10)
+
+
+### Bug Fixes
+
+* Install the binary as root's own and keep iex sessions alive ([3b69bee](https://github.com/mcKanses/missbetty/commit/3b69beed09c21433c0468ed807db2fcf26d178d9))
+* Leave nothing behind when project load fails and keep link and project routes apart ([2128dc0](https://github.com/mcKanses/missbetty/commit/2128dc0c20b8f6766a802e7a13d6f049bbca3d3e))
+* Offer updates only where betty can install them ([c23f9e3](https://github.com/mcKanses/missbetty/commit/c23f9e33231b3e179653db1d3d369138e559439a))
+* Read hosts files with a byte-order mark byte for byte and never empty /etc/hosts ([9b42381](https://github.com/mcKanses/missbetty/commit/9b42381f3213716487e339e67d1e45b1d5e673a4))
+
 ## [1.10.2](https://github.com/mcKanses/missbetty/compare/v1.10.1...v1.10.2) (2026-10-10)
 
 
