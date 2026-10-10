@@ -22,6 +22,8 @@ jest.mock('./commands/project', () => ({
 jest.mock('./cli/ui/help', () => ({ printHelp: jest.fn() }))
 jest.mock('./cli/ui/logo', () => ({ animateBettyLogo: jest.fn(), printBettyLogo: jest.fn() }))
 jest.mock('./cli/ui/meta', () => ({ AUTHOR_INFO: 'author-info' }))
+jest.mock('./utils/updateCheck', () => ({ offerUpdate: jest.fn() }))
+jest.mock('./utils/update', () => ({ cleanupOldBinary: jest.fn() }))
 
 import linkCommand from './commands/link'
 import restCommand from './commands/rest'
@@ -44,6 +46,7 @@ import { printHelp } from './cli/ui/help'
 import { animateBettyLogo, printBettyLogo } from './cli/ui/logo'
 import { createProgram, run } from './cli'
 import { BettyError } from './utils/errors'
+import { offerUpdate } from './utils/updateCheck'
 
 // Build a node-style argv (node + script + user args) for program.parse / run.
 const argv = (...args: string[]): string[] => ['node', 'betty', ...args]
@@ -287,6 +290,19 @@ describe('run', () => {
     await expect(run(argv(...args))).rejects.toThrow('process-exit-3')
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('async boom'))
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('async hint'))
+
+    errorSpy.mockRestore()
+  })
+
+  test('a failed update after a successful command is reported without failing the command', async () => {
+    ;(offerUpdate as unknown as jest.Mock).mockImplementation(() => Promise.reject(new BettyError('The update failed; betty was left unchanged.')))
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await run(argv('status'))
+
+    expect(statusCommand).toHaveBeenCalled()
+    // process.exit is mocked to throw, so reaching this line means it was not called.
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('The update failed'))
 
     errorSpy.mockRestore()
   })

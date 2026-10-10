@@ -426,7 +426,9 @@ mkdir -p "$INSTALL_DIR" 2>/dev/null || $SUDO mkdir -p "$INSTALL_DIR"
 if [ -w "$INSTALL_DIR" ]; then
   mv "$TMP_DIR/betty" "$TARGET"
 else
-  $SUDO mv "$TMP_DIR/betty" "$TARGET"
+  # install, not mv: mv would keep the invoking user as owner of a binary in a
+  # root-owned directory (e.g. /usr/local/bin when updated by `betty update`).
+  $SUDO install -m 0755 "$TMP_DIR/betty" "$TARGET"
 fi
 
 echo "betty installed: $TARGET"

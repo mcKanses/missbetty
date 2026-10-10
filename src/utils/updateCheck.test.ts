@@ -15,6 +15,7 @@ jest.mock('./update', () => ({
 jest.mock('fs', () => ({
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
+  renameSync: jest.fn(),
   mkdirSync: jest.fn(),
 }))
 
@@ -112,10 +113,36 @@ describe('update check', () => {
     expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
-  test('stays quiet when the lookup fails', async () => {
+  test('stays quiet when the lookup fails, and waits a day before the next one', async () => {
     ;(fetchLatestVersion as jest.Mock).mockResolvedValue(null)
     await offerUpdate(argv('status'), '1.9.1')
     expect(inquirer.prompt).not.toHaveBeenCalled()
-    expect(fs.writeFileSync).not.toHaveBeenCalled()
+    expect(savedState()).toEqual({ checkedAt: expect.any(Number) as number })
+
+    setState(savedState())
+    ;(fetchLatestVersion as jest.Mock).mockClear()
+    await offerUpdate(argv('status'), '1.9.1')
+    expect(fetchLatestVersion).not.toHaveBeenCalled()
+  })
+
+  test('does not ask in scripts that pass --yes', () => {
+    expect(updateCheckApplies(argv('link', 'web', '-y'))).toBe(false)
+    expect(updateCheckApplies(argv('unlink', '--all', '--yes'))).toBe(false)
+  })
+
+  test('a cancelled prompt counts as asked', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
+    ;(inquirer.prompt as unknown as jest.Mock).mockRejectedValue(new Error('User force closed the prompt'))
+
+    await expect(offerUpdate(argv('status'), '1.9.1')).rejects.toThrow('force closed')
+    expect(savedState()).toEqual(expect.objectContaining({ askedAt: expect.any(Number) as number }))
+  })
+
+  test('the state file is replaced atomically', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.9.1')
+    await offerUpdate(argv('status'), '1.9.1')
+    const tmp = String((fs.writeFileSync as jest.Mock).mock.calls[0][0])
+    expect(tmp).toMatch(/update-check\.json\.\d+\.tmp$/)
+    expect(fs.renameSync).toHaveBeenCalledWith(tmp, expect.stringMatching(/update-check\.json$/))
   })
 })
