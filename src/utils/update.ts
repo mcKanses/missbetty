@@ -58,12 +58,28 @@ export const installMethod = (dir = __dirname): InstallMethod => {
   return 'npm'
 }
 
-// Commands for the package managers betty does not drive itself.
+// Commands for the installs betty does not update itself.
 const MANUAL_UPDATE: Partial<Record<InstallMethod, (version: string) => string>> = {
   pnpm: (v) => `pnpm add -g missbetty@${v}`,
   yarn: (v) => `yarn global add missbetty@${v}`,
   bun: (v) => `bun add -g missbetty@${v}`,
   npx: (v) => `npx missbetty@${v}`,
+  source: () => 'git pull && npm run build',
+}
+
+// The command to run by hand, or null when betty installs the update itself.
+export const manualUpdateCommand = (method: InstallMethod, version: string): string | null => MANUAL_UPDATE[method]?.(version) ?? null
+
+// npm is published after the GitHub release and may lag behind or fail; an npm
+// install is only offered a version that is already on npm.
+export const isOnNpm = async (version: string): Promise<boolean> => {
+  try {
+    const res = await fetch(`https://registry.npmjs.org/missbetty/${version}`, { signal: AbortSignal.timeout(5000) })
+    await res.body?.cancel()
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 // The installer of the release being installed, not of main: an unreleased
@@ -138,19 +154,29 @@ const installBinary = async (version: string): Promise<void> => {
       runInstaller('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', installer.file], windowsEnv)
     } else runInstaller('sh', [installer.file], env)
   } catch {
-    throw new BettyError('The update failed; betty was left unchanged.')
+    // The installer has printed its own reason above.
+    throw new BettyError('The update did not complete.', {
+      hints: [
+        windows
+          ? 'Run the installer yourself: irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex'
+          : 'Run the installer yourself: curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh',
+        `Release: ${releaseUrl(version)}`,
+      ],
+    })
   } finally {
     fs.rmSync(installer.dir, { recursive: true, force: true })
   }
 }
 
-// A global npm install lives below npm's global prefix; anything else under
-// node_modules is a project dependency that npm install -g would not replace.
-const isGlobalNpmInstall = (): boolean => {
+// A global npm install lives in npm's global node_modules; anything else is a
+// project dependency that npm install -g would not replace. Both sides are
+// resolved, since __dirname is a real path and the global root may be a link
+// (nvm-windows, fnm), and compared up to a separator.
+export const isGlobalNpmInstall = (dir = __dirname): boolean => {
   try {
-    const prefix = execSync('npm prefix -g', { stdio: 'pipe' }).toString().trim()
+    const root = fs.realpathSync(execSync('npm root -g', { stdio: 'pipe' }).toString().trim())
     const normalize = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
-    return prefix !== '' && normalize(__dirname).startsWith(normalize(prefix))
+    return normalize(fs.realpathSync(dir)).startsWith(normalize(root) + path.sep)
   } catch {
     return true
   }
@@ -160,18 +186,19 @@ export const installUpdate = async (version: string): Promise<void> => {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new BettyError(`Invalid version: ${version}`)
 
   const method = installMethod()
-  if (method === 'source') throw new BettyError('This betty runs from a source checkout and cannot update itself.', {
-    hints: ['Update it with git pull and npm run build.'],
-  })
-
-  const manual = MANUAL_UPDATE[method]
-  if (manual !== undefined) throw new BettyError(`This betty was installed with ${method} and cannot update itself.`, {
-    hints: [`Run: ${manual(version)}`],
+  const manual = manualUpdateCommand(method, version)
+  if (manual !== null) throw new BettyError(method === 'source'
+    ? 'This betty runs from a source checkout and cannot update itself.'
+    : `This betty was installed with ${method} and cannot update itself.`, {
+    hints: [`Run: ${manual}`],
   })
 
   if (method === 'npm') {
     if (!isGlobalNpmInstall()) throw new BettyError('This betty is a project dependency, not a global install.', {
       hints: [`Update it in its project: npm install missbetty@${version}`],
+    })
+    if (!await isOnNpm(version)) throw new BettyError(`Betty ${version} is not on npm yet.`, {
+      hints: ['It usually follows the GitHub release within minutes. Try again later.'],
     })
     try {
       // Through the shell: npm is a .cmd script on Windows.
