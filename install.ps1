@@ -247,7 +247,28 @@ try {
   Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
 
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-  Copy-Item -Path (Join-Path $tmpDir 'betty.exe') -Destination (Join-Path $installDir 'betty.exe') -Force
+  $target = Join-Path $installDir 'betty.exe'
+  $previous = "$target.old"
+  # A running betty.exe (e.g. during `betty update`) cannot be overwritten, but
+  # it can be renamed. Move it aside right before the copy and put it back if
+  # the copy fails; betty removes the .old file on its next start.
+  if (Test-Path $target) {
+    Remove-Item $previous -Force -ErrorAction SilentlyContinue
+    Move-Item $target $previous -Force
+  }
+  try {
+    Copy-Item -Path (Join-Path $tmpDir 'betty.exe') -Destination $target -Force
+  }
+  catch {
+    if (Test-Path $previous) {
+      Remove-Item $target -Force -ErrorAction SilentlyContinue
+      Move-Item $previous $target -Force
+    }
+    throw
+  }
+  if (Test-Path $previous) {
+    Remove-Item $previous -Force -ErrorAction SilentlyContinue
+  }
 
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (-not $userPath) {
@@ -256,7 +277,8 @@ try {
 
   $segments = $userPath -split ';' | Where-Object { $_ -ne '' }
 
-  if ($segments -notcontains $installDir) {
+  # `betty update` sets BETTY_SKIP_PATH: an existing install keeps its PATH as it is.
+  if ($env:BETTY_SKIP_PATH -ne 'true' -and $segments -notcontains $installDir) {
     $newPath = if ($userPath -eq '') { $installDir } else { "$userPath;$installDir" }
     [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
     Write-Host "Added $installDir to user PATH."

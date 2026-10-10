@@ -11,9 +11,7 @@ jest.mock('fs', () => ({
   ...jest.requireActual<object>('fs'),
   mkdtempSync: jest.fn(() => '/tmp/betty-update-x'),
   writeFileSync: jest.fn(),
-  renameSync: jest.fn(),
   rmSync: jest.fn(),
-  existsSync: jest.fn(() => true),
 }))
 
 const mockFetch = (impl: () => Promise<unknown>): jest.Mock => {
@@ -21,7 +19,7 @@ const mockFetch = (impl: () => Promise<unknown>): jest.Mock => {
   global.fetch = fn as unknown as typeof fetch
   return fn
 }
-const jsonResponse = (body: unknown, ok = true): Promise<unknown> => Promise.resolve({ ok, status: ok ? 200 : 404, json: () => Promise.resolve(body), text: () => Promise.resolve('#!/bin/sh') })
+const scriptResponse = (): Promise<unknown> => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('#!/bin/sh') })
 const redirectTo = (location: string | null): Promise<unknown> => Promise.resolve({
   ok: false,
   status: location === null ? 404 : 302,
@@ -29,23 +27,33 @@ const redirectTo = (location: string | null): Promise<unknown> => Promise.resolv
   body: { cancel: jest.fn(() => Promise.resolve()) },
 })
 
-const setPlatform = (platform: string): void => { Object.defineProperty(process, 'platform', { value: platform }) }
 const realPlatform = process.platform
+const realExecPath = process.execPath
+const setPlatform = (platform: string): void => { Object.defineProperty(process, 'platform', { value: platform }) }
+const setExecPath = (p: string): void => { Object.defineProperty(process, 'execPath', { value: p, configurable: true }) }
 
 describe('update utils', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     ;(isSea as jest.Mock).mockReturnValue(false)
     ;(execFileSync as jest.Mock).mockReset()
-    ;(fs.existsSync as jest.Mock).mockReturnValue(true)
   })
-  afterEach(() => { setPlatform(realPlatform) })
+  afterEach(() => {
+    setPlatform(realPlatform)
+    setExecPath(realExecPath)
+  })
 
   test('isNewer compares versions numerically', () => {
     expect(isNewer('1.10.0', '1.9.1')).toBe(true)
     expect(isNewer('1.9.1', '1.9.1')).toBe(false)
     expect(isNewer('1.9.0', '1.9.1')).toBe(false)
     expect(isNewer('2.0.0', '1.99.99')).toBe(true)
+  })
+
+  test('isNewer treats a prerelease as older than its release', () => {
+    expect(isNewer('1.10.0', '1.10.0-rc.1')).toBe(true)
+    expect(isNewer('1.10.0-rc.1', '1.10.0')).toBe(false)
+    expect(isNewer('1.11.0', '1.10.0-rc.1')).toBe(true)
   })
 
   test('fetchLatestVersion reads the version from the releases/latest redirect', async () => {
@@ -63,13 +71,16 @@ describe('update utils', () => {
     await expect(fetchLatestVersion()).resolves.toBeNull()
   })
 
-  test('installMethod detects the standalone binary', () => {
+  test('installMethod tells the binary, the package managers and a checkout apart', () => {
+    expect(installMethod('/home/me/missbetty/bin/utils')).toBe('source')
+    expect(installMethod('/usr/local/lib/node_modules/missbetty/bin/utils')).toBe('npm')
+    expect(installMethod('C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\missbetty\\bin\\utils')).toBe('npm')
+    expect(installMethod('/home/me/.npm/_npx/1a2b/node_modules/missbetty/bin/utils')).toBe('npx')
+    expect(installMethod('/home/me/.local/share/pnpm/global/5/node_modules/.pnpm/missbetty@1.9.1/node_modules/missbetty/bin/utils')).toBe('pnpm')
+    expect(installMethod('/home/me/.bun/install/global/node_modules/missbetty/bin/utils')).toBe('bun')
+    expect(installMethod('/home/me/.config/yarn/global/node_modules/missbetty/bin/utils')).toBe('yarn')
     ;(isSea as jest.Mock).mockReturnValue(true)
-    expect(installMethod()).toBe('binary')
-  })
-
-  test('installMethod treats a checkout outside node_modules as source', () => {
-    expect(installMethod()).toBe('source')
+    expect(installMethod('/whatever')).toBe('binary')
   })
 
   test('installUpdate refuses to update a source checkout', async () => {
@@ -82,50 +93,64 @@ describe('update utils', () => {
     await expect(installUpdate('1.10.0; rm -rf /')).rejects.toThrow(BettyError)
   })
 
-  test('binary update on Linux/macOS runs the installer for that version into the current directory', async () => {
+  test('binary update on Linux/macOS runs the installer of that release into the current directory', async () => {
     setPlatform('linux')
+    setExecPath('/usr/local/bin/betty')
     ;(isSea as jest.Mock).mockReturnValue(true)
-    const fetchMock = mockFetch(() => jsonResponse({}))
+    const fetchMock = mockFetch(scriptResponse)
 
     await installUpdate('1.10.0')
 
-    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/main\/install\.sh$/)
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://raw.githubusercontent.com/mcKanses/missbetty/v1.10.0/install.sh')
     const [cmd, args, opts] = (execFileSync as jest.Mock).mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }]
     expect(cmd).toBe('sh')
     expect(args[0]).toMatch(/install\.sh$/)
-    expect(opts.env.BETTY_VERSION).toBe('v1.10.0')
-    expect(opts.env.BETTY_SKIP_DEPS).toBe('true')
-    expect(opts.env.BETTY_INSTALL_DIR).toBe(path.dirname(process.execPath))
+    expect(opts.env).toEqual(expect.objectContaining({
+      BETTY_VERSION: 'v1.10.0',
+      BETTY_SKIP_DEPS: 'true',
+      BETTY_SKIP_PATH: 'true',
+      BETTY_INSTALL_DIR: path.dirname('/usr/local/bin/betty'),
+    }))
+    expect(fs.rmSync).toHaveBeenCalledWith('/tmp/betty-update-x', { recursive: true, force: true })
   })
 
-  test('binary update on Windows moves the running exe aside first and restores it on failure', async () => {
+  test('binary update on Windows runs install.ps1 without PowerShell 7 module paths', async () => {
     setPlatform('win32')
+    setExecPath('C:\\Users\\me\\AppData\\Local\\Programs\\betty\\betty.exe')
     ;(isSea as jest.Mock).mockReturnValue(true)
-    mockFetch(() => jsonResponse({}))
-    ;(fs.existsSync as jest.Mock).mockReturnValue(false)
-    ;(execFileSync as jest.Mock).mockImplementation(() => { throw new Error('installer failed') })
-
-    await expect(installUpdate('1.10.0')).rejects.toThrow('left unchanged')
-
-    const renames = (fs.renameSync as jest.Mock).mock.calls
-    expect(renames[0]).toEqual([process.execPath, `${process.execPath}.old`])
-    expect(renames[1]).toEqual([`${process.execPath}.old`, process.execPath])
-    expect((execFileSync as jest.Mock).mock.calls[0][0]).toBe('powershell')
-  })
-
-  test('binary update on Windows does not pass PowerShell 7 module paths to Windows PowerShell', async () => {
-    setPlatform('win32')
-    ;(isSea as jest.Mock).mockReturnValue(true)
-    mockFetch(() => jsonResponse({}))
+    const fetchMock = mockFetch(scriptResponse)
     process.env.PSModulePath = 'C:\\Program Files\\PowerShell\\7\\Modules'
     try {
       await installUpdate('1.10.0')
     } finally {
       delete process.env.PSModulePath
     }
-    const opts = (execFileSync as jest.Mock).mock.calls[0][2] as { env: NodeJS.ProcessEnv }
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/v1\.10\.0\/install\.ps1$/)
+    const [cmd, , opts] = (execFileSync as jest.Mock).mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }]
+    expect(cmd).toBe('powershell')
     expect(opts.env.PSModulePath).toBeUndefined()
     expect(opts.env.BETTY_VERSION).toBe('v1.10.0')
+  })
+
+  test('a failed installer is reported and its temp directory removed', async () => {
+    setPlatform('linux')
+    setExecPath('/usr/local/bin/betty')
+    ;(isSea as jest.Mock).mockReturnValue(true)
+    mockFetch(scriptResponse)
+    ;(execFileSync as jest.Mock).mockImplementation(() => { throw new Error('installer failed') })
+
+    await expect(installUpdate('1.10.0')).rejects.toThrow('left unchanged')
+    expect(fs.rmSync).toHaveBeenCalledWith('/tmp/betty-update-x', { recursive: true, force: true })
+  })
+
+  test('the installer does not run for a renamed binary', async () => {
+    setPlatform('linux')
+    setExecPath('/home/me/Downloads/betty-linux-x64')
+    ;(isSea as jest.Mock).mockReturnValue(true)
+    mockFetch(scriptResponse)
+
+    await expect(installUpdate('1.10.0')).rejects.toThrow('named betty-linux-x64')
+    expect(execFileSync).not.toHaveBeenCalled()
   })
 
   test('cleanupOldBinary removes the leftover exe on Windows only', () => {
