@@ -160,6 +160,7 @@ const statusCommand = (opts?: StatusOptions): void => {
   }
 
   if (projects.length > 0) {
+    if (!proxy.proxyRunning) console.log(`⚠️  ${proxy.proxyInfo} The links below are not served. Start it with: betty serve`)
     const nameW = Math.max(12, ...projects.map((p) => p.name.length))
     const domainW = Math.max(12, ...projects.map((p) => p.domain.length))
     const portW = Math.max(4, ...projects.map((p) => p.port.length))
