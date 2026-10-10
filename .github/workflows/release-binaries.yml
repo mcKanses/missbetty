@@ -15,15 +15,24 @@ on:
       tag:
         description: Release tag to build binaries for, e.g. v1.7.4
         required: true
+      replace_published:
+        description: Replace the assets of an already published release
+        type: boolean
+        default: false
 
+# Building runs third-party code (npm ci and its install scripts), so it gets
+# no write access and no OIDC token. Only sign-and-upload can sign with the
+# identity the installers trust, and it runs no npm code at all.
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   resolve-release:
     name: Resolve Release
     runs-on: ubuntu-latest
+    # Draft releases are listed only for tokens that can write.
+    permissions:
+      contents: write
     # Only Publish runs from a push to main can cut a release; a hand-started
     # Publish run (npm-only) never does.
     if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion != 'cancelled')
@@ -64,7 +73,7 @@ jobs:
             core.setOutput('tag_name', tag)
             core.setOutput('draft', String(release.draft))
 
-  build-and-upload:
+  build:
     needs: resolve-release
     if: needs.resolve-release.outputs.tag_name != ''
     name: Build Binary (${{ matrix.asset_name }})
@@ -170,9 +179,6 @@ jobs:
       - name: Build standalone binary
         run: npm run binary
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
       - name: Package binary (tar)
         if: matrix.archive_kind == 'tar'
         shell: bash
@@ -186,13 +192,6 @@ jobs:
         shell: bash
         run: |
           shasum -a 256 "${{ matrix.asset_name }}" > "${{ matrix.asset_name }}.sha256"
-
-      - name: Sign assets (tar)
-        if: matrix.archive_kind == 'tar'
-        shell: bash
-        run: |
-          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sig" --output-certificate "${{ matrix.asset_name }}.pem" "${{ matrix.asset_name }}"
-          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sha256.sig" --output-certificate "${{ matrix.asset_name }}.sha256.pem" "${{ matrix.asset_name }}.sha256"
 
       - name: Package binary (zip)
         if: matrix.archive_kind == 'zip'
@@ -209,31 +208,104 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 "${{ matrix.asset_name }}").Hash.ToLower()
           "$hash  ${{ matrix.asset_name }}" | Out-File -FilePath "${{ matrix.asset_name }}.sha256" -Encoding ascii
 
-      - name: Sign assets (zip)
-        if: matrix.archive_kind == 'zip'
-        shell: pwsh
-        run: |
-          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sig" --output-certificate "${{ matrix.asset_name }}.pem" "${{ matrix.asset_name }}"
-          cosign sign-blob --yes --output-signature "${{ matrix.asset_name }}.sha256.sig" --output-certificate "${{ matrix.asset_name }}.sha256.pem" "${{ matrix.asset_name }}.sha256"
+      - name: Keep the archive for verification and signing
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
+          if-no-files-found: error
+          retention-days: 7
 
-      # gh also finds draft releases by tag. --clobber lets a rerun replace the
-      # assets of the same tag, which were built from the same tagged commit.
-      - name: Upload release assets
+  # Starts every binary on a runner of its own platform before anything is
+  # signed or published, so a broken build never reaches users.
+  verify:
+    needs: [resolve-release, build]
+    name: Verify Binary (${{ matrix.asset_name }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runs_on: ubuntu-latest, asset_name: betty-linux-x64.tar.gz }
+          - { runs_on: ubuntu-24.04-arm, asset_name: betty-linux-arm64.tar.gz }
+          - { runs_on: macos-15-intel, asset_name: betty-darwin-x64.tar.gz }
+          - { runs_on: macos-latest, asset_name: betty-darwin-arm64.tar.gz }
+          - { runs_on: windows-latest, asset_name: betty-windows-x64.zip }
+          - { runs_on: windows-11-arm, asset_name: betty-windows-arm64.zip }
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ matrix.asset_name }}
+
+      - name: Check the checksum and run the binary
         shell: bash
+        env:
+          ASSET: ${{ matrix.asset_name }}
+          TAG: ${{ needs.resolve-release.outputs.tag_name }}
+        run: |
+          expected="$(awk '{print $1}' "$ASSET.sha256")"
+          actual="$( (sha256sum "$ASSET" 2>/dev/null || shasum -a 256 "$ASSET") | awk '{print $1}')"
+          [ "$expected" = "$actual" ] || { echo "Checksum mismatch for $ASSET"; exit 1; }
+          mkdir out
+          case "$ASSET" in
+            *.zip) pwsh -NoProfile -Command "Expand-Archive -Path '$ASSET' -DestinationPath out"; bin=out/betty.exe ;;
+            *) tar -xzf "$ASSET" -C out; bin=out/betty ;;
+          esac
+          version="$("$bin" --version | grep -m1 -E '^[0-9]+[.][0-9]+[.][0-9]+' | tr -d '[:space:]')"
+          [ "$version" = "${TAG#v}" ] || { echo "Expected version ${TAG#v}, got: $version"; exit 1; }
+          "$bin" help > /dev/null
+
+  # Signs and uploads what was built and verified. It runs no project or npm
+  # code, so nothing third-party can use the signing identity.
+  sign-and-upload:
+    needs: [resolve-release, build, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign assets
+        working-directory: assets
+        run: |
+          for asset in betty-*.tar.gz betty-*.zip; do
+            cosign sign-blob --yes --output-signature "$asset.sig" --output-certificate "$asset.pem" "$asset"
+            cosign sign-blob --yes --output-signature "$asset.sha256.sig" --output-certificate "$asset.sha256.pem" "$asset.sha256"
+          done
+
+      # A published release is replaced only when asked for: its assets are
+      # swapped one by one, so archive and checksum briefly disagree and installs
+      # in that moment fail.
+      - name: Upload release assets
+        working-directory: assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve-release.outputs.tag_name }}
-          ASSET: ${{ matrix.asset_name }}
+          DRAFT: ${{ needs.resolve-release.outputs.draft }}
+          REPLACE_PUBLISHED: ${{ inputs.replace_published }}
         run: |
-          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            "$ASSET" "$ASSET.sha256" "$ASSET.sig" "$ASSET.pem" "$ASSET.sha256.sig" "$ASSET.sha256.pem"
+          if [ "$DRAFT" != "true" ] && [ "$REPLACE_PUBLISHED" != "true" ]; then
+            echo "$TAG is already published. Rerun with replace_published to replace its assets."
+            exit 1
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*
 
   # Publishes the draft only when every binary was uploaded. If a build failed,
   # the release stays a draft and installers keep serving the previous one.
   publish-release:
-    needs: [resolve-release, build-and-upload]
+    needs: [resolve-release, sign-and-upload]
     if: needs.resolve-release.outputs.draft == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Publish the release
         env:
@@ -247,12 +319,13 @@ jobs:
           if [ "$newest" = "$TAG" ]; then latest=true; else latest=false; fi
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$latest"
 
-  # Installs the published release the way users do.
+  # Installs the published release the way users do, with the signature
+  # required, so a signing regression fails here and not on users' machines.
   # Covers every binary, including the two cross-built ones (macOS Intel,
   # Windows arm64), on a runner of their own architecture.
   smoke-test:
-    needs: [resolve-release, build-and-upload, publish-release]
-    if: always() && needs.resolve-release.outputs.tag_name != '' && needs.build-and-upload.result == 'success' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
+    needs: [resolve-release, sign-and-upload, publish-release]
+    if: always() && needs.resolve-release.outputs.tag_name != '' && needs.sign-and-upload.result == 'success' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
     name: Smoke Test (${{ matrix.runs_on }})
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -267,12 +340,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
       - name: Install with install.sh
         if: runner.os != 'Windows'
         shell: bash
         env:
           BETTY_VERSION: ${{ needs.resolve-release.outputs.tag_name }}
           BETTY_SKIP_DEPS: 'true'
+          BETTY_REQUIRE_SIGNATURE: 'true'
         run: |
           export BETTY_INSTALL_DIR="$RUNNER_TEMP/betty-bin"
           mkdir -p "$BETTY_INSTALL_DIR"
@@ -290,6 +366,7 @@ jobs:
         env:
           BETTY_VERSION: ${{ needs.resolve-release.outputs.tag_name }}
           BETTY_SKIP_DEPS: 'true'
+          BETTY_REQUIRE_SIGNATURE: 'true'
         run: |
           $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
           New-Item -ItemType Directory -Force -Path $env:BETTY_INSTALL_DIR | Out-Null
