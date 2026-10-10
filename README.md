@@ -112,11 +112,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.10.0 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.10.1 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.10.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.10.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Installer options:
