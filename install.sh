@@ -197,10 +197,12 @@ install_dependencies_linux() {
     install_with_pm libnss3-tools || true
 
     if ! command -v mkcert >/dev/null 2>&1; then
+      # mkcert publishes no checksums; these are the sha256 of the v1.4.4
+      # release binaries, so a swapped download is refused.
       MKCERT_VERSION="v1.4.4"
       case "$(uname -m)" in
-        x86_64|amd64) MKCERT_ARCH="amd64" ;;
-        aarch64|arm64) MKCERT_ARCH="arm64" ;;
+        x86_64|amd64) MKCERT_ARCH="amd64"; MKCERT_SHA256="6d31c65b03972c6dc4a14ab429f2928300518b26503f58723e532d1b0a3bbb52" ;;
+        aarch64|arm64) MKCERT_ARCH="arm64"; MKCERT_SHA256="b98f2cc69fd9147fe4d405d859c57504571adec0d3611c3eefd04107c7ac00d0" ;;
         *)
           echo "Unsupported architecture for mkcert fallback: $(uname -m)"
           exit 1
@@ -209,18 +211,22 @@ install_dependencies_linux() {
 
       MKCERT_URL="https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-${MKCERT_ARCH}"
 
-      if command -v curl >/dev/null 2>&1; then
-        $SUDO curl -fsSL "$MKCERT_URL" -o /usr/local/bin/mkcert
-      elif command -v wget >/dev/null 2>&1; then
-        $SUDO wget -qO /usr/local/bin/mkcert "$MKCERT_URL"
-      else
-        echo "Neither curl nor wget is available; cannot install mkcert automatically."
+      fetch "$MKCERT_URL" "$TMP_DIR/mkcert"
+      ACTUAL_MKCERT_SHA="$(sha256sum "$TMP_DIR/mkcert" | awk '{print $1}')"
+      if [ "$ACTUAL_MKCERT_SHA" != "$MKCERT_SHA256" ]; then
+        echo "Checksum verification failed for mkcert ${MKCERT_VERSION} (${MKCERT_ARCH})."
         exit 1
       fi
-      $SUDO chmod +x /usr/local/bin/mkcert
+      $SUDO install -m 0755 "$TMP_DIR/mkcert" /usr/local/bin/mkcert
     fi
 
-    mkcert -install >/dev/null 2>&1 || true
+    # The CA must belong to the user who runs betty: run as root, mkcert would
+    # create and trust a second CA under /root that betty never uses.
+    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+      sudo -u "$SUDO_USER" -H mkcert -install >/dev/null 2>&1 || true
+    else
+      mkcert -install >/dev/null 2>&1 || true
+    fi
   }
 
   install_docker_linux

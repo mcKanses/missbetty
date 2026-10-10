@@ -8,8 +8,8 @@ import { loadedFromElsewhere, readRoutes } from '../utils/routes'
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
 }))
 
 jest.mock('fs', () => ({
@@ -48,6 +48,7 @@ jest.mock('./unlink', () => ({
 jest.mock('../utils/routes', () => ({
   readRoutes: jest.fn(),
   loadedFromElsewhere: jest.fn(),
+  isProjectRouter: (routerName: string, project: string) => new RegExp(`^${project}-[0-9]+$`, 'i').test(routerName),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -464,6 +465,24 @@ describe('projectStopCommand', () => {
     ...mockConfig,
     down: { command: 'docker compose down' },
   }
+
+  beforeEach(() => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([{ fileName: 'my-app.yml', routerName: 'my-app-1', domain: 'my-app.localhost' }])
+  })
+
+  test('only runs the down command when the project has no links left', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfigWithDown)
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([{ fileName: 'my-app.yml', routerName: 'my-app', domain: 'my.app' }])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStopCommand({ yes: true })
+
+    expect(runProjectCommand).toHaveBeenCalledWith('docker compose down', '/project/.betty.yml')
+    expect(unlinkCommand).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith("Project 'my-app' has no domain links to remove.")
+    logSpy.mockRestore()
+  })
 
   test('runs down command and unlinks when --yes is passed', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')

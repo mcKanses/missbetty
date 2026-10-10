@@ -14,8 +14,8 @@ import {
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
 }))
 
 jest.mock('child_process', () => ({
@@ -71,7 +71,7 @@ describe('setup utils', () => {
     })
 
     expect(checkDockerRunning()).toBe(false)
-    expect(execSync).toHaveBeenCalledWith('docker --version', { stdio: 'pipe' })
+    expect(execSync).toHaveBeenCalledWith('docker --version', { stdio: 'pipe', timeout: 15000 })
   })
 
   test('checkMkcertCaInstalled returns true when mkcert caroot contains root CA', () => {

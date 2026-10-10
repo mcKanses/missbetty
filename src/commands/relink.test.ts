@@ -6,8 +6,8 @@ import relinkCommand from './relink'
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user', tmpdir: () => '/tmp' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic', tmpdir: () => '/tmp' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
   tmpdir: () => '/tmp',
 }))
 
@@ -35,6 +35,7 @@ jest.mock('fs', () => ({
     mkdirSync: jest.fn(),
     unlinkSync: jest.fn(),
     appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
   },
   existsSync: jest.fn(),
   readdirSync: jest.fn(),
@@ -43,6 +44,7 @@ jest.mock('fs', () => ({
   mkdirSync: jest.fn(),
   unlinkSync: jest.fn(),
   appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
 }))
 
 jest.mock('inquirer', () => ({
@@ -158,6 +160,12 @@ describe('relink command', () => {
       expect.stringContaining('restart traefik'),
       expect.objectContaining({ stdio: 'inherit' })
     )
+    // The proxy is started first: after `betty stop`, a restart alone would
+    // report success while nothing serves the domain.
+    const commands = (execSync as unknown as jest.Mock).mock.calls.map((call) => String(call[0]))
+    const upIndex = commands.findIndex((c) => c.includes('compose') && c.includes('up -d'))
+    expect(upIndex).toBeGreaterThanOrEqual(0)
+    expect(upIndex).toBeLessThan(commands.findIndex((c) => c.includes('restart traefik')))
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Updated link:'))
 
     logSpy.mockRestore()
@@ -793,7 +801,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
     await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 myapp.test # added by betty\n', 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '127.0.0.1 myapp.test # added by betty\n', 'latin1')
   })
 
   test('keeps the previous hosts entry when another link still uses the domain', async () => {
@@ -810,7 +818,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
     await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.writeFileSync).not.toHaveBeenCalledWith('/etc/hosts', expect.anything(), 'utf8')
+    expect(fs.writeFileSync).not.toHaveBeenCalledWith('/etc/hosts', expect.anything(), 'latin1')
   })
 
   test('adds hosts entry via appendFileSync when entry is missing on Linux', async () => {
@@ -824,7 +832,7 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
 
     await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'latin1')
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Added hosts entry')
     expect(output).not.toContain('only reachable after the hosts entry')
