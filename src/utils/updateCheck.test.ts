@@ -1,7 +1,7 @@
 import fs from 'fs'
 import inquirer from 'inquirer'
 import { getUpdateCheck } from './config'
-import { fetchLatestVersion, installUpdate } from './update'
+import { fetchLatestVersion, installMethod, installUpdate, isOnNpm } from './update'
 import { offerUpdate, updateCheckApplies } from './updateCheck'
 
 jest.mock('inquirer', () => ({ prompt: jest.fn() }))
@@ -11,6 +11,8 @@ jest.mock('./update', () => ({
   ...jest.requireActual<object>('./update'),
   fetchLatestVersion: jest.fn(),
   installUpdate: jest.fn(),
+  installMethod: jest.fn(() => 'binary'),
+  isOnNpm: jest.fn(() => Promise.resolve(true)),
 }))
 jest.mock('fs', () => ({
   readFileSync: jest.fn(),
@@ -144,5 +146,61 @@ describe('update check', () => {
     const tmp = String((fs.writeFileSync as jest.Mock).mock.calls[0][0])
     expect(tmp).toMatch(/update-check\.json\.\d+\.tmp$/)
     expect(fs.renameSync).toHaveBeenCalledWith(tmp, expect.stringMatching(/update-check\.json$/))
+  })
+
+  test('does not offer an npm install a version npm does not have yet, and asks again later', async () => {
+    ;(installMethod as jest.Mock).mockReturnValue('npm')
+    ;(isOnNpm as jest.Mock).mockResolvedValue(false)
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
+
+    await offerUpdate(argv('status'), '1.9.1')
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(savedState().askedAt).toBeUndefined()
+    ;(installMethod as jest.Mock).mockReturnValue('binary')
+  })
+
+  test('only shows the command for installs betty cannot update itself', async () => {
+    ;(installMethod as jest.Mock).mockReturnValue('pnpm')
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
+
+    await offerUpdate(argv('status'), '1.9.1')
+
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith('Update with: pnpm add -g missbetty@1.10.0')
+    ;(installMethod as jest.Mock).mockReturnValue('binary')
+  })
+
+  test('says nothing to npx runs', async () => {
+    ;(installMethod as jest.Mock).mockReturnValue('npx')
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
+
+    await offerUpdate(argv('status'), '1.9.1')
+
+    expect(logSpy).not.toHaveBeenCalled()
+    ;(installMethod as jest.Mock).mockReturnValue('binary')
+  })
+
+  test('Ctrl+C at the prompt ends with exit code 0, since the command succeeded', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
+    // What inquirer 8 does on Ctrl+C: it signals the process instead of rejecting.
+    ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => {
+      process.emit('SIGINT')
+      return new Promise(() => undefined)
+    })
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit ${String(code)}`) })
+
+    await expect(offerUpdate(argv('status'), '1.9.1')).rejects.toThrow('exit 0')
+
+    exitSpy.mockRestore()
+  })
+
+  test('starts over from a malformed state file', async () => {
+    setState(null)
+    ;(fs.readFileSync as jest.Mock).mockReturnValue('null')
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.9.1')
+
+    await expect(offerUpdate(argv('status'), '1.9.1')).resolves.toBeUndefined()
+    expect(savedState()).toEqual({ checkedAt: expect.any(Number) as number, latest: '1.9.1' })
   })
 })

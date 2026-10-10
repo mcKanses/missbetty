@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { isSea } from 'node:sea'
 import { BettyError } from './errors'
-import { cleanupOldBinary, fetchLatestVersion, installMethod, installUpdate, isNewer } from './update'
+import { cleanupOldBinary, fetchLatestVersion, installMethod, installUpdate, isGlobalNpmInstall, isNewer, isOnNpm, manualUpdateCommand } from './update'
 
 jest.mock('child_process', () => ({ execFileSync: jest.fn(), execSync: jest.fn() }))
 jest.mock('node:sea', () => ({ isSea: jest.fn(() => false) }))
@@ -13,6 +13,7 @@ jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
   rmSync: jest.fn(),
   readdirSync: jest.fn(() => []),
+  realpathSync: jest.fn((p: string) => p),
 }))
 
 const mockFetch = (impl: () => Promise<unknown>): jest.Mock => {
@@ -140,7 +141,7 @@ describe('update utils', () => {
     mockFetch(scriptResponse)
     ;(execFileSync as jest.Mock).mockImplementation(() => { throw new Error('installer failed') })
 
-    await expect(installUpdate('1.10.0')).rejects.toThrow('left unchanged')
+    await expect(installUpdate('1.10.0')).rejects.toThrow('The update did not complete')
     expect(fs.rmSync).toHaveBeenCalledWith('/tmp/betty-update-x', { recursive: true, force: true })
   })
 
@@ -168,5 +169,27 @@ describe('update utils', () => {
     setPlatform('linux')
     cleanupOldBinary()
     expect(fs.rmSync).not.toHaveBeenCalled()
+  })
+
+  test('a global npm install is one inside npm root -g, up to a separator', () => {
+    ;(execSync as jest.Mock).mockReturnValue(Buffer.from(`${'/usr/local/lib/node_modules'.split('/').join(path.sep)}\n`))
+    expect(isGlobalNpmInstall('/usr/local/lib/node_modules/missbetty/bin/utils'.split('/').join(path.sep))).toBe(true)
+    expect(isGlobalNpmInstall('/usr/local/lib/node_modules-src/app/node_modules/missbetty'.split('/').join(path.sep))).toBe(false)
+    expect(isGlobalNpmInstall('/home/me/app/node_modules/missbetty'.split('/').join(path.sep))).toBe(false)
+  })
+
+  test('isOnNpm asks the registry for that exact version', async () => {
+    const fetchMock = mockFetch(() => Promise.resolve({ ok: true, body: { cancel: jest.fn(() => Promise.resolve()) } }))
+    await expect(isOnNpm('1.10.3')).resolves.toBe(true)
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://registry.npmjs.org/missbetty/1.10.3')
+    mockFetch(() => Promise.resolve({ ok: false, body: null }))
+    await expect(isOnNpm('1.10.3')).resolves.toBe(false)
+  })
+
+  test('installs betty does not update itself get their own command', () => {
+    expect(manualUpdateCommand('pnpm', '1.2.3')).toBe('pnpm add -g missbetty@1.2.3')
+    expect(manualUpdateCommand('source', '1.2.3')).toBe('git pull && npm run build')
+    expect(manualUpdateCommand('binary', '1.2.3')).toBeNull()
+    expect(manualUpdateCommand('npm', '1.2.3')).toBeNull()
   })
 })
