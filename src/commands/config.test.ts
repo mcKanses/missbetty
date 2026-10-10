@@ -20,6 +20,8 @@ jest.mock('../utils/config', () => ({
   getHttpsPort: jest.fn(),
   setHttpPort: jest.fn(),
   setHttpsPort: jest.fn(),
+  getUpdateCheck: jest.fn(() => true),
+  setUpdateCheck: jest.fn(),
 }))
 
 describe('config command', () => {

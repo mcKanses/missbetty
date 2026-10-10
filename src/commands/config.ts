@@ -6,10 +6,12 @@ import {
   getHttpsPort,
   setHttpPort,
   setHttpsPort,
+  getUpdateCheck,
+  setUpdateCheck,
 } from '../utils/config'
 import { BettyError } from '../utils/errors'
 
-const SUPPORTED_KEYS = ['domainSuffix', 'httpPort', 'httpsPort']
+const SUPPORTED_KEYS = ['domainSuffix', 'httpPort', 'httpsPort', 'updateCheck']
 const SUPPORTED_KEYS_HINT = `Unknown config key. Supported: ${SUPPORTED_KEYS.join(', ')}`
 
 const showCurrentConfig = (): void => {
@@ -24,6 +26,7 @@ const showCurrentConfig = (): void => {
   else console.log(`    source: default`)
   console.log(`  httpPort      ${String(getHttpPort())}`)
   console.log(`  httpsPort     ${String(getHttpsPort())}`)
+  console.log(`  updateCheck   ${String(getUpdateCheck())}`)
 }
 
 const readKey = (key: string): string | null => {
@@ -31,6 +34,7 @@ const readKey = (key: string): string | null => {
     case 'domainSuffix': return getDomainSuffix()
     case 'httpPort': return String(getHttpPort())
     case 'httpsPort': return String(getHttpsPort())
+    case 'updateCheck': return String(getUpdateCheck())
     default: return null
   }
 }
@@ -39,6 +43,7 @@ const writeKey = (key: string, value: string): string => {
   switch (key) {
     case 'httpPort': return String(setHttpPort(value))
     case 'httpsPort': return String(setHttpsPort(value))
+    case 'updateCheck': return String(setUpdateCheck(value))
     default: return setDomainSuffix(value)
   }
 }
@@ -60,7 +65,7 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
   if (action === 'set') {
     if (key === undefined || !SUPPORTED_KEYS.includes(key)) throw new BettyError(SUPPORTED_KEYS_HINT)
 
-    if (value === undefined || value.trim() === '') throw new BettyError(`Missing value. Example: betty config set ${key} ${key === 'domainSuffix' ? '.localhost' : '8080'}`)
+    if (value === undefined || value.trim() === '') throw new BettyError(`Missing value. Example: betty config set ${key} ${key === 'domainSuffix' ? '.localhost' : key === 'updateCheck' ? 'false' : '8080'}`)
 
     try {
       const normalized = writeKey(key, value)
