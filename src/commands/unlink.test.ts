@@ -606,6 +606,20 @@ describe('unlink command', () => {
     await expect(unlinkCommand({ project: 'nonexistent' })).rejects.toThrow("No project found with name 'nonexistent'")
   })
 
+  test('--project finds a project by its name as written in .betty.yml', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/mckanses-auth.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['mckanses-auth.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_MULTI_DOMAIN)
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ project: 'Mckanses Auth', yes: true })
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+  })
+
   test('--project does not take a `betty link` route file that only shares the name', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

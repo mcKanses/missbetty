@@ -7,6 +7,7 @@ jest.mock('../utils/update', () => ({
   ...jest.requireActual<object>('../utils/update'),
   fetchLatestVersion: jest.fn(),
   installUpdate: jest.fn(),
+  installMethod: jest.fn(() => 'binary'),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -142,6 +142,18 @@ describe('withLock', () => {
     expect(fs.writeFileSync).toHaveBeenCalledTimes(1)
   })
 
+  it('puts a lock back without hard links, e.g. on FAT or network shares', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(false)
+    ;(fs.renameSync as unknown as jest.Mock).mockImplementationOnce(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('515151')
+    })
+    ;(fs.linkSync as unknown as jest.Mock).mockImplementation(() => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) })
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+    expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, '515151', { flag: 'wx' })
+  })
+
   it('does not judge a lock from another machine by its PID', () => {
     lockHeldBy(`${String(OTHER_PID)}\nother-host`)
     processRunning(false)

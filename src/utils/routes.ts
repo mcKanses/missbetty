@@ -118,14 +118,16 @@ export const findDomainConflict = (domain: string, ignore?: ConflictIgnore, exac
   // domains that collapse to the same route file name (e.g. "a.b.localhost" and
   // "a-b.localhost", or case variants on case-insensitive file systems) are
   // reported as a conflict instead of silently overwriting each other.
-  const key = (d: string): string => (exact ? d.toLowerCase() : normalizeServiceName(d.toLowerCase()))
-  const target = key(domain)
+  // Project routes are named after the project too, so against them only the
+  // exact domain can collide, whichever side asks.
+  const key = (d: string, exactMatch: boolean): string => (exactMatch ? d.toLowerCase() : normalizeServiceName(d.toLowerCase()))
   const routes = readRoutes()
   for (const route of routes) {
-    const ignored = ignore?.filePath === route.filePath
+    const ignored = ignore !== undefined && samePath(ignore.filePath, route.filePath)
       && (ignore.routerName === undefined || route.routerName === ignore.routerName)
     if (ignored) continue
-    if (key(route.domain) !== target) continue
+    const exactMatch = exact || route.containerKnown === false
+    if (key(route.domain, exactMatch) !== key(domain, exactMatch)) continue
     return { fileName: route.fileName, routerName: route.routerName }
   }
   return null
@@ -218,7 +220,7 @@ export const isProjectRouter = (routerName: string, project: string): boolean =>
 
 // Windows and macOS file systems ignore case, and a shell keeps whatever case
 // was typed in `cd`, so c:\proj and C:\Proj are the same project.
-const samePath = (a: string, b: string): boolean => {
+export const samePath = (a: string, b: string): boolean => {
   const fold = process.platform === 'win32' || process.platform === 'darwin'
   return fold ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b)
 }

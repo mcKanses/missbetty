@@ -619,8 +619,8 @@ describe('projectStatusCommand', () => {
 
   test('shows linked domains table when --name matches linked routes', async () => {
     ;(readRoutes as unknown as jest.Mock).mockReturnValue([
-      { domain: 'ory-ui.mckansescloud.dev', routerName: 'mckanses-auth', fileName: 'mckanses-auth.yml', filePath: '/path/mckanses-auth.yml', target: 'http://127.0.0.1:5173' },
-      { domain: 'api.mckansescloud.dev', routerName: 'mckanses-auth', fileName: 'mckanses-auth.yml', filePath: '/path/mckanses-auth.yml', target: 'http://127.0.0.1:8080' },
+      { domain: 'ory-ui.mckansescloud.dev', routerName: 'mckanses-auth-1', fileName: 'mckanses-auth.yml', filePath: '/path/mckanses-auth.yml', target: 'http://127.0.0.1:5173' },
+      { domain: 'api.mckansescloud.dev', routerName: 'mckanses-auth-2', fileName: 'mckanses-auth.yml', filePath: '/path/mckanses-auth.yml', target: 'http://127.0.0.1:8080' },
     ])
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)

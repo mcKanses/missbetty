@@ -1,3 +1,7 @@
+# Run through `irm | iex`, this script shares the caller's session; their
+# preferences are put back at the end.
+$bettyCallerErrorAction = $ErrorActionPreference
+$bettyCallerProgress = $ProgressPreference
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell 5.1 renders a progress bar per downloaded chunk, which makes
 # downloads many times slower.
@@ -248,27 +252,27 @@ try {
 
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
   $target = Join-Path $installDir 'betty.exe'
-  $previous = "$target.old"
+  # The slow copy goes next to the target first; the swap is then two renames.
   # A running betty.exe (e.g. during `betty update`) cannot be overwritten, but
-  # it can be renamed. Move it aside right before the copy and put it back if
-  # the copy fails; betty removes the .old file on its next start.
-  if (Test-Path $target) {
-    Remove-Item $previous -Force -ErrorAction SilentlyContinue
-    Move-Item $target $previous -Force
-  }
+  # it can be renamed. The aside name is unique, since an older betty still
+  # running may hold an earlier one; betty removes them on its next start.
+  $staged = "$target.new"
+  Copy-Item -Path (Join-Path $tmpDir 'betty.exe') -Destination $staged -Force
+  $previous = "$target.$([System.Guid]::NewGuid().ToString('N')).old"
+  $swapped = $false
   try {
-    Copy-Item -Path (Join-Path $tmpDir 'betty.exe') -Destination $target -Force
+    if (Test-Path $target) { Move-Item $target $previous }
+    Move-Item $staged $target
+    $swapped = $true
   }
-  catch {
-    if (Test-Path $previous) {
-      Remove-Item $target -Force -ErrorAction SilentlyContinue
-      Move-Item $previous $target -Force
+  finally {
+    # finally, not catch: Ctrl+C runs only finally blocks.
+    if (-not $swapped) {
+      if ((Test-Path $previous) -and -not (Test-Path $target)) { Move-Item $previous $target }
+      Remove-Item $staged -Force -ErrorAction SilentlyContinue
     }
-    throw
   }
-  if (Test-Path $previous) {
-    Remove-Item $previous -Force -ErrorAction SilentlyContinue
-  }
+  Remove-Item $previous -Force -ErrorAction SilentlyContinue
 
   # The user PATH is read and written unexpanded, as REG_EXPAND_SZ:
   # [Environment]::Get/SetEnvironmentVariable would expand every %VAR% entry and
@@ -305,4 +309,6 @@ finally {
   if (Test-Path $tmpDir) {
     Remove-Item -Path $tmpDir -Recurse -Force
   }
+  $ErrorActionPreference = $bettyCallerErrorAction
+  $ProgressPreference = $bettyCallerProgress
 }
