@@ -6,8 +6,8 @@ import linkCommand, { suggestDomain, readExposedPorts } from './link'
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user', tmpdir: () => '/tmp' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic', tmpdir: () => '/tmp' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
   tmpdir: () => '/tmp',
 }))
 
@@ -25,6 +25,7 @@ jest.mock('fs', () => ({
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
     appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
     unlinkSync: jest.fn(),
   },
   existsSync: jest.fn(),
@@ -33,6 +34,7 @@ jest.mock('fs', () => ({
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
   appendFileSync: jest.fn(),
+    rmSync: jest.fn(),
   unlinkSync: jest.fn(),
 }))
 
@@ -816,7 +818,7 @@ describe('ensureHostsEntry (via linkCommand with non-localhost domain)', () => {
 
     await linkCommand('myapp', { domain: 'myapp.test', port: '3000', yes: true })
 
-    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'utf8')
+    expect(fs.appendFileSync).toHaveBeenCalledWith('/etc/hosts', expect.stringContaining('myapp.test'), 'latin1')
     const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(output).toContain('Added hosts entry')
     expect(output).not.toContain('only reachable after the hosts entry')

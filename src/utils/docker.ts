@@ -25,7 +25,11 @@ export const getRunningContainers = (): string[] => {
       .map((name) => name.trim())
       .filter(Boolean)
   } catch {
-    return []
+    // docker ps only fails when Docker is missing or not running; reporting that
+    // as "no containers" would send the user looking in the wrong place.
+    throw new BettyError('Could not list containers: Docker is not running or not installed.', {
+      hints: ['Start Docker and try again (docker info shows whether it is running).'],
+    })
   }
 }
 

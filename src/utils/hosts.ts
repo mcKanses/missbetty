@@ -1,11 +1,16 @@
 import { execFileSync } from 'child_process'
 import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { validateDomain } from './names'
 
 // Marker Betty appends to every hosts entry it creates. Removal is gated on this
 // marker so Betty never deletes hosts lines a user added manually.
 const BETTY_HOSTS_MARKER = '# added by betty'
 
-export const isWsl = (): boolean => process.platform === 'linux' && (process.env.WSL_DISTRO_NAME ?? '').trim() !== ''
+// sudo and `env -i` drop WSL_DISTRO_NAME, so the kernel name is checked too.
+export const isWsl = (): boolean => process.platform === 'linux' &&
+  ((process.env.WSL_DISTRO_NAME ?? '').trim() !== '' || /microsoft/i.test(os.release()))
 
 const getHostsPath = (): string => {
   if (process.platform === 'win32') return 'C:\\Windows\\System32\\drivers\\etc\\hosts'
@@ -29,9 +34,26 @@ const domainPattern = (domain: string): RegExp =>
 // "by", "betty") are valid domains that must not match.
 const activePart = (line: string): string => line.split('#')[0]
 
-const containsDomain = (content: string, domain: string): boolean => {
+// The addresses the file maps a domain to, in file order.
+const mappingsOf = (content: string, domain: string): string[] => {
   const pattern = domainPattern(domain)
-  return content.split(/\r?\n/).some((line) => pattern.test(activePart(line)))
+  return content.split(/\r?\n/)
+    .filter((line) => pattern.test(activePart(line)))
+    .map((line) => activePart(line).trim().split(/\s+/)[0] ?? '')
+}
+
+const isLoopback = (address: string): boolean => address.startsWith('127.') || address === '::1'
+
+// Only a loopback mapping reaches Traefik. A blocklist line (0.0.0.0 app.test) or
+// a stale LAN address does not count as an entry.
+const containsDomain = (content: string, domain: string): boolean => mappingsOf(content, domain).some(isLoopback)
+
+// A non-loopback mapping listed before Betty's entry wins, as resolvers use the
+// first match.
+const foreignMapping = (content: string, domain: string): string | undefined => {
+  const mappings = mappingsOf(content, domain)
+  const first = mappings.length > 0 ? mappings[0] : undefined
+  return first !== undefined && !isLoopback(first) ? first : undefined
 }
 
 const isBettyLineFor = (line: string, domain: string): boolean =>
@@ -49,9 +71,15 @@ const appendText = (content: string, lines: string[]): string => {
   return `${separator}${lines.map((line) => `${line}${eol}`).join('')}`
 }
 
+// Read and written as Latin-1, which maps every byte to one character and back.
+// Hosts files are often not UTF-8 (ANSI comments on Windows); decoding them as
+// UTF-8 would turn such bytes into replacement characters on the next write.
+// Domains are ASCII, so matching is unaffected.
+const HOSTS_ENCODING = 'latin1'
+
 const readOrNull = (filePath: string): string | null => {
   try {
-    return fs.readFileSync(filePath, 'utf8')
+    return fs.readFileSync(filePath, HOSTS_ENCODING)
   } catch {
     return null
   }
@@ -64,7 +92,7 @@ export const hasHostsEntry = (domain: string): boolean => {
   return containsDomain(readOrNull(getHostsPath()) ?? '', domain)
 }
 
-interface HostsEdit {
+export interface HostsEdit {
   // Entries still missing from the file.
   add: string[];
   // Domains that still have a Betty line in the file.
@@ -84,23 +112,34 @@ const applyEdit = (content: string, edit: HostsEdit): string => {
   return edit.add.length > 0 ? `${rest}${appendText(rest, edit.add.map(entryFor))}` : rest
 }
 
-const elevateWithPowerShell = (script: string): boolean => {
+// Runs the script elevated and passes on its exit code. A failure inside it (a
+// read-only or locked file) is written to errorFile, since the elevated window
+// closes before anyone can read it.
+const elevateWithPowerShell = (script: string, errorFile: string): boolean => {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   try {
     // Started directly, not through cmd.exe: cmd caps a command line at 8191
     // characters, which a hosts edit for many domains exceeds.
     execFileSync(
       'powershell',
-      ['-NoProfile', '-Command', `Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-EncodedCommand','${encoded}' -Wait`],
+      ['-NoProfile', '-Command', `$p = Start-Process PowerShell -Verb RunAs -PassThru -Wait -ArgumentList '-NoProfile','-EncodedCommand','${encoded}'; exit $p.ExitCode`],
       { stdio: 'inherit' }
     )
     return true
   } catch {
+    try {
+      const reason = fs.readFileSync(errorFile, 'utf8').trim()
+      if (reason !== '') console.log(`\n⚠️  The elevated hosts edit failed: ${reason}`)
+    } catch { /* declined UAC prompt: nothing was written */ }
     return false
+  } finally {
+    fs.rmSync(errorFile, { force: true })
   }
 }
 
-const psString = (value: string): string => `'${value.replace(/'/g, "''")}'`
+// PowerShell also ends a single-quoted string at the typographic quotes
+// U+2018-U+201B; doubling escapes them like an ASCII quote.
+const psString = (value: string): string => `'${value.replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`
 
 // Applies the edit from one elevated PowerShell (one UAC prompt). Only the domain
 // names are passed; the script reads, filters and writes the file itself, so the
@@ -109,36 +148,62 @@ const psString = (value: string): string => `'${value.replace(/'/g, "''")}'`
 // removed domains go, missing entries are appended in the file's line ending.
 // Betty widens no ACL: a lasting Write grant would let any unelevated process
 // of the user redirect domains without a prompt.
-const editHostsElevated = (hostsPath: string, edit: HostsEdit): boolean => {
+// Exported for tests, which run it unelevated against a scratch file.
+export const hostsEditScript = (hostsPath: string, edit: HostsEdit, errorFile: string): string => {
   const list = (domains: string[]): string => `@(${domains.map(psString).join(', ')})`
-  const script = [
+  // Latin-1 (28591) round-trips every byte, like HOSTS_ENCODING. Without
+  // removals only the new lines are appended; the rest of the file is not
+  // rewritten.
+  return [
     "$ErrorActionPreference = 'Stop'",
+    'try {',
     `$path = ${psString(hostsPath)}`,
     `$marker = ${psString(BETTY_HOSTS_MARKER)}`,
     `$add = ${list(edit.add)}`,
     `$remove = ${list(edit.remove)}`,
+    '$enc = [System.Text.Encoding]::GetEncoding(28591)',
     'function Test-Maps($line, $domain) { ($line -split "#", 2)[0] -match ("(^|\\s)" + [regex]::Escape($domain) + "(\\s|$)") }',
-    '$text = [System.IO.File]::ReadAllText($path)',
+    'function Test-Loopback($line, $domain) { (Test-Maps $line $domain) -and (($line -split "#", 2)[0].Trim() -match "^(127\\.|::1(\\s|$))") }',
+    '$text = [System.IO.File]::ReadAllText($path, $enc)',
     '$eol = if ($text.Contains("`r`n") -or $text.Length -eq 0) { "`r`n" } else { "`n" }',
     '$kept = @($text -split "`r?`n" | Where-Object { $line = $_; -not ($line.Contains($marker) -and @($remove | Where-Object { Test-Maps $line $_ }).Count -gt 0) })',
-    '$body = [string]::Join($eol, $kept)',
+    '$new = ""',
     'foreach ($domain in $add) {',
-    '  if (@($kept | Where-Object { Test-Maps $_ $domain }).Count -gt 0) { continue }',
-    '  if ($body.Length -gt 0 -and -not $body.EndsWith("`n")) { $body += $eol }',
-    '  $body += "127.0.0.1 $domain $marker" + $eol',
+    '  if (@($kept | Where-Object { Test-Loopback $_ $domain }).Count -gt 0) { continue }',
+    '  $new += "127.0.0.1 $domain $marker" + $eol',
     '}',
-    '[System.IO.File]::WriteAllText($path, $body, (New-Object System.Text.UTF8Encoding $false))',
+    'if ($remove.Count -eq 0) {',
+    '  if ($new.Length -gt 0) {',
+    '    if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $new = $eol + $new }',
+    '    [System.IO.File]::AppendAllText($path, $new, $enc)',
+    '  }',
+    '} else {',
+    '  $body = [string]::Join($eol, $kept)',
+    '  if ($new.Length -gt 0 -and $body.Length -gt 0 -and -not $body.EndsWith("`n")) { $body += $eol }',
+    '  [System.IO.File]::WriteAllText($path, $body + $new, $enc)',
+    '}',
+    '} catch {',
+    `  [System.IO.File]::WriteAllText(${psString(errorFile)}, $_.Exception.Message)`,
+    '  exit 1',
+    '}',
   ].join('\n')
+}
 
-  return elevateWithPowerShell(script)
+const editHostsElevated = (hostsPath: string, edit: HostsEdit): boolean => {
+  const errorFile = path.join(os.tmpdir(), `betty-hosts-${String(process.pid)}.err`)
+  return elevateWithPowerShell(hostsEditScript(hostsPath, edit, errorFile), errorFile)
 }
 
 // Adds and removes Betty's hosts entries in one step: a direct write when
 // permitted, otherwise a single elevated write (UAC on Windows, sudo elsewhere).
 // Batching keeps multi-domain commands at one prompt, and a declined prompt
 // leaves the file untouched instead of half-updated.
+// Only valid host names reach the file or the elevated script: a route file can
+// be edited by hand, and its Host() value must not inject lines or code.
+const writable = (domain: string): boolean => needsEntry(domain) && validateDomain(domain) === true
+
 const editHosts = (add: string[], remove: string[]): boolean => {
-  const requested: HostsEdit = { add: add.filter(needsEntry), remove: remove.filter(needsEntry) }
+  const requested: HostsEdit = { add: add.filter(writable), remove: remove.filter(writable) }
   if (requested.add.length === 0 && requested.remove.length === 0) return true
   const hostsPath = getHostsPath()
   const content = readOrNull(hostsPath)
@@ -148,6 +213,10 @@ const editHosts = (add: string[], remove: string[]): boolean => {
   const unknownRemovals = content === null ? requested.remove : []
   const edit = content !== null ? pendingEdit(content, requested.add, requested.remove) : { add: requested.add, remove: [] }
   const hasWork = edit.add.length > 0 || edit.remove.length > 0
+  if (content !== null) for (const domain of requested.add) {
+    const other = foreignMapping(content, domain)
+    if (other !== undefined) console.log(`\n⚠️  ${domain} is also mapped to ${other} in ${hostsPath}, before Betty's entry. Remove that line, or the domain will not reach Betty.`)
+  }
   if (!hasWork && unknownRemovals.length === 0) return true
 
   const appendOnly = edit.remove.length === 0
@@ -166,8 +235,8 @@ const editHosts = (add: string[], remove: string[]): boolean => {
   const writeDirect = (): boolean => {
     try {
       // Appending touches only the new lines; a removal has to rewrite the file.
-      if (appendOnly) fs.appendFileSync(hostsPath, appended(), 'utf8')
-      else fs.writeFileSync(hostsPath, applyEdit(content ?? '', edit), 'utf8')
+      if (appendOnly) fs.appendFileSync(hostsPath, appended(), HOSTS_ENCODING)
+      else fs.writeFileSync(hostsPath, applyEdit(content ?? '', edit), HOSTS_ENCODING)
       return true
     } catch {
       return false
@@ -180,10 +249,17 @@ const editHosts = (add: string[], remove: string[]): boolean => {
     if (isWsl()) return false
     try {
       // `sudo tee` receives the text on stdin, so nothing passes through a shell.
-      // sudo reads its password from the tty.
-      const args = appendOnly ? ['tee', '-a', hostsPath] : ['tee', hostsPath]
-      const input = appendOnly ? appended() : applyEdit(content ?? '', edit)
-      execFileSync('sudo', args, { input, stdio: ['pipe', 'ignore', 'inherit'] })
+      // A rewrite asks for the password first (sudo -v) and then re-reads the
+      // file, so changes made while the prompt was open are not overwritten.
+      let input: string
+      if (appendOnly) input = appended()
+      else {
+        execFileSync('sudo', ['-v'], { stdio: 'inherit' })
+        const fresh = readOrNull(hostsPath) ?? ''
+        input = applyEdit(fresh, pendingEdit(fresh, edit.add, edit.remove))
+      }
+      const args = appendOnly ? ['tee', '-a', hostsPath] : ['-n', 'tee', hostsPath]
+      execFileSync('sudo', args, { input: Buffer.from(input, HOSTS_ENCODING), stdio: ['pipe', 'ignore', 'inherit'] })
       return applied()
     } catch {
       return false

@@ -1,4 +1,5 @@
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { BETTY_HOME_DIR } from './constants'
 import { BettyError } from './errors'
@@ -21,18 +22,33 @@ const busyError = (): BettyError => new BettyError('Another betty command is alr
   hints: [`If no other betty command is running, delete the lock file: ${LOCK_PATH}`],
 })
 
+// The lock holds the owner's PID and host name. A PID means nothing on another
+// machine (a home directory on a network share), so a lock from another host is
+// only reclaimed by age.
 const writeLockFile = (): void => {
-  fs.writeFileSync(LOCK_PATH, String(process.pid), { flag: 'wx' })
+  fs.writeFileSync(LOCK_PATH, `${String(process.pid)}\n${os.hostname()}`, { flag: 'wx' })
 }
 
-const readOwner = (): number | null => {
+interface LockOwner { pid: number; host: string | null }
+
+const parseOwner = (content: string): LockOwner | null => {
+  const lines = content.split('\n')
+  const pid = parseInt(lines[0], 10)
+  if (!Number.isInteger(pid) || pid <= 0) return null
+  // Locks of older betty versions carry only the PID.
+  const host = lines.length > 1 ? lines[1].trim() : ''
+  return { pid, host: host === '' ? null : host }
+}
+
+const readOwnerOf = (filePath: string): LockOwner | null => {
   try {
-    const pid = parseInt(fs.readFileSync(LOCK_PATH, 'utf8'), 10)
-    return Number.isInteger(pid) && pid > 0 ? pid : null
+    return parseOwner(fs.readFileSync(filePath, 'utf8'))
   } catch {
     return null
   }
 }
+
+const readOwner = (): number | null => readOwnerOf(LOCK_PATH)?.pid ?? null
 
 const isRunning = (pid: number): boolean => {
   try {
@@ -52,10 +68,12 @@ const lockAge = (filePath: string): number => {
   }
 }
 
-const isStale = (owner: number | null): boolean => {
+const isStale = (owner: LockOwner | null): boolean => {
   const age = lockAge(LOCK_PATH)
   if (owner === null) return age >= UNREADABLE_STALE_MS
-  return !isRunning(owner) || age >= MAX_LOCK_AGE_MS
+  if (age >= MAX_LOCK_AGE_MS) return true
+  if (owner.host !== null && owner.host !== os.hostname()) return false
+  return !isRunning(owner.pid)
 }
 
 const acquire = (): void => {
@@ -71,7 +89,7 @@ const acquire = (): void => {
     // Lock already exists — reclaim it only if its owner is gone.
   }
 
-  const owner = readOwner()
+  const owner = readOwnerOf(LOCK_PATH)
   if (!isStale(owner)) throw busyError()
 
   // Reclaim by renaming: only one process can move a given lock file away. A
@@ -84,13 +102,12 @@ const acquire = (): void => {
     throw busyError()
   }
   // The file moved could already be a fresh lock taken between the check and
-  // the rename; that one goes back.
-  let movedOwner: number | null = null
-  try {
-    movedOwner = parseInt(fs.readFileSync(claimed, 'utf8'), 10)
-  } catch { /* unreadable: treated like the stale lock it replaced */ }
-  if (movedOwner !== owner && movedOwner !== null && !Number.isNaN(movedOwner)) {
-    try { fs.renameSync(claimed, LOCK_PATH) } catch { /* the other process keeps running either way */ }
+  // the rename; that one goes back. linkSync, unlike renameSync, fails instead
+  // of replacing a lock a third process created in the meantime.
+  const movedOwner = readOwnerOf(claimed)
+  if (movedOwner !== null && movedOwner.pid !== owner?.pid) {
+    try { fs.linkSync(claimed, LOCK_PATH) } catch { /* a newer lock is in place */ }
+    fs.rmSync(claimed, { force: true })
     throw busyError()
   }
   fs.rmSync(claimed, { force: true })

@@ -31,9 +31,12 @@ jobs:
       HAS_RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN != '' }}
 
     steps:
+      # No persisted credentials: npm ci below runs third-party install scripts.
+      # semantic-release and the metadata PR authenticate with their own token.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -98,24 +101,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
 
-  # npm publishing is its own job, after the release: an npm problem (registry
-  # outage, trusted-publisher setting) then cannot block the tag, the GitHub
-  # release or the binaries, and it can be retried per tag by hand. On a push
-  # it publishes the tag semantic-release just created; started by hand it
-  # publishes the given tag. Versions already on npm are skipped, so reruns are
-  # safe.
-  npm-publish:
+  # npm publishing runs after the release: an npm problem (registry outage,
+  # trusted-publisher setting) then cannot block the tag, the GitHub release or
+  # the binaries, and it can be retried per tag by hand. On a push it publishes
+  # the tag semantic-release just created; started by hand it publishes the
+  # given tag. Versions already on npm are skipped, so reruns are safe.
+  #
+  # npm-pack builds and tests with npm ci and its install scripts, so it gets no
+  # OIDC token; npm-publish only uploads the packed tarball and runs no project
+  # code, so nothing third-party can publish through trusted publishing.
+  npm-pack:
     needs: semantic-release
     if: always() && (github.event_name == 'workflow_dispatch' || needs.semantic-release.result == 'success')
-    # An automatic run reports an npm failure on this job without turning the
-    # whole Publish run red, which would stop release-binaries.
+    # An automatic run reports an npm failure without turning the whole Publish
+    # run red, which would stop release-binaries.
     continue-on-error: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
-    # This job runs third-party install scripts (npm ci) and tests; it needs to
-    # read the repo and get an OIDC token for npm, nothing more.
-    permissions:
-      contents: read
-      id-token: write
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -148,20 +151,12 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      # No registry-url here: with it, setup-node writes an .npmrc whose token
-      # defaults to a placeholder, and npm sends that instead of using the OIDC
-      # trusted-publishing login (the registry then answers 404).
       - name: Setup Node.js
         if: steps.tag.outputs.version != ''
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-
-      # Trusted publishing needs npm 11.5.1 or newer.
-      - name: Update npm
-        if: steps.tag.outputs.version != ''
-        run: npm install -g npm@latest
 
       - name: Install dependencies
         if: steps.tag.outputs.version != ''
@@ -182,6 +177,45 @@ jobs:
         run: npm version "${{ steps.tag.outputs.version }}" --no-git-tag-version --allow-same-version --ignore-scripts
 
       # The build above is what gets published; skip prepack's second build.
-      - name: Publish to npm
+      - name: Pack
         if: steps.tag.outputs.version != ''
-        run: npm publish --access public --ignore-scripts
+        run: npm pack --ignore-scripts
+
+      - name: Keep the package for publishing
+        if: steps.tag.outputs.version != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-package
+          path: missbetty-${{ steps.tag.outputs.version }}.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  npm-publish:
+    needs: npm-pack
+    if: always() && needs.npm-pack.result == 'success' && needs.npm-pack.outputs.version != ''
+    continue-on-error: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    # Deployments to this environment are limited to main and development.
+    environment: npm
+    permissions:
+      id-token: write
+    steps:
+      # No registry-url here: with it, setup-node writes an .npmrc whose token
+      # defaults to a placeholder, and npm sends that instead of using the OIDC
+      # trusted-publishing login (the registry then answers 404).
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      # Trusted publishing needs npm 11.5.1 or newer. Pinned, since this job
+      # holds the publishing token.
+      - name: Update npm
+        run: npm install -g npm@11.21.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-package
+
+      - name: Publish to npm
+        run: npm publish "missbetty-${{ needs.npm-pack.outputs.version }}.tgz" --access public --ignore-scripts

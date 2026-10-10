@@ -11,6 +11,7 @@ import {
   ensureCertificate,
 } from '../utils/docker'
 import { ensureHostsEntry, removeHostsEntry } from '../utils/hosts'
+import { ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { readRoutes, findDomainConflict, removeRouteFromFile, routeFileOccupant, writeRouteConfig, type RouteEntry } from '../utils/routes'
 import { normalizeServiceName, validateDomain } from '../utils/names'
 
@@ -146,6 +147,10 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     if (!confirm) { console.log('Cancelled.'); return }
   }
 
+  // After `betty stop` the proxy and its network are gone; restarting Traefik
+  // would then report success while nothing serves the domain.
+  ensureProxyNetwork()
+  ensureProxyRunning(composePath, 'relink')
   const linkedContainer = connectContainerToNetwork(containerName)
   const certificate = ensureCertificate(domain)
   const routeFileName = `${normalizeServiceName(domain)}.yml`

@@ -1,5 +1,5 @@
 import inquirer from 'inquirer'
-import { ensureHostsEntry } from '../utils/hosts'
+import { ensureHostsEntries } from '../utils/hosts'
 import { withLock } from '../utils/lock'
 import {
   checkMkcertCaInstalled,
@@ -38,12 +38,14 @@ const runSetupFix = (): void => {
     }
   }
 
-  if (checkMkcertInstalled() && (!status.mkcertCaInstalled || !checkMkcertCaInstalled())) {
+  // mkcert -install is idempotent and is the only check that the CA is trusted,
+  // not just created: it installs it where it is missing.
+  if (checkMkcertInstalled()) {
     const mkcertResult = runMkcertInstall()
     if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
   }
 
-  if (!status.hostsEntryExists) console.log(`Warning: hosts entry missing for ${status.domain}. Run 'betty setup' to add it.`)
+  if (!status.hostsEntryExists) console.log(`Warning: hosts entries missing for ${status.missingHostsEntries.join(', ')}. Run 'betty setup' to add them.`)
 
   if (!status.dockerInstalled) printDockerInstallInstructions()
   else if (!status.dockerRunning) console.log('Warning: Docker is installed but not running.')
@@ -63,17 +65,22 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
     } else printMkcertInstallInstructions()
   }
 
-  if (checkMkcertInstalled() && (!status.mkcertCaInstalled || !checkMkcertCaInstalled())) {
-    const shouldInstallCa = await askYesNo('Run mkcert -install to create local CA? [Y/n]', yes)
+  if (checkMkcertInstalled()) {
+    // A created CA may still be untrusted (declined prompt, plain `mkcert <host>`).
+    // mkcert -install only acts where it is missing, so it runs unasked then.
+    const caCreated = status.mkcertCaInstalled && checkMkcertCaInstalled()
+    const shouldInstallCa = caCreated || await askYesNo('Run mkcert -install to create and trust a local CA? [Y/n]', yes)
     if (shouldInstallCa) {
+      if (caCreated) console.log('Making sure browsers trust the local CA (mkcert -install)...')
       const mkcertResult = runMkcertInstall()
       if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
     }
   }
 
   if (!status.hostsEntryExists) {
-    const shouldAddHosts = await askYesNo(`Add a hosts entry for ${status.domain}? This may ask for admin rights. [Y/n]`, yes)
-    if (shouldAddHosts) withLock(() => ensureHostsEntry(status.domain))
+    const missing = status.missingHostsEntries.join(', ')
+    const shouldAddHosts = await askYesNo(`Add hosts entries for ${missing}? This may ask for admin rights. [Y/n]`, yes)
+    if (shouldAddHosts) withLock(() => ensureHostsEntries(status.missingHostsEntries))
   }
 
   if (!status.dockerInstalled) printDockerInstallInstructions()

@@ -5,7 +5,8 @@ import inquirer from 'inquirer'
 import { BettyError } from '../utils/errors'
 import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
-import { loadedFromElsewhere, readRoutes } from '../utils/routes'
+import { isProjectRouter, loadedFromElsewhere, readRoutes } from '../utils/routes'
+import { isHttpsRequestedDomain } from '../utils/setup'
 import { sanitizeName, validateDomain } from '../utils/names'
 import { isDatabaseTarget } from '../utils/config'
 
@@ -83,11 +84,14 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     addingDomains = another
   }
 
-  // Database domains are routed by the TLS host name, so they need HTTPS.
+  // Database domains are routed by the TLS host name, and browsers open .dev
+  // only over HTTPS, so both need it.
   const hasDatabase = domains.some((domain) => isDatabaseTarget(domain.target))
+  const hasDev = domains.some((domain) => isHttpsRequestedDomain(domain.host))
   if (hasDatabase) console.log('HTTPS is enabled: database domains need it.')
+  else if (hasDev) console.log('HTTPS is enabled: browsers open .dev domains only over HTTPS.')
   const answers = await inquirer.prompt([
-    ...(hasDatabase ? [] : [{
+    ...(hasDatabase || hasDev ? [] : [{
       type: 'confirm',
       name: 'httpsEnabled',
       message: 'Enable HTTPS (requires mkcert)?',
@@ -111,7 +115,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     },
   ]) as { httpsEnabled?: boolean; upCommand: string; downCommand: string; autoApprove: boolean }
   const { upCommand, downCommand, autoApprove } = answers
-  const httpsEnabled = hasDatabase || answers.httpsEnabled === true
+  const httpsEnabled = hasDatabase || hasDev || answers.httpsEnabled === true
 
   const config: Record<string, unknown> = { project: projectName.trim() }
   if (upCommand.trim()) config.up = { command: upCommand.trim() }
@@ -210,7 +214,10 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
       runProjectCommand(config.down.command, configPath)
     }
 
-    await unlinkCommand({ project: sanitizeName(config.project), yes: true })
+    // The routes can already be gone, e.g. after Ctrl+C in `betty project load`.
+    const linked = readRoutes().some((r) => path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === sanitizeName(config.project).toLowerCase() && isProjectRouter(r.routerName, config.project))
+    if (linked) await unlinkCommand({ project: sanitizeName(config.project), yes: true })
+    else console.log(`Project '${config.project}' has no domain links to remove.`)
   } catch (err) {
     if (err instanceof BettyError) throw err
     throw new BettyError(err instanceof Error ? err.message : String(err))

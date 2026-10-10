@@ -7,8 +7,8 @@ import { removeLinkContainer } from '../utils/state'
 
 jest.mock('os', () => ({
   __esModule: true,
-  default: { homedir: () => '/home/test-user' },
-  homedir: () => '/home/test-user',
+  default: { homedir: () => '/home/test-user', release: () => '6.8.0-generic' },
+  homedir: () => '/home/test-user', release: () => '6.8.0-generic',
 }))
 
 jest.mock('child_process', () => ({
@@ -606,6 +606,18 @@ describe('unlink command', () => {
     await expect(unlinkCommand({ project: 'nonexistent' })).rejects.toThrow("No project found with name 'nonexistent'")
   })
 
+  test('--project does not take a `betty link` route file that only shares the name', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+
+    await expect(unlinkCommand({ project: 'app', yes: true })).rejects.toThrow("No project found with name 'app'")
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+  })
+
   test('removes only one router from a multi-domain file when a single domain is selected in checkbox', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))
@@ -885,7 +897,7 @@ describe('unlink command', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringMatching(/hosts$/),
       expect.not.stringContaining('ory-ui.mckanses-auth.dev'),
-      'utf8'
+      'latin1'
     )
     expect(logSpy).toHaveBeenCalledWith('Removed hosts entry for: ory-ui.mckanses-auth.dev')
 

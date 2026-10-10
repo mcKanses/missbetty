@@ -6,27 +6,50 @@ jest.mock('../utils/setup', () => ({
   __esModule: true,
   collectSetupStatus: jest.fn(),
 }))
+jest.mock('../utils/hosts', () => ({ isWsl: () => false }))
 
 describe('doctor command', () => {
-  test('prints diagnostics status without mutating system state', () => {
+  test('prints diagnostics for every linked domain and fails when one lacks a hosts entry', () => {
     ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
       dockerInstalled: true,
       dockerRunning: true,
       mkcertInstalled: false,
       mkcertCaInstalled: false,
       hostsEntryExists: false,
-      domain: 'wienenergie.dev',
+      domain: 'shop.test',
+      linkedDomains: ['app.dev', 'shop.test'],
+      missingHostsEntries: ['shop.test'],
     })
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
-    doctorCommand()
+    expect(() => { doctorCommand() }).toThrow('Some checks failed')
 
     expect(logSpy).toHaveBeenCalledWith('✓ Docker installed')
     expect(logSpy).toHaveBeenCalledWith('✓ Docker running')
     expect(logSpy).toHaveBeenCalledWith('✗ mkcert installed')
-    expect(logSpy).toHaveBeenCalledWith('✗ mkcert CA installed')
-    expect(logSpy).toHaveBeenCalledWith('✗ hosts entry exists for wienenergie.dev')
+    expect(logSpy).toHaveBeenCalledWith('✗ mkcert CA created')
+    expect(logSpy).toHaveBeenCalledWith('✓ hosts entry for app.dev')
+    expect(logSpy).toHaveBeenCalledWith('✗ hosts entry for shop.test')
+
+    logSpy.mockRestore()
+  })
+
+  test('passes without mkcert: Betty then serves HTTP only', () => {
+    ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
+      dockerInstalled: true,
+      dockerRunning: true,
+      mkcertInstalled: false,
+      mkcertCaInstalled: false,
+      hostsEntryExists: true,
+      domain: 'betty.dev',
+      linkedDomains: [],
+      missingHostsEntries: [],
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(() => { doctorCommand() }).not.toThrow()
+    expect(logSpy).toHaveBeenCalledWith('✓ hosts entries (no linked domains need one)')
 
     logSpy.mockRestore()
   })
