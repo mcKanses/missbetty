@@ -158,6 +158,12 @@ describe('relink command', () => {
       expect.stringContaining('restart traefik'),
       expect.objectContaining({ stdio: 'inherit' })
     )
+    // The proxy is started first: after `betty stop`, a restart alone would
+    // report success while nothing serves the domain.
+    const commands = (execSync as unknown as jest.Mock).mock.calls.map((call) => String(call[0]))
+    const upIndex = commands.findIndex((c) => c.includes('compose') && c.includes('up -d'))
+    expect(upIndex).toBeGreaterThanOrEqual(0)
+    expect(upIndex).toBeLessThan(commands.findIndex((c) => c.includes('restart traefik')))
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Updated link:'))
 
     logSpy.mockRestore()

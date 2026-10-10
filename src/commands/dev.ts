@@ -4,12 +4,12 @@ import path from 'path'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
-import { checkDockerRunning, getMkcertRootCaPath, runMkcertInstall } from '../utils/setup'
+import { checkDockerRunning, getMkcertRootCaPath, isHttpsRequestedDomain, runMkcertInstall } from '../utils/setup'
 import { ensureCertificate, restartTraefik } from '../utils/docker'
-import { ensureHostsEntries, hasHostsEntry } from '../utils/hosts'
+import { ensureHostsEntries, hasHostsEntry, removeHostsEntries } from '../utils/hosts'
+import unlinkCommand from './unlink'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService, TraefikTcpService } from '../types'
 import {
-  BETTY_HOME_DIR,
   BETTY_PROXY_COMPOSE,
   BETTY_DYNAMIC_DIR,
 } from '../utils/constants'
@@ -17,8 +17,8 @@ import { sanitizeName, validateDomain } from '../utils/names'
 import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { DATABASE_PROTOCOLS, databaseUrl, domainUrl, isDatabaseTarget } from '../utils/config'
 import { BettyError } from '../utils/errors'
-import { withLock, withLockAsync } from '../utils/lock'
-import { findDomainConflict, loadedFromElsewhere, projectRouteFile, readRoutes, tlsOptionsName } from '../utils/routes'
+import { withLockAsync } from '../utils/lock'
+import { findDomainConflict, isProjectRouter, loadedFromElsewhere, projectRouteFile, readRoutes, tlsOptionsName } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -337,19 +337,25 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   })
   // Project routers are named <project>-<n>. Anything else in the file means it
   // is a `betty link` route file whose name happens to match the project.
-  const routerPrefix = `${sanitizeName(config.project)}-`
-  const foreign = readRoutes().find((r) => r.filePath === ownRouteFile && !(r.routerName.startsWith(routerPrefix) && /^[0-9]+$/.test(r.routerName.slice(routerPrefix.length))))
+  const previousRoutes = readRoutes().filter((r) => r.filePath === ownRouteFile)
+  const foreign = previousRoutes.find((r) => !isProjectRouter(r.routerName, config.project))
   if (foreign !== undefined) throw new BettyError(`The route file ${foreign.fileName} already belongs to the link for ${foreign.domain}.`, {
     hints: ['Give this project another name in .betty.yml, or run `betty unlink --domain ' + foreign.domain + '` first.'],
   })
-  for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile }) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
+  for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile }, true) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
 
-  await prepareHosts(effectiveConfig)
-  const certificates = await prepareCertificates(effectiveConfig)
+  // Browsers open .dev only over HTTPS (HSTS preload); a plain HTTP route there
+  // ends in a browser error.
+  if (config.https?.enabled !== true) for (const domain of config.domains) if (isHttpsRequestedDomain(domain.host) && !isDatabaseTarget(domain.target)) printWarn(`${domain.host}: browsers open .dev domains only over HTTPS. Set https.enabled: true in .betty.yml.`)
 
+  // Docker first: without it nothing below can be served, so hosts entries and
+  // certificates are not created for a project that cannot start.
   const dockerAllowed = await confirmPermission('Run Docker commands for the Betty proxy and project startup?', effectiveConfig.permissions?.docker)
   if (!dockerAllowed) throw new Error('Docker permission was not granted.')
   if (!checkDockerRunning()) throw new Error('Docker is not running or is not available.')
+
+  await prepareHosts(effectiveConfig)
+  const certificates = await prepareCertificates(effectiveConfig)
 
   ensureProxySetup({ certs: true })
   ensureHttpsPortAvailable()
@@ -358,6 +364,13 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
 
   writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true, opts.configPath)
   restartTraefik(BETTY_PROXY_COMPOSE)
+
+  // Domains dropped from .betty.yml since the last load would keep their hosts
+  // entries forever: nothing else knows they belonged to this project.
+  const kept = new Set(config.domains.map((d) => d.host.toLowerCase()))
+  const linked = new Set(readRoutes().map((r) => r.domain.toLowerCase()))
+  const dropped = [...new Set(previousRoutes.map((r) => r.domain.toLowerCase()))].filter((d) => d !== '' && !kept.has(d) && !linked.has(d))
+  if (dropped.length > 0) removeHostsEntries(dropped)
 }
 
 // The lock covers only the route and hosts changes. The project's up command can
@@ -400,12 +413,9 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
       // status instead of a signal: 130 on POSIX, 0xC000013A on Windows.
       const interrupted = result.signal !== null || (result.status !== null && INTERRUPTED_EXIT_CODES.includes(result.status))
       if (interrupted) {
-        try {
-          withLock(() => {
-            try { fs.unlinkSync(ownRouteFile) } catch { /* best-effort */ }
-            try { execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" restart traefik`, { cwd: BETTY_HOME_DIR, stdio: 'pipe' }) } catch { /* best-effort */ }
-          })
-        } catch { /* best-effort: another betty command holds the lock */ }
+        // Removes the routes and the hosts entries no other link needs, as
+        // `betty project stop` would.
+        if (fs.existsSync(ownRouteFile)) try { await unlinkCommand({ project: sanitizeName(config.project), yes: true }) } catch { /* best-effort */ }
         if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
         cleanExit = true
       } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
