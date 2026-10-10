@@ -340,7 +340,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # cosign-installer has no Windows arm64 build; that runner checks the
+      # checksum only. Its binary is the same file the other jobs verified.
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        if: matrix.runs_on != 'windows-11-arm'
 
       - name: Install with install.sh
         if: runner.os != 'Windows'
@@ -366,7 +369,7 @@ jobs:
         env:
           BETTY_VERSION: ${{ needs.resolve-release.outputs.tag_name }}
           BETTY_SKIP_DEPS: 'true'
-          BETTY_REQUIRE_SIGNATURE: 'true'
+          BETTY_REQUIRE_SIGNATURE: ${{ matrix.runs_on != 'windows-11-arm' }}
         run: |
           $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-bin'
           New-Item -ItemType Directory -Force -Path $env:BETTY_INSTALL_DIR | Out-Null
