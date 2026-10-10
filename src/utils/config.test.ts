@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
-import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort, domainUrl, parsePort } from './config'
+import { getDomainSuffix, getStoredDomainSuffix, setDomainSuffix, getHttpPort, getHttpsPort, setHttpPort, setHttpsPort, domainUrl, parsePort, getUpdateCheck, setUpdateCheck } from './config'
 
 jest.mock('./constants', () => ({
   BETTY_HOME_DIR: '/home/test-user/.betty',
@@ -31,6 +31,7 @@ beforeEach(() => {
   delete process.env.BETTY_DOMAIN_SUFFIX
   delete process.env.BETTY_HTTP_PORT
   delete process.env.BETTY_HTTPS_PORT
+  delete process.env.BETTY_NO_UPDATE_CHECK
 })
 
 afterAll(() => {
@@ -263,5 +264,35 @@ describe('getStoredDomainSuffix', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ domainSuffix: 'bad!' }))
 
     expect(getStoredDomainSuffix()).toBeNull()
+  })
+})
+
+describe('update check setting', () => {
+  test('is on by default', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    expect(getUpdateCheck()).toBe(true)
+  })
+
+  test('is off when turned off in config.json', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ updateCheck: false }))
+    expect(getUpdateCheck()).toBe(false)
+  })
+
+  test('BETTY_NO_UPDATE_CHECK turns it off, but not when set to 0 or false', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
+    process.env.BETTY_NO_UPDATE_CHECK = '1'
+    expect(getUpdateCheck()).toBe(false)
+    process.env.BETTY_NO_UPDATE_CHECK = 'false'
+    expect(getUpdateCheck()).toBe(true)
+  })
+
+  test('set accepts on/off and true/false and rejects anything else', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('{}')
+    expect(setUpdateCheck('off')).toBe(false)
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/home/test-user/.betty/config.json', expect.stringContaining('"updateCheck": false'), 'utf8')
+    expect(setUpdateCheck('TRUE')).toBe(true)
+    expect(() => setUpdateCheck('maybe')).toThrow('Invalid value')
   })
 })

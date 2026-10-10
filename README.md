@@ -559,7 +559,8 @@ betty config get <key>
 betty config set <key> <value>
 ```
 
-Supported keys: `domainSuffix` (default `.dev`), `httpPort`, `httpsPort`.
+Supported keys: `domainSuffix` (default `.dev`), `httpPort`, `httpsPort`,
+`updateCheck` (default `true`, see [`betty update`](#betty-update)).
 
 ```sh
 betty config set domainSuffix .localhost
@@ -589,6 +590,15 @@ betty update -y
 The standalone binary is updated through the installer script, with the same
 checksum and signature checks as a fresh install; an npm install is updated
 with `npm install -g`. A source checkout is updated with `git pull`.
+
+Betty also looks for a new release on its own, at most once a day, after a
+command has finished. When one is out, it asks once a day whether to install it
+now, later, or skip that version. It only asks in an interactive terminal: not
+with `--json`, in CI, or when output is piped.
+
+The lookup is a single request to `github.com/mcKanses/missbetty/releases/latest`;
+Betty sends nothing else. Turn it off with `betty config set updateCheck false`,
+or for one shell with `BETTY_NO_UPDATE_CHECK=1`.
 
 ## Development
 
