@@ -6,6 +6,7 @@ import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
 import devCommand, { readDevProjectConfig } from './dev'
+import unlinkCommand from './unlink'
 import type { TraefikDynamicConfig } from '../types'
 import * as lockModule from '../utils/lock'
 
@@ -51,6 +52,8 @@ jest.mock('inquirer', () => ({
 
 // Pass-through lock that records whether it is currently held, so tests can
 // assert which work runs under the lock.
+jest.mock('./unlink', () => ({ __esModule: true, default: jest.fn() }))
+
 jest.mock('../utils/lock', () => {
   const lockState = { held: false }
   return {
@@ -434,7 +437,7 @@ describe('dev command', () => {
       '    target: http://127.0.0.1:8080',
       'permissions:',
       '  hosts: prompt',
-      '  docker: denied',
+      '  docker: allowed',
     ].join('\n')
 
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
@@ -444,7 +447,7 @@ describe('dev command', () => {
     })
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ hosts: ['ui.dev'] } as never)
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
+    await devCommand({ config: '.betty.yml' }).catch(() => undefined)
 
     const checkboxCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
       (call) => (call[0] as { type: string }[])[0]?.type === 'checkbox'
@@ -466,7 +469,7 @@ describe('dev command', () => {
       '    target: http://127.0.0.1:3000',
       'permissions:',
       '  hosts: manual',
-      '  docker: denied',
+      '  docker: allowed',
     ].join('\n')
 
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) =>
@@ -479,7 +482,7 @@ describe('dev command', () => {
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
+    await devCommand({ config: '.betty.yml' }).catch(() => undefined)
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('api.test.dev'))
 
     errorSpy.mockRestore()
@@ -493,7 +496,7 @@ describe('dev command', () => {
       '    target: http://127.0.0.1:3000',
       'permissions:',
       '  hosts: prompt',
-      '  docker: denied',
+      '  docker: allowed',
     ].join('\n')
 
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(false)
@@ -503,7 +506,7 @@ describe('dev command', () => {
     })
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true } as never)
 
-    await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow(BettyError)
+    await devCommand({ config: '.betty.yml' }).catch(() => undefined)
 
     const confirmCall = (inquirer.prompt as unknown as jest.Mock).mock.calls.find(
       (call) => (call[0] as { type: string }[])[0]?.type === 'confirm'
@@ -615,7 +618,8 @@ describe('dev command', () => {
         normalized.endsWith('/.betty/docker-compose.yml') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
-        normalized.endsWith('/rootCA.pem')
+        normalized.endsWith('/rootCA.pem') ||
+        normalized.endsWith('/.betty/dynamic/mckanses-auth.yml')
     })
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
@@ -631,11 +635,7 @@ describe('dev command', () => {
     ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: 'SIGINT', status: null })
 
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-0')
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('restart traefik'),
-      expect.objectContaining({ stdio: 'pipe' })
-    )
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'mckanses-auth', yes: true })
     // down.command is run via execSync (inside runProjectCommand)
     expect(execSync).toHaveBeenCalledWith('docker compose down', expect.objectContaining({
       cwd: expect.any(String),
@@ -650,7 +650,8 @@ describe('dev command', () => {
         normalized.endsWith('/.betty/docker-compose.yml') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
-        normalized.endsWith('/rootCA.pem')
+        normalized.endsWith('/rootCA.pem') ||
+        normalized.endsWith('/.betty/dynamic/mckanses-auth.yml')
     })
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
@@ -678,7 +679,7 @@ describe('dev command', () => {
 
     await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('process-exit-0')
 
-    expect(heldDuring).toEqual({ proxyUp: [true], restart: [true, true], upCommand: [false], down: [false], exit: [false] })
+    expect(heldDuring).toEqual({ proxyUp: [true], restart: [true], upCommand: [false], down: [false], exit: [false] })
   })
 
   test('gives the targeted port hint when the proxy cannot bind its port', async () => {
@@ -737,12 +738,47 @@ describe('dev command', () => {
     jest.spyOn(console, 'log').mockImplementation(() => undefined)
   }
 
+  test('checks Docker before it touches hosts entries or certificates', async () => {
+    mockProjectEnv()
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return SAMPLE_CONFIG
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).includes('docker info')) throw new Error('Cannot connect to the Docker daemon')
+      return Buffer.from('')
+    })
+
+    await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('Docker is not running')
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+    const commands = (execSync as unknown as jest.Mock).mock.calls.map((c) => String(c[0]))
+    expect(commands.some((c) => c.includes('mkcert'))).toBe(false)
+  })
+
+  test('warns when a .dev domain is loaded without HTTPS', async () => {
+    mockProjectEnv()
+    const plain = SAMPLE_CONFIG.replace("https:\n  enabled: true\n  certificateAuthority: missbetty\n", '')
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (String(p).replace(/\\/g, '/').endsWith('.betty.yml')) return plain
+      return '127.0.0.1 ory-ui.mckansescloud.dev # added by betty'
+    })
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 0 })
+
+    await devCommand({ config: '.betty.yml', yes: true })
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('browsers open .dev domains only over HTTPS'))
+    errorSpy.mockRestore()
+  })
+
   test('treats an up command that exits with 130 (it trapped Ctrl+C) as an interrupt and cleans up', async () => {
     mockProjectEnv()
+    const existing = (fs.existsSync as unknown as jest.Mock).getMockImplementation() as (p: unknown) => boolean
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => existing(p) || String(p).replace(/\\/g, '/').endsWith('/.betty/dynamic/mckanses-auth.yml'))
     ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 130 })
 
     await expect(devCommand({ config: '.betty.yml', yes: true })).rejects.toThrow('process-exit-0')
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'mckanses-auth', yes: true })
     expect(execSync).toHaveBeenCalledWith('docker compose down', expect.anything())
   })
 
@@ -942,7 +978,8 @@ describe('dev command', () => {
         normalized.endsWith('/.betty/docker-compose.yml') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev.pem') ||
         normalized.endsWith('/.betty/certs/ory-ui.mckansescloud.dev-key.pem') ||
-        normalized.endsWith('/rootCA.pem')
+        normalized.endsWith('/rootCA.pem') ||
+        normalized.endsWith('/.betty/dynamic/mckanses-auth.yml')
     })
     ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const normalized = String(p).replace(/\\/g, '/')
@@ -958,7 +995,7 @@ describe('dev command', () => {
     ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: 'SIGINT', status: null })
 
     await expect(devCommand({ config: '.betty.yml' })).rejects.toThrow('process-exit-0')
-    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('mckanses-auth.yml'))
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'mckanses-auth', yes: true })
     const execCalls = (execSync as unknown as jest.Mock).mock.calls.map((c) => String(c[0]))
     expect(execCalls.some((c) => c.includes('compose down'))).toBe(false)
   })

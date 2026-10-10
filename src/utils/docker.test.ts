@@ -92,10 +92,10 @@ describe('getRunningContainers', () => {
     expect(getRunningContainers()).toEqual([])
   })
 
-  it('returns empty array when docker command fails', () => {
-    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('docker not found') })
+  it('says that Docker is not running instead of reporting no containers', () => {
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('Cannot connect to the Docker daemon') })
 
-    expect(getRunningContainers()).toEqual([])
+    expect(() => getRunningContainers()).toThrow('Docker is not running or not installed')
   })
 
   it('trims CRLF line endings from Windows docker output', () => {

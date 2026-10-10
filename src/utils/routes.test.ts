@@ -39,7 +39,7 @@ jest.mock('./state', () => ({
 
 import fs from 'fs'
 import yaml from 'yaml'
-import { readRoutes, findDomainConflict, writeRouteConfig, removeRouteFromFile } from './routes'
+import { readRoutes, findDomainConflict, writeRouteConfig, removeRouteFromFile, isProjectRouter, loadedFromElsewhere } from './routes'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 const DYNAMIC_DIR = '/home/test-user/.betty/dynamic'
@@ -261,6 +261,37 @@ describe('findDomainConflict', () => {
 
     const ignoreFilePath = path.join(DYNAMIC_DIR, 'myapp.yml')
     expect(findDomainConflict('myapp.dev', { filePath: ignoreFilePath })).toBeNull()
+  })
+
+  it('compares the domains themselves when asked for an exact match', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['a-b-localhost.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('a-b-localhost', 'a-b.localhost', 'http://172.20.0.2:3000'))
+
+    expect(findDomainConflict('a.b.localhost', undefined, true)).toBeNull()
+    expect(findDomainConflict('A-B.localhost', undefined, true)).not.toBeNull()
+  })
+})
+
+describe('project routes', () => {
+  it('counts only <project>-<n> routers as part of a project', () => {
+    expect(isProjectRouter('api-dev-1', 'api-dev')).toBe(true)
+    expect(isProjectRouter('API-DEV-12', 'api-dev')).toBe(true)
+    expect(isProjectRouter('api-dev', 'api-dev')).toBe(false)
+    expect(isProjectRouter('api-dev-secure', 'api-dev')).toBe(false)
+  })
+
+  it('treats paths that differ only in case as the same .betty.yml on Windows', () => {
+    const platform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    try {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-project-config: C:\\Users\\me\\app\\.betty.yml\nhttp: {}\n')
+      expect(loadedFromElsewhere('app', 'c:\\users\\me\\app\\.betty.yml')).toBeNull()
+      expect(loadedFromElsewhere('app', 'C:\\Users\\me\\other\\.betty.yml')).not.toBeNull()
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform })
+    }
   })
 })
 

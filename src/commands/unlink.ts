@@ -6,7 +6,7 @@ import { withLockAsync } from '../utils/lock'
 import inquirer from 'inquirer'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntries, removeHostsEntry } from '../utils/hosts'
-import { readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
+import { isProjectRouter, readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
 import { removeLinkContainer } from '../utils/state'
 
 interface ConfirmAnswer { confirm: boolean; }
@@ -251,7 +251,7 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
   if (opts.project !== undefined) {
     const name = opts.project.toLowerCase()
     const projectRoutes = routes.filter((r) =>
-      path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name
+      path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name && isProjectRouter(r.routerName, name)
     )
 
     if (projectRoutes.length === 0) throw new BettyError(`No project found with name '${opts.project}'.`)
