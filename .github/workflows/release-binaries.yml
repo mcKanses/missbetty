@@ -42,7 +42,7 @@ jobs:
     steps:
       - name: Resolve tag and release
         id: resolve
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           INPUT_TAG: ${{ inputs.tag }}
         with:
@@ -115,13 +115,13 @@ jobs:
 
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.resolve-release.outputs.tag_name }}
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -325,7 +325,7 @@ jobs:
   # Windows arm64), on a runner of their own architecture.
   smoke-test:
     needs: [resolve-release, sign-and-upload, publish-release]
-    if: always() && needs.resolve-release.outputs.tag_name != '' && needs.sign-and-upload.result == 'success' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped')
+    if: ${{ !cancelled() && needs.resolve-release.outputs.tag_name != '' && needs.sign-and-upload.result == 'success' && (needs.publish-release.result == 'success' || needs.publish-release.result == 'skipped') }}
     name: Smoke Test (${{ matrix.runs_on }})
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -336,7 +336,7 @@ jobs:
       # The installers users run come from main, not from the release tag, so
       # test those against the release (an old tag's installer may be outdated).
       - name: Checkout the current installers
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 

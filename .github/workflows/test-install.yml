@@ -5,11 +5,13 @@ on:
     paths:
       - 'install.sh'
       - 'install.ps1'
+      - 'uninstall.ps1'
       - '.github/workflows/test-install.yml'
   push:
     paths:
       - 'install.sh'
       - 'install.ps1'
+      - 'uninstall.ps1'
       - '.github/workflows/test-install.yml'
 
 permissions:
@@ -35,6 +37,11 @@ jobs:
         run: |
           curl -fsSL "file://$PWD/install.sh" | sudo BETTY_SKIP_DEPS=true BETTY_VERSION=v1.7.4 sh
           betty --version | grep -q '1.7.4'
+          # A root install must leave the binary owned by root: the archive
+          # stores the build user, which is this runner's own uid here, so
+          # only the owner check shows the difference.
+          owner="$(stat -c %u /usr/local/bin/betty 2>/dev/null || stat -f %u /usr/local/bin/betty)"
+          [ "$owner" = "0" ] || { echo "/usr/local/bin/betty is owned by uid $owner, not root"; exit 1; }
 
       # A custom directory in the user's home must stay owned by the user, not
       # by root after a sudo fallback.
@@ -159,3 +166,43 @@ jobs:
           if ($exitCode -ne 0) { throw "install.ps1 failed with exit code $exitCode" }
           if ($output -notmatch 'Docker daemon is running') { throw 'The running Docker daemon was not detected.' }
           if ($output -notmatch 'mkcert CA installed') { throw 'mkcert -install was not reported as successful.' }
+
+      # What `betty update` does on Windows: replace a betty.exe that is
+      # running. Windows PowerShell 5.1, like the update.
+      - name: Replace a running betty.exe (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'betty-running'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          # Any long-running exe named betty.exe holds the file open like betty.
+          Copy-Item "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" (Join-Path $dir 'betty.exe')
+          $running = Start-Process (Join-Path $dir 'betty.exe') -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 120' -PassThru -WindowStyle Hidden
+          $env:BETTY_SKIP_DEPS = 'true'
+          $env:BETTY_SKIP_PATH = 'true'
+          $env:BETTY_VERSION = 'v1.7.5'
+          $env:BETTY_INSTALL_DIR = $dir
+          $ErrorActionPreference = 'Continue'
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./install.ps1 | Out-String | Write-Host
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 failed with exit code $LASTEXITCODE" }
+          $version = & (Join-Path $dir 'betty.exe') --version
+          if (($version -join ' ') -notmatch '1\.7\.5') { throw "betty.exe was not replaced: $version" }
+          if (Test-Path (Join-Path $dir 'betty.exe.new')) { throw 'The staged copy was left behind.' }
+          Stop-Process -Id $running.Id -Force
+
+      # Through `iex` like the README: the session must survive when betty is
+      # already gone, and the PATH entry must still be removed.
+      - name: Uninstall through iex without closing the session
+        shell: pwsh
+        run: |
+          $env:BETTY_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'betty-gone'
+          $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+          $before = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+          $key.SetValue('Path', "$before;$env:BETTY_INSTALL_DIR", [Microsoft.Win32.RegistryValueKind]::ExpandString)
+          $script = Get-Content -Raw ./uninstall.ps1
+          $runner = "Invoke-Expression ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('$([System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($script)))'))); Write-Output 'session-alive'"
+          $output = pwsh -NoProfile -Command $runner | Out-String
+          Write-Host $output
+          if ($output -notmatch 'session-alive') { throw 'uninstall.ps1 ended the session.' }
+          $after = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+          $key.Close()
+          if ($after -match [regex]::Escape($env:BETTY_INSTALL_DIR)) { throw 'The PATH entry was not removed.' }
