@@ -170,6 +170,24 @@ describe('status command', () => {
     logSpy.mockRestore()
   })
 
+  test('warns above the table when the proxy is down', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command.includes('docker inspect betty-traefik')) return Buffer.from('[]')
+      if (command === 'docker ps --format {{.ID}}') return Buffer.from('')
+      throw new Error(`Unexpected command: ${command}`)
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('The links below are not served. Start it with: betty serve')
+    expect(output).toContain('app.localhost')
+    logSpy.mockRestore()
+  })
+
   test('renders full table with uptime, health and restarts columns', () => {
     mockRouteFile('http://172.18.0.2:5173')
     mockRunningProxy()

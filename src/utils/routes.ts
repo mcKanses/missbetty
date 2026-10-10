@@ -111,18 +111,21 @@ export interface ConflictIgnore {
   routerName?: string;
 }
 
-export const findDomainConflict = (domain: string, ignore?: ConflictIgnore): { fileName: string; routerName: string } | null => {
+// `exact` compares the domains themselves. Project routes need only that: their
+// file and router names come from the project, not from the domain.
+export const findDomainConflict = (domain: string, ignore?: ConflictIgnore, exact = false): { fileName: string; routerName: string } | null => {
   // Compare on the normalized service name, not the raw domain, so two distinct
   // domains that collapse to the same route file name (e.g. "a.b.localhost" and
   // "a-b.localhost", or case variants on case-insensitive file systems) are
   // reported as a conflict instead of silently overwriting each other.
-  const target = normalizeServiceName(domain.toLowerCase())
+  const key = (d: string): string => (exact ? d.toLowerCase() : normalizeServiceName(d.toLowerCase()))
+  const target = key(domain)
   const routes = readRoutes()
   for (const route of routes) {
     const ignored = ignore?.filePath === route.filePath
       && (ignore.routerName === undefined || route.routerName === ignore.routerName)
     if (ignored) continue
-    if (normalizeServiceName(route.domain.toLowerCase()) !== target) continue
+    if (key(route.domain) !== target) continue
     return { fileName: route.fileName, routerName: route.routerName }
   }
   return null
@@ -204,6 +207,22 @@ const PROJECT_ORIGIN_COMMENT = /^#\s*betty-project-config:\s*(.+?)\s*$/m
 
 export const projectRouteFile = (project: string): string => path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(project)}.yml`)
 
+// Project routers are named <project>-<n>. A `betty link` route file can carry
+// a project's name too (domain api.dev -> api-dev.yml), so the file name alone
+// does not make a route part of a project.
+export const isProjectRouter = (routerName: string, project: string): boolean => {
+  const prefix = `${sanitizeName(project)}-`.toLowerCase()
+  const name = routerName.toLowerCase()
+  return name.startsWith(prefix) && /^[0-9]+$/.test(name.slice(prefix.length))
+}
+
+// Windows and macOS file systems ignore case, and a shell keeps whatever case
+// was typed in `cd`, so c:\proj and C:\Proj are the same project.
+const samePath = (a: string, b: string): boolean => {
+  const fold = process.platform === 'win32' || process.platform === 'darwin'
+  return fold ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b)
+}
+
 export const readProjectOrigin = (routeFile: string): string | null => {
   try {
     return PROJECT_ORIGIN_COMMENT.exec(fs.readFileSync(routeFile, 'utf8'))?.[1] ?? null
@@ -216,7 +235,7 @@ export const readProjectOrigin = (routeFile: string): string | null => {
 // is this one, unknown, or not loaded at all.
 export const loadedFromElsewhere = (project: string, configPath: string): string | null => {
   const origin = readProjectOrigin(projectRouteFile(project))
-  return origin !== null && path.resolve(origin) !== path.resolve(configPath) ? origin : null
+  return origin !== null && !samePath(origin, configPath) ? origin : null
 }
 
 export const writeRouteConfig = (
