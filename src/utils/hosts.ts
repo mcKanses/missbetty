@@ -32,7 +32,10 @@ const domainPattern = (domain: string): RegExp =>
 // Only the part before `#` maps a host: a disabled line such as
 // `# 127.0.0.1 app.test` does not count, and the marker's own words ("added",
 // "by", "betty") are valid domains that must not match.
-const activePart = (line: string): string => line.split('#')[0]
+// A UTF-8 byte-order mark reads as these three Latin-1 characters; it is part
+// of the first line's bytes, not of its mapping, and is kept when writing.
+const BOM = /^(\u00EF\u00BB\u00BF|\uFEFF)/
+const activePart = (line: string): string => line.replace(BOM, '').split('#')[0]
 
 // The addresses the file maps a domain to, in file order.
 const mappingsOf = (content: string, domain: string): string[] => {
@@ -87,9 +90,12 @@ const readOrNull = (filePath: string): string | null => {
 
 // Read-only check against the hosts file Betty writes to (the Windows one under
 // WSL). .localhost needs no entry, so it always counts as present.
+// A loopback entry behind a mapping to another address does not count: the
+// resolver uses the first match.
 export const hasHostsEntry = (domain: string): boolean => {
   if (!needsEntry(domain)) return true
-  return containsDomain(readOrNull(getHostsPath()) ?? '', domain)
+  const content = readOrNull(getHostsPath()) ?? ''
+  return containsDomain(content, domain) && foreignMapping(content, domain) === undefined
 }
 
 export interface HostsEdit {
@@ -163,13 +169,17 @@ export const hostsEditScript = (hostsPath: string, edit: HostsEdit, errorFile: s
     `$remove = ${list(edit.remove)}`,
     '$enc = [System.Text.Encoding]::GetEncoding(28591)',
     'function Test-Maps($line, $domain) { ($line -split "#", 2)[0] -match ("(^|\\s)" + [regex]::Escape($domain) + "(\\s|$)") }',
-    'function Test-Loopback($line, $domain) { (Test-Maps $line $domain) -and (($line -split "#", 2)[0].Trim() -match "^(127\\.|::1(\\s|$))") }',
-    '$text = [System.IO.File]::ReadAllText($path, $enc)',
+    'function Test-Loopback($line, $domain) { (Test-Maps $line $domain) -and (($line -split "#", 2)[0].TrimStart([char]0xEF, [char]0xBB, [char]0xBF).Trim() -match "^(127\\.|::1(\\s|$))") }',
+    // From the raw bytes: ReadAllText would detect a byte-order mark and decode
+    // the file as UTF-8 despite the Latin-1 encoding given.
+    '$text = $enc.GetString([System.IO.File]::ReadAllBytes($path))',
     '$eol = if ($text.Contains("`r`n") -or $text.Length -eq 0) { "`r`n" } else { "`n" }',
     '$kept = @($text -split "`r?`n" | Where-Object { $line = $_; -not ($line.Contains($marker) -and @($remove | Where-Object { Test-Maps $line $_ }).Count -gt 0) })',
     '$new = ""',
+    '$added = @()',
     'foreach ($domain in $add) {',
-    '  if (@($kept | Where-Object { Test-Loopback $_ $domain }).Count -gt 0) { continue }',
+    '  if (@($kept | Where-Object { Test-Loopback $_ $domain }).Count -gt 0 -or $added -contains $domain) { continue }',
+    '  $added += $domain',
     '  $new += "127.0.0.1 $domain $marker" + $eol',
     '}',
     'if ($remove.Count -eq 0) {',
@@ -203,7 +213,10 @@ const editHostsElevated = (hostsPath: string, edit: HostsEdit): boolean => {
 const writable = (domain: string): boolean => needsEntry(domain) && validateDomain(domain) === true
 
 const editHosts = (add: string[], remove: string[]): boolean => {
-  const requested: HostsEdit = { add: add.filter(writable), remove: remove.filter(writable) }
+  for (const domain of [...add, ...remove]) if (needsEntry(domain) && !writable(domain)) console.log(`\n⚠️  Skipped hosts entry for '${domain}': not a valid host name.`)
+  // Host names ignore case: one entry per name, however it was spelled.
+  const unique = (domains: string[]): string[] => domains.filter((d, i) => domains.findIndex((o) => o.toLowerCase() === d.toLowerCase()) === i)
+  const requested: HostsEdit = { add: unique(add.filter(writable)), remove: unique(remove.filter(writable)) }
   if (requested.add.length === 0 && requested.remove.length === 0) return true
   const hostsPath = getHostsPath()
   const content = readOrNull(hostsPath)
@@ -255,11 +268,20 @@ const editHosts = (add: string[], remove: string[]): boolean => {
       if (appendOnly) input = appended()
       else {
         execFileSync('sudo', ['-v'], { stdio: 'inherit' })
-        const fresh = readOrNull(hostsPath) ?? ''
+        // Rewriting from an unread file would empty /etc/hosts.
+        const fresh = readOrNull(hostsPath)
+        if (fresh === null) return false
         input = applyEdit(fresh, pendingEdit(fresh, edit.add, edit.remove))
       }
-      const args = appendOnly ? ['tee', '-a', hostsPath] : ['-n', 'tee', hostsPath]
-      execFileSync('sudo', args, { input: Buffer.from(input, HOSTS_ENCODING), stdio: ['pipe', 'ignore', 'inherit'] })
+      const data = Buffer.from(input, HOSTS_ENCODING)
+      const options = { input: data, stdio: ['pipe', 'ignore', 'inherit'] as ('pipe' | 'ignore' | 'inherit')[] }
+      if (appendOnly) execFileSync('sudo', ['tee', '-a', hostsPath], options)
+      else try {
+        execFileSync('sudo', ['-n', 'tee', hostsPath], options)
+      } catch {
+        // With timestamp_timeout=0 sudo -v caches nothing; ask once more.
+        execFileSync('sudo', ['tee', hostsPath], options)
+      }
       return applied()
     } catch {
       return false

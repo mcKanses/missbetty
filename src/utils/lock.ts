@@ -106,7 +106,15 @@ const acquire = (): void => {
   // of replacing a lock a third process created in the meantime.
   const movedOwner = readOwnerOf(claimed)
   if (movedOwner !== null && movedOwner.pid !== owner?.pid) {
-    try { fs.linkSync(claimed, LOCK_PATH) } catch { /* a newer lock is in place */ }
+    try {
+      fs.linkSync(claimed, LOCK_PATH)
+    } catch (err) {
+      // Without hard links (FAT, some network shares) the content is put back
+      // with an exclusive create, which also never replaces a newer lock.
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') try {
+        fs.writeFileSync(LOCK_PATH, fs.readFileSync(claimed), { flag: 'wx' })
+      } catch { /* a newer lock is in place */ }
+    }
     fs.rmSync(claimed, { force: true })
     throw busyError()
   }
