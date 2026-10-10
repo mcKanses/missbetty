@@ -244,6 +244,8 @@ describe('findDomainConflict', () => {
   })
 
   it('detects a conflict when two different domains normalize to the same route file', () => {
+    // A `betty link` route: its container is known.
+    ;(getLinkContainer as unknown as jest.Mock).mockReturnValue('web')
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['a-b-localhost.yml'])
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
@@ -271,6 +273,19 @@ describe('findDomainConflict', () => {
 
     expect(findDomainConflict('a.b.localhost', undefined, true)).toBeNull()
     expect(findDomainConflict('A-B.localhost', undefined, true)).not.toBeNull()
+  })
+})
+
+describe('findDomainConflict against project routes', () => {
+  it('compares a project route by its exact domain, since its file is named after the project', () => {
+    ;(getLinkContainer as unknown as jest.Mock).mockReturnValue(undefined)
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('shop-1', 'a.b.test', 'http://127.0.0.1:3000'))
+
+    expect(findDomainConflict('a-b.test')).toBeNull()
+    expect(findDomainConflict('A.B.test')).not.toBeNull()
   })
 })
 
