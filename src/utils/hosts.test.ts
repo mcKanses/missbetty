@@ -2,6 +2,17 @@ import { afterEach, beforeEach, describe, expect, jest, it } from '@jest/globals
 
 jest.mock('child_process', () => ({ execSync: jest.fn(), execFileSync: jest.fn() }))
 
+// The kernel name decides WSL when WSL_DISTRO_NAME is gone (sudo, env -i); a
+// fixed non-WSL value keeps these tests independent of where they run.
+const mockKernel = { release: 'generic' }
+jest.mock('os', () => ({
+  __esModule: true,
+  default: { release: () => mockKernel.release, tmpdir: () => '/tmp', homedir: () => '/home/test' },
+  release: () => mockKernel.release,
+  tmpdir: () => '/tmp',
+  homedir: () => '/home/test',
+}))
+
 jest.mock('fs', () => ({
   __esModule: true,
   default: {
@@ -483,5 +494,76 @@ describe('batched hosts edits', () => {
     expect(ensureHostsEntries(["x'; Remove-Item C:\\ ; '.test", 'bad\nline.test'])).toBe(true)
     expect(fs.appendFileSync).not.toHaveBeenCalled()
     expect(execFileSync).not.toHaveBeenCalled()
+  })
+
+  it('detects WSL from the kernel name when WSL_DISTRO_NAME was dropped, e.g. by sudo', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    mockKernel.release = '5.15.167.4-microsoft-standard-WSL2'
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    try {
+      hasHostsEntry('app.test')
+      expect(fs.readFileSync).toHaveBeenCalledWith('/mnt/c/Windows/System32/drivers/etc/hosts', 'latin1')
+    } finally {
+      mockKernel.release = 'generic'
+    }
+  })
+
+  it('does not count an entry that a foreign mapping before it overrides', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('10.0.0.5 a.test\n127.0.0.1 a.test # added by betty\n')
+
+    expect(hasHostsEntry('a.test')).toBe(false)
+  })
+
+  it('reads an entry on the first line behind a UTF-8 byte-order mark', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('127.0.0.1 a.test\n')]).toString('latin1'))
+
+    expect(hasHostsEntry('a.test')).toBe(true)
+  })
+
+  it('warns about a skipped invalid host name', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    ensureHostsEntries(['bad host.test'])
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Skipped hosts entry for 'bad host.test'"))
+    logSpy.mockRestore()
+  })
+
+  it('writes nothing through sudo when /etc/hosts cannot be read again', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    let reads = 0
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => {
+      reads++
+      if (reads > 1) throw new Error('EIO')
+      return '127.0.0.1 a.test # added by betty\n'
+    })
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+
+    expect(removeHostsEntry('a.test')).toBe(false)
+    expect(execFileSync).not.toHaveBeenCalledWith('sudo', expect.arrayContaining(['tee']), expect.anything())
+  })
+
+  it('asks sudo again when it caches no credentials', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    let file = '127.0.0.1 a.test # added by betty\n'
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation(() => file)
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation((_cmd: unknown, args: unknown, opts: unknown) => {
+      if ((args as string[])[0] === '-n') throw new Error('a password is required')
+      if ((args as string[])[0] === 'tee') file = String((opts as { input: Buffer }).input)
+    })
+
+    expect(removeHostsEntry('a.test')).toBe(true)
+    expect(execFileSync).toHaveBeenLastCalledWith('sudo', ['tee', '/etc/hosts'], expect.anything())
   })
 })
