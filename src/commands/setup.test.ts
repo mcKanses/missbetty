@@ -6,6 +6,7 @@ import {
   checkMkcertCaInstalled,
   checkMkcertInstalled,
   collectSetupStatus,
+  findMissingHostsEntries,
   installMkcertPackage,
   printDockerInstallInstructions,
   printMkcertInstallInstructions,
@@ -28,6 +29,7 @@ jest.mock('../utils/setup', () => ({
   checkMkcertCaInstalled: jest.fn(),
   checkMkcertInstalled: jest.fn(),
   collectSetupStatus: jest.fn(),
+  findMissingHostsEntries: jest.fn(),
   installMkcertPackage: jest.fn(),
   printDockerInstallInstructions: jest.fn(),
   printMkcertInstallInstructions: jest.fn(),
@@ -37,6 +39,9 @@ jest.mock('../utils/setup', () => ({
 describe('setup command', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    // Unchanged since the status was collected, unless a test says otherwise.
+    ;(findMissingHostsEntries as jest.Mock).mockImplementation(() =>
+      ((collectSetupStatus as jest.Mock).mock.results.slice(-1)[0]?.value as { missingHostsEntries?: string[] } | undefined)?.missingHostsEntries ?? [])
   })
 
   test('installs mkcert automatically in --fix mode when missing', async () => {
@@ -86,6 +91,29 @@ describe('setup command', () => {
     expect(inquirer.prompt).toHaveBeenCalledTimes(3)
     expect(runMkcertInstall).toHaveBeenCalled()
     expect(ensureHostsEntries).toHaveBeenCalledWith(['myapp.dev'])
+  })
+
+  test('adds the hosts entries missing when the prompt is answered, not when it was asked', async () => {
+    ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
+      dockerInstalled: true,
+      dockerRunning: true,
+      mkcertInstalled: true,
+      mkcertCaInstalled: true,
+      hostsEntryExists: false,
+      domain: 'old.dev',
+      linkedDomains: ['old.dev'],
+      missingHostsEntries: ['old.dev'],
+    })
+    ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
+    ;(checkMkcertCaInstalled as unknown as jest.Mock).mockReturnValue(true)
+    ;(runMkcertInstall as unknown as jest.Mock).mockReturnValue({ ok: true })
+    // old.dev was unlinked and new.dev linked while the prompt was open.
+    ;(findMissingHostsEntries as jest.Mock).mockReturnValue(['new.dev'])
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await setupCommand({ yes: true })
+
+    expect(ensureHostsEntries).toHaveBeenCalledWith(['new.dev'])
   })
 
   test('prints installation instructions when automatic mkcert installation is declined', async () => {

@@ -18,7 +18,7 @@ import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureP
 import { DATABASE_PROTOCOLS, databaseUrl, domainUrl, isDatabaseTarget } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
-import { findDomainConflict, isProjectRouter, loadedFromElsewhere, projectRouteFile, readRoutes, samePath, tlsOptionsName } from '../utils/routes'
+import { findDomainConflict, isProjectRouter, loadedFromElsewhere, projectRouteFile, readRoutes, routeFilesUnderOtherNames, samePath, tlsOptionsName } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
 
@@ -350,12 +350,17 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   // is a `betty link` route file whose name happens to match the project.
   // Compared like the file system does: on Windows and macOS a link's
   // API-dev.yml is the same file as project api-dev's api-dev.yml.
-  const previousRoutes = readRoutes().filter((r) => samePath(r.filePath, ownRouteFile))
-  const foreign = previousRoutes.find((r) => !isProjectRouter(r.routerName, config.project))
+  const ownRoutes = readRoutes().filter((r) => samePath(r.filePath, ownRouteFile))
+  const foreign = ownRoutes.find((r) => !isProjectRouter(r.routerName, config.project))
   if (foreign !== undefined) throw new BettyError(`The route file ${foreign.fileName} already belongs to the link for ${foreign.domain}.`, {
     hints: ['Give this project another name in .betty.yml, or run `betty unlink --domain ' + foreign.domain + '` first.'],
   })
-  for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile }, true) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
+  // After `project:` was renamed in .betty.yml, the routes loaded under the old
+  // name belong to this load: they are replaced, not left routed with no
+  // command that would ever remove them.
+  const renamedFiles = opts.configPath !== undefined ? routeFilesUnderOtherNames(config.project, opts.configPath) : []
+  const previousRoutes = [...ownRoutes, ...readRoutes().filter((r) => renamedFiles.some((file) => samePath(file, r.filePath)))]
+  for (const domain of config.domains) if (findDomainConflict(domain.host, { filePath: ownRouteFile, alsoFiles: renamedFiles }, true) !== null) throw new Error(`Domain '${domain.host}' is already linked. Run \`betty unlink\` first.`)
 
   // Browsers open .dev only over HTTPS (HSTS preload); a plain HTTP route there
   // ends in a browser error.
@@ -380,11 +385,16 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   // entries forever: nothing else knows they belonged to this project. Found
   // while the old routes are still known; other links may still need them.
   const kept = new Set(config.domains.map((d) => d.host.toLowerCase()))
-  const linked = new Set(readRoutes().filter((r) => !samePath(r.filePath, ownRouteFile)).map((r) => r.domain.toLowerCase()))
+  const replaced = [ownRouteFile, ...renamedFiles]
+  const linked = new Set(readRoutes().filter((r) => !replaced.some((file) => samePath(file, r.filePath))).map((r) => r.domain.toLowerCase()))
   const dropped = [...new Set(previousRoutes.map((r) => r.domain.toLowerCase()))].filter((d) => d !== '' && !kept.has(d) && !linked.has(d))
 
   await prepareHosts(effectiveConfig, dropped)
   writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true, opts.configPath)
+  for (const file of renamedFiles) {
+    fs.rmSync(file, { force: true })
+    console.log(`Removed the routes of the old project name: ${path.basename(file)}`)
+  }
 
   restartTraefik(BETTY_PROXY_COMPOSE)
 }
