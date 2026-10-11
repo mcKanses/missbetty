@@ -11,7 +11,7 @@ import {
   ensureCertificate,
 } from '../utils/docker'
 import { updateHostsEntries } from '../utils/hosts'
-import { ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
+import { ensureHttpsPortAvailable, ensureProxyNetwork, ensureProxyRunning, ensureProxySetup } from '../utils/proxy'
 import { readRoutes, findDomainConflict, removeRouteFromFile, routeFileOccupant, writeRouteConfig, type RouteEntry } from '../utils/routes'
 import { normalizeServiceName, validateDomain } from '../utils/names'
 
@@ -72,6 +72,8 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
   if (routes.length === 0) {
+    // Fails like a target that matches none of several links.
+    if (target !== undefined) throw new BettyError(`No link matches '${target}'.`, { hints: ['Run `betty status` to list the linked domains.'] })
     console.log('No links found.')
     return
   }
@@ -151,6 +153,10 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     if (!confirm) { console.log('Cancelled.'); return }
   }
 
+  // As in `betty link`: certs/ is created before `docker compose up` would create
+  // it as root, and a changed port setting reaches the proxy.
+  ensureProxySetup({ certs: true })
+  ensureHttpsPortAvailable()
   // After `betty stop` the proxy and its network are gone; restarting Traefik
   // would then report success while nothing serves the domain.
   ensureProxyNetwork()

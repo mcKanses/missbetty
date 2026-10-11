@@ -344,7 +344,7 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   const ownRouteFile = projectRouteFile(config.project)
   const loadedFrom = opts.configPath !== undefined ? loadedFromElsewhere(config.project, opts.configPath) : null
   if (loadedFrom !== null) throw new BettyError(`Project '${config.project}' is already loaded from ${loadedFrom}.`, {
-    hints: ['Give this project another name in .betty.yml, or run `betty project stop` in the other project first.'],
+    hints: ['Give this project another name in .betty.yml, or run `betty project stop` in the other project first.', `Or remove its links from anywhere: betty project unlink ${config.project}`],
   })
   // Project routers are named <project>-<n>. Anything else in the file means it
   // is a `betty link` route file whose name happens to match the project.
