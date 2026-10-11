@@ -500,6 +500,17 @@ describe('projectStopCommand', () => {
     logSpy.mockRestore()
   })
 
+  test('removes the links even when the down command fails, then reports the failure', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfigWithDown)
+    ;(unlinkCommand as unknown as jest.Mock).mockResolvedValue(undefined as never)
+    ;(runProjectCommand as unknown as jest.Mock).mockImplementation(() => { throw new Error('down failed') })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await expect(projectStopCommand({ yes: true })).rejects.toThrow('down failed')
+    expect(unlinkCommand).toHaveBeenCalledWith({ project: 'my-app', yes: true })
+  })
+
   test('refuses to stop a same-named project that was loaded from another .betty.yml', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/b/app/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfigWithDown)
