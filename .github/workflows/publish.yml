@@ -24,15 +24,10 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-    env:
-      # Optional token for the release metadata PR. PRs opened with GITHUB_TOKEN
-      # do not trigger other workflows, so the required CI check never runs on
-      # them; with this token set, CI runs and the PR merges itself.
-      HAS_RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN != '' }}
 
     steps:
-      # No persisted credentials: npm ci below runs third-party install scripts.
-      # semantic-release and the metadata PR authenticate with their own token.
+      # No persisted credentials: this job runs third-party code (semantic-release
+      # and its plugins). semantic-release authenticates with its own token.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -44,8 +39,10 @@ jobs:
           node-version: 24
           cache: npm
 
+      # No install scripts: none is needed to build and test, and this job holds
+      # a token that can write to the repository.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build
         run: npm run build
@@ -66,9 +63,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Disable hooks for release metadata commit
-        run: git config core.hooksPath /dev/null
-
       - name: Update README install version
         run: |
           TAG=$(node -p "require('./package.json').version")
@@ -86,11 +80,44 @@ jobs:
             README.md
           retention-days: 7
 
+      - name: Keep the release metadata for the metadata PR
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-metadata
+          path: |
+            package.json
+            package-lock.json
+            CHANGELOG.md
+            README.md
+          retention-days: 7
+
+  # Opens the metadata PR in a job of its own that runs no npm code, so the
+  # optional RELEASE_PR_TOKEN never shares a job with third-party packages.
+  release-metadata:
+    needs: semantic-release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      # Optional token for the release metadata PR. PRs opened with GITHUB_TOKEN
+      # do not trigger other workflows, so the required CI check never runs on
+      # them; with this token set, CI runs and the PR merges itself.
+      HAS_RELEASE_PR_TOKEN: ${{ secrets.RELEASE_PR_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Take the files semantic-release wrote
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-metadata
+
       - name: Create release metadata PR
         id: metadata-pr
         uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
-        env:
-          HUSKY: 0
         with:
           token: ${{ secrets.RELEASE_PR_TOKEN || secrets.GITHUB_TOKEN }}
           base: development
