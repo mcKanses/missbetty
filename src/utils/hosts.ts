@@ -98,6 +98,17 @@ export const hasHostsEntry = (domain: string): boolean => {
   return containsDomain(content, domain) && foreignMapping(content, domain) === undefined
 }
 
+// Why a domain has no usable entry, for doctor; undefined when it has one.
+export const hostsEntryProblem = (domain: string): string | undefined => {
+  if (!needsEntry(domain)) return undefined
+  if (validateDomain(domain) !== true) return 'not a valid host name; betty does not write it'
+  const content = readOrNull(getHostsPath())
+  if (content === null) return 'hosts file not readable'
+  const other = foreignMapping(content, domain)
+  if (other !== undefined) return `mapped to ${other} first`
+  return containsDomain(content, domain) ? undefined : 'missing'
+}
+
 export interface HostsEdit {
   // Entries still missing from the file.
   add: string[];
@@ -114,7 +125,11 @@ const applyEdit = (content: string, edit: HostsEdit): string => {
   // Splitting keeps the final empty element, so joining restores the file's
   // trailing line break and line ending without adding one.
   const kept = content.split(/\r?\n/).filter((line) => !edit.remove.some((domain) => isBettyLineFor(line, domain)))
-  const rest = kept.join(lineEnding(content))
+  const joined = kept.join(lineEnding(content))
+  // The byte-order mark belongs to the file, not to the first line: it stays
+  // when that line is removed.
+  const bom = BOM.exec(content)?.[0] ?? ''
+  const rest = bom !== '' && !joined.startsWith(bom) ? `${bom}${joined}` : joined
   return edit.add.length > 0 ? `${rest}${appendText(rest, edit.add.map(entryFor))}` : rest
 }
 
@@ -189,6 +204,8 @@ export const hostsEditScript = (hostsPath: string, edit: HostsEdit, errorFile: s
     '  }',
     '} else {',
     '  $body = [string]::Join($eol, $kept)',
+    '  $bom = [string]::new([char[]](0xEF, 0xBB, 0xBF))',
+    '  if ($text.StartsWith($bom) -and -not $body.StartsWith($bom)) { $body = $bom + $body }',
     '  if ($new.Length -gt 0 -and $body.Length -gt 0 -and -not $body.EndsWith("`n")) { $body += $eol }',
     '  [System.IO.File]::WriteAllText($path, $body + $new, $enc)',
     '}',
@@ -276,11 +293,17 @@ const editHosts = (add: string[], remove: string[]): boolean => {
       const data = Buffer.from(input, HOSTS_ENCODING)
       const options = { input: data, stdio: ['pipe', 'ignore', 'inherit'] as ('pipe' | 'ignore' | 'inherit')[] }
       if (appendOnly) execFileSync('sudo', ['tee', '-a', hostsPath], options)
-      else try {
-        execFileSync('sudo', ['-n', 'tee', hostsPath], options)
-      } catch {
-        // With timestamp_timeout=0 sudo -v caches nothing; ask once more.
-        execFileSync('sudo', ['tee', hostsPath], options)
+      else {
+        // The rewrite must not prompt: a prompt would leave time to change the
+        // file again. Only with timestamp_timeout=0, where sudo -v caches
+        // nothing, does it ask once more.
+        let cached = true
+        try {
+          execFileSync('sudo', ['-n', 'true'], { stdio: 'ignore' })
+        } catch {
+          cached = false
+        }
+        execFileSync('sudo', cached ? ['-n', 'tee', hostsPath] : ['tee', hostsPath], options)
       }
       return applied()
     } catch {
@@ -311,6 +334,9 @@ const editHosts = (add: string[], remove: string[]): boolean => {
 }
 
 export const ensureHostsEntries = (domains: string[]): boolean => editHosts(domains, [])
+
+// Adds and removes in one edit: a single elevation prompt on Windows.
+export const updateHostsEntries = (add: string[], remove: string[]): boolean => editHosts(add, remove)
 
 export const removeHostsEntries = (domains: string[]): boolean => editHosts([], domains)
 

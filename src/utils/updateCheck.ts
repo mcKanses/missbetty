@@ -3,7 +3,7 @@ import path from 'path'
 import inquirer from 'inquirer'
 import { getUpdateCheck } from './config'
 import { BETTY_HOME_DIR } from './constants'
-import { fetchLatestVersion, installMethod, installUpdate, isNewer, isOnNpm, manualUpdateCommand, releaseUrl } from './update'
+import { fetchLatestVersion, installMethod, installUpdate, isNewer, releaseUrl, updateRoute } from './update'
 
 const STATE_PATH = path.join(BETTY_HOME_DIR, 'update-check.json')
 const DAY_MS = 24 * 60 * 60_000
@@ -52,6 +52,28 @@ export const updateCheckApplies = (argv: string[]): boolean =>
   (process.env.CI ?? '') === '' &&
   !argv.slice(2).some((arg) => QUIET_ARGS.includes(arg) || arg.startsWith('--format='))
 
+interface PromptUi {
+  rl: { removeListener: (event: 'SIGINT', fn: () => void) => void; once: (event: 'SIGINT', fn: () => void) => void };
+  onForceClose: () => void;
+  close: () => void;
+}
+
+// inquirer answers Ctrl+C by signalling its own process, which on Windows ends
+// it at once with exit code 1. The command already succeeded, so close the
+// prompt and leave with its status instead. This reaches into inquirer's
+// internals; should they change, Ctrl+C behaves as before.
+const keepStatusOnCtrlC = (prompt: object): void => {
+  const ui = (prompt as { ui?: Partial<PromptUi> }).ui
+  if (ui?.rl === undefined || ui.onForceClose === undefined || ui.close === undefined) return
+  const { rl, onForceClose } = ui as PromptUi
+  rl.removeListener('SIGINT', onForceClose)
+  rl.once('SIGINT', () => {
+    (ui as PromptUi).close()
+    console.log('')
+    process.exit(0)
+  })
+}
+
 // Looks for a new release at most once a day and, at most once a day, offers to
 // install it. Runs after a command succeeded: an exit while the lookup is still
 // in flight would crash Node on Windows.
@@ -60,10 +82,13 @@ export const offerUpdate = async (argv: string[], currentVersion: string): Promi
 
   const state = readState()
   const now = Date.now()
-  if (state.askedAt !== undefined && now - state.askedAt < DAY_MS) return
+  // A time in the future (a clock that was set wrong) does not count as recent:
+  // it would silence the check until that date.
+  const withinDay = (t: number | undefined): boolean => t !== undefined && t <= now && now - t < DAY_MS
+  if (withinDay(state.askedAt)) return
 
   let latest = state.latest ?? null
-  if (state.checkedAt === undefined || now - state.checkedAt >= DAY_MS) {
+  if (!withinDay(state.checkedAt)) {
     // A failed lookup counts too: offline or behind a proxy, betty must not
     // wait for it after every command.
     latest = await fetchLatestVersion(LOOKUP_TIMEOUT_MS)
@@ -73,46 +98,35 @@ export const offerUpdate = async (argv: string[], currentVersion: string): Promi
   }
   if (latest === null || !isNewer(latest, currentVersion) || state.skipped === latest) return
 
-  const method = installMethod()
   // npx runs whatever version it is asked for; there is nothing to update.
-  if (method === 'npx') return
-  // npm lags the GitHub release; ask again tomorrow rather than offer a version
-  // npm install would not find.
-  if (method === 'npm' && !await isOnNpm(latest)) return
+  if (installMethod() === 'npx') return
 
-  // Recorded before asking: a prompt cancelled with Ctrl+C counts as "Not now".
+  // Recorded before anything else: a prompt cancelled with Ctrl+C counts as
+  // "Not now", and while npm lags the release the registry is asked again
+  // tomorrow, not after every command.
   writeState({ ...state, askedAt: now })
+  const route = await updateRoute(latest, LOOKUP_TIMEOUT_MS)
+  if (route.by === 'later') return
   console.log(`\nBetty ${latest} is available (you have ${currentVersion}). What's new: ${releaseUrl(latest)}`)
 
   // Installs betty cannot update itself only get the command.
-  const manual = manualUpdateCommand(method, latest)
-  if (manual !== null) {
-    console.log(`Update with: ${manual}`)
+  if (route.by === 'hand') {
+    console.log(`Update with: ${route.command}`)
     return
   }
 
-  // inquirer answers Ctrl+C by sending SIGINT to the process; the command
-  // already succeeded, so leave with its status instead of 130.
-  const leave = (): void => {
-    console.log('')
-    process.exit(0)
-  }
-  process.once('SIGINT', leave)
-  let choice: 'install' | 'later' | 'skip'
-  try {
-    ({ choice } = await inquirer.prompt<{ choice: 'install' | 'later' | 'skip' }>([{
-      type: 'list',
-      name: 'choice',
-      message: 'Install it now?',
-      choices: [
-        { name: 'Yes, install now', value: 'install' },
-        { name: 'Not now', value: 'later' },
-        { name: 'Skip this version', value: 'skip' },
-      ],
-    }]))
-  } finally {
-    process.off('SIGINT', leave)
-  }
+  const prompt = inquirer.prompt<{ choice: 'install' | 'later' | 'skip' }>([{
+    type: 'list',
+    name: 'choice',
+    message: 'Install it now?',
+    choices: [
+      { name: 'Yes, install now', value: 'install' },
+      { name: 'Not now', value: 'later' },
+      { name: 'Skip this version', value: 'skip' },
+    ],
+  }])
+  keepStatusOnCtrlC(prompt)
+  const { choice } = await prompt
   if (choice === 'skip') writeState({ ...state, askedAt: now, skipped: latest })
   if (choice !== 'install') {
     if (choice === 'later') console.log('Run `betty update` any time. Turn this off with `betty config set updateCheck false`.')

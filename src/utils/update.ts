@@ -72,9 +72,9 @@ export const manualUpdateCommand = (method: InstallMethod, version: string): str
 
 // npm is published after the GitHub release and may lag behind or fail; an npm
 // install is only offered a version that is already on npm.
-export const isOnNpm = async (version: string): Promise<boolean> => {
+export const isOnNpm = async (version: string, timeoutMs = 5000): Promise<boolean> => {
   try {
-    const res = await fetch(`https://registry.npmjs.org/missbetty/${version}`, { signal: AbortSignal.timeout(5000) })
+    const res = await fetch(`https://registry.npmjs.org/missbetty/${version}`, { signal: AbortSignal.timeout(timeoutMs) })
     await res.body?.cancel()
     return res.ok
   } catch {
@@ -118,14 +118,18 @@ export const cleanupOldBinary = (): void => {
 
 // Ctrl+C reaches both betty and the installer. Without a listener Node would exit
 // at once instead of reporting how the installer ended.
-const runInstaller = (cmd: string, args: string[], env: NodeJS.ProcessEnv): void => {
+const outlastingCtrlC = (run: () => void): void => {
   const ignore = (): void => undefined
   process.on('SIGINT', ignore)
   try {
-    execFileSync(cmd, args, { stdio: 'inherit', env })
+    run()
   } finally {
     process.off('SIGINT', ignore)
   }
+}
+
+const runInstaller = (cmd: string, args: string[], env: NodeJS.ProcessEnv): void => {
+  outlastingCtrlC(() => execFileSync(cmd, args, { stdio: 'inherit', env }))
 }
 
 const installBinary = async (version: string): Promise<void> => {
@@ -182,6 +186,26 @@ export const isGlobalNpmInstall = (dir = __dirname): boolean => {
   }
 }
 
+export type UpdateRoute = { by: 'betty' } | { by: 'hand'; command: string } | { by: 'later' }
+
+// How this betty gets a version: betty installs it, the user runs a command, or
+// not yet, while npm lags the GitHub release. Decided before asking anything, so
+// that nobody is asked to install what betty would then refuse.
+export const updateRoute = async (version: string, timeoutMs?: number): Promise<UpdateRoute> => {
+  const method = installMethod()
+  const manual = manualUpdateCommand(method, version)
+  if (manual !== null) return { by: 'hand', command: manual }
+  if (method === 'npm') {
+    if (!isGlobalNpmInstall()) return { by: 'hand', command: `npm install missbetty@${version} (in the project that uses betty)` }
+    if (!await isOnNpm(version, timeoutMs)) return { by: 'later' }
+  }
+  return { by: 'betty' }
+}
+
+export const notOnNpmYet = (version: string): BettyError => new BettyError(`Betty ${version} is not on npm yet.`, {
+  hints: ['It usually follows the GitHub release within minutes. Try again later.'],
+})
+
 export const installUpdate = async (version: string): Promise<void> => {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new BettyError(`Invalid version: ${version}`)
 
@@ -197,12 +221,10 @@ export const installUpdate = async (version: string): Promise<void> => {
     if (!isGlobalNpmInstall()) throw new BettyError('This betty is a project dependency, not a global install.', {
       hints: [`Update it in its project: npm install missbetty@${version}`],
     })
-    if (!await isOnNpm(version)) throw new BettyError(`Betty ${version} is not on npm yet.`, {
-      hints: ['It usually follows the GitHub release within minutes. Try again later.'],
-    })
+    if (!await isOnNpm(version)) throw notOnNpmYet(version)
     try {
       // Through the shell: npm is a .cmd script on Windows.
-      execSync(`npm install -g missbetty@${version}`, { stdio: 'inherit' })
+      outlastingCtrlC(() => execSync(`npm install -g missbetty@${version}`, { stdio: 'inherit' }))
     } catch {
       throw new BettyError('npm could not install the update.', {
         hints: [`Run it yourself: npm install -g missbetty@${version}`],
