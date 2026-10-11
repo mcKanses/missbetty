@@ -236,7 +236,7 @@ try {
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
-    # bundle. Releases from 1.10.6 carry one; older ones and older cosign use the
+    # bundle. Releases from 1.11.0 carry one; older ones and older cosign use the
     # signature and certificate.
     $cosignMajor = 0
     if ((& cosign version 2>&1 | Out-String) -match 'GitVersion:\s*v(\d+)') { $cosignMajor = [int]$Matches[1] }
