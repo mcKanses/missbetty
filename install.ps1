@@ -195,7 +195,7 @@ New-Item -ItemType Directory -Path $tmpDir | Out-Null
 # bare file name inside the temp directory avoids them.
 function Save-Download([string]$Uri, [string]$Name) {
   Push-Location -LiteralPath $tmpDir
-  try { Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Name }
+  try { Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Name -ErrorAction Stop }
   finally { Pop-Location }
   Join-Path $tmpDir $Name
 }
@@ -231,13 +231,27 @@ try {
   $signerIssuer = 'https://token.actions.githubusercontent.com'
 
   if ($null -ne (Get-Command cosign -ErrorAction SilentlyContinue)) {
-    $signaturePath = Save-Download "$url.sig" 'betty.zip.sig'
-    $certificatePath = Save-Download "$url.pem" 'betty.zip.pem'
     # cosign reports even success on stderr; Windows PowerShell 5.1 would turn
     # that into a terminating error under 'Stop', so judge by exit code only.
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    $cosignOutput = & cosign verify-blob $zipPath --signature $signaturePath --certificate $certificatePath --certificate-identity-regexp $signerIdentity --certificate-oidc-issuer $signerIssuer 2>&1
+    # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
+    # bundle. Releases from 1.10.6 carry one; older ones and older cosign use the
+    # signature and certificate.
+    $cosignMajor = 0
+    if ((& cosign version 2>&1 | Out-String) -match 'GitVersion:\s*v(\d+)') { $cosignMajor = [int]$Matches[1] }
+    $signatureArgs = $null
+    if ($cosignMajor -ge 3) {
+      try { $signatureArgs = @('--bundle', (Save-Download "$url.sigstore.json" 'betty.zip.sigstore.json')) } catch { $signatureArgs = $null }
+    }
+    if ($null -eq $signatureArgs) {
+      $ErrorActionPreference = $previousPreference
+      $signaturePath = Save-Download "$url.sig" 'betty.zip.sig'
+      $certificatePath = Save-Download "$url.pem" 'betty.zip.pem'
+      $ErrorActionPreference = 'Continue'
+      $signatureArgs = @('--signature', $signaturePath, '--certificate', $certificatePath)
+    }
+    $cosignOutput = & cosign verify-blob $zipPath @signatureArgs --certificate-identity-regexp $signerIdentity --certificate-oidc-issuer $signerIssuer 2>&1
     $cosignExit = $LASTEXITCODE
     $ErrorActionPreference = $previousPreference
     if ($cosignExit -ne 0) {

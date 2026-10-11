@@ -475,11 +475,18 @@ for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign 
 done
 
 if [ -n "$COSIGN" ]; then
-  fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
-  fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
-  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" \
-    --signature "$TMP_DIR/betty.tar.gz.sig" \
-    --certificate "$TMP_DIR/betty.tar.gz.pem" \
+  # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
+  # bundle. Releases from 1.10.6 carry one; older ones and older cosign use the
+  # signature and certificate.
+  COSIGN_MAJOR="$("$COSIGN" version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  if [ "${COSIGN_MAJOR:-0}" -ge 3 ] && fetch "$URL.sigstore.json" "$TMP_DIR/betty.tar.gz.sigstore.json" 2>/dev/null; then
+    set -- --bundle "$TMP_DIR/betty.tar.gz.sigstore.json"
+  else
+    fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
+    fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
+    set -- --signature "$TMP_DIR/betty.tar.gz.sig" --certificate "$TMP_DIR/betty.tar.gz.pem"
+  fi
+  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" "$@" \
     --certificate-identity-regexp "$SIGNER_IDENTITY" \
     --certificate-oidc-issuer "$SIGNER_ISSUER" 2>&1)"; then
     echo "Signature verification failed for ${ASSET}:"
