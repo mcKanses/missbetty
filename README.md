@@ -79,15 +79,19 @@ curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh 
 $env:BETTY_REQUIRE_SIGNATURE = 'true'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
-To verify a downloaded asset by hand:
+To verify a downloaded asset by hand with cosign 3, use its Sigstore bundle
+(published from 1.10.6 on):
 
 ```sh
 cosign verify-blob betty-linux-x64.tar.gz \
-  --signature betty-linux-x64.tar.gz.sig \
-  --certificate betty-linux-x64.tar.gz.pem \
+  --bundle betty-linux-x64.tar.gz.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+With cosign 2, or for older releases, pass the signature and certificate
+instead of the bundle: `--signature betty-linux-x64.tar.gz.sig --certificate
+betty-linux-x64.tar.gz.pem`. The installers pick the right form themselves.
 
 Current prebuilt targets:
 
