@@ -675,8 +675,11 @@ npm run release:check
 ```
 
 After a merge to `main`, GitHub Actions runs semantic-release. If releasable
-commits exist, it creates the Git tag, GitHub release, and npm publish
-automatically without pushing a release commit back to `main`.
+commits exist, it creates the Git tag and a draft GitHub release and publishes
+to npm, without pushing a release commit back to `main`. The Release Binaries
+workflow then builds, signs and uploads the binaries and publishes the release.
+The updated changelog and README reach `development` through the
+`chore/release-metadata` pull request.
 
 Publishing uses npm trusted publishing, so no npm token is stored in the
 repository. The `missbetty` package on npmjs.com lists this repository's
@@ -684,10 +687,13 @@ repository. The `missbetty` package on npmjs.com lists this repository's
 `id-token: write` permission it needs to authenticate.
 
 To publish an already released version to npm (semantic-release never
-republishes a tag), start the Publish workflow by hand with that tag:
+republishes a tag), start the Publish workflow by hand with that tag. Start it
+on `development`, once the release metadata PR is merged: the package takes its
+changelog and README from the branch the run starts on, and `main` does not
+have the synced ones.
 
 ```sh
-gh workflow run publish.yml -f tag=v1.7.4
+gh workflow run publish.yml --ref development -f tag=v1.7.4
 ```
 
 The publish workflow uses Node.js 24. Betty itself requires Node.js 24 or newer at runtime.
@@ -700,7 +706,10 @@ npm run release:minor
 npm run release:major
 ```
 
-The fallback scripts are guarded and only run on the `main` branch.
+The fallback scripts are guarded and only run on the `main` branch. They only
+bump the version and tag it locally: no GitHub release and no binaries come of
+them. After pushing such a tag, create its release on GitHub and build the
+binaries with `gh workflow run release-binaries.yml --ref main -f tag=<tag>`.
 
 For emergency manual publishing:
 
