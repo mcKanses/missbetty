@@ -6,7 +6,7 @@ jest.mock('../utils/setup', () => ({
   __esModule: true,
   collectSetupStatus: jest.fn(),
 }))
-jest.mock('../utils/hosts', () => ({ isWsl: () => false }))
+jest.mock('../utils/hosts', () => ({ isWsl: () => false, hostsEntryProblem: () => 'mapped to 10.0.0.5 first' }))
 
 describe('doctor command', () => {
   test('prints diagnostics for every linked domain and fails when one lacks a hosts entry', () => {
@@ -30,7 +30,7 @@ describe('doctor command', () => {
     expect(logSpy).toHaveBeenCalledWith('✗ mkcert installed')
     expect(logSpy).toHaveBeenCalledWith('✗ mkcert CA created')
     expect(logSpy).toHaveBeenCalledWith('✓ hosts entry for app.dev')
-    expect(logSpy).toHaveBeenCalledWith('✗ hosts entry for shop.test')
+    expect(logSpy).toHaveBeenCalledWith('✗ hosts entry for shop.test (mapped to 10.0.0.5 first)')
 
     logSpy.mockRestore()
   })

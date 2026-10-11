@@ -142,6 +142,17 @@ describe('withLock', () => {
     expect(fs.writeFileSync).toHaveBeenCalledTimes(1)
   })
 
+  it('puts back a fresh lock that is still empty while its owner writes it', () => {
+    lockHeldBy(String(OTHER_PID))
+    processRunning(false)
+    ;(fs.renameSync as unknown as jest.Mock).mockImplementationOnce(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('')
+    })
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+    expect(fs.linkSync).toHaveBeenCalledWith(expect.stringContaining('.stale'), LOCK_PATH)
+  })
+
   it('puts a lock back without hard links, e.g. on FAT or network shares', () => {
     lockHeldBy(String(OTHER_PID))
     processRunning(false)
