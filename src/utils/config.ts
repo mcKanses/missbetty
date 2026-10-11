@@ -34,8 +34,9 @@ const readBettyConfig = (): BettyConfig => {
 
   try {
     const raw = fs.readFileSync(BETTY_CONFIG_PATH, 'utf8')
-    const parsed = JSON.parse(raw) as BettyConfig
-    return parsed
+    const parsed = JSON.parse(raw) as unknown
+    // Valid JSON need not be an object: null, a number or a list hold no settings.
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {}
   } catch {
     return {}
   }
