@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { isSea } from 'node:sea'
 import { BettyError } from './errors'
-import { cleanupOldBinary, fetchLatestVersion, installMethod, installUpdate, isGlobalNpmInstall, isNewer, isOnNpm, manualUpdateCommand } from './update'
+import { cleanupOldBinary, fetchLatestVersion, installMethod, installUpdate, isGlobalNpmInstall, isNewer, isOnNpm, manualUpdateCommand, updateRoute } from './update'
 
 jest.mock('child_process', () => ({ execFileSync: jest.fn(), execSync: jest.fn() }))
 jest.mock('node:sea', () => ({ isSea: jest.fn(() => false) }))
@@ -191,5 +191,13 @@ describe('update utils', () => {
     expect(manualUpdateCommand('source', '1.2.3')).toBe('git pull && npm run build')
     expect(manualUpdateCommand('binary', '1.2.3')).toBeNull()
     expect(manualUpdateCommand('npm', '1.2.3')).toBeNull()
+  })
+
+  test('updateRoute leaves the update to betty only where betty can install it', async () => {
+    // This test file runs from a checkout, which installMethod reads as source.
+    await expect(updateRoute('1.2.3')).resolves.toEqual({ by: 'hand', command: 'git pull && npm run build' })
+
+    ;(isSea as jest.Mock).mockReturnValue(true)
+    await expect(updateRoute('1.2.3')).resolves.toEqual({ by: 'betty' })
   })
 })
