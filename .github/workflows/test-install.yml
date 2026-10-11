@@ -50,6 +50,10 @@ jobs:
       - name: Update a root-owned install as a regular user
         run: |
           sudo mkdir -p /opt/betty-root
+          # The Ubuntu image gives the runner user write access to /opt by a
+          # default ACL, which the new directory would inherit.
+          sudo chmod 0755 /opt/betty-root
+          if command -v setfacl >/dev/null 2>&1; then sudo setfacl -b /opt/betty-root; fi
           [ ! -w /opt/betty-root ] || { echo "/opt/betty-root should not be writable"; exit 1; }
           BETTY_SKIP_DEPS=true BETTY_SKIP_PATH=true BETTY_VERSION=v1.7.5 BETTY_INSTALL_DIR=/opt/betty-root sh install.sh
           /opt/betty-root/betty --version | grep -q '1.7.5'
