@@ -43,17 +43,18 @@ jobs:
           owner="$(stat -c %u /usr/local/bin/betty 2>/dev/null || stat -f %u /usr/local/bin/betty)"
           [ "$owner" = "0" ] || { echo "/usr/local/bin/betty is owned by uid $owner, not root"; exit 1; }
 
-      # What `betty update` does for a user whose betty is in /usr/local/bin:
-      # the installer runs unprivileged and falls back to sudo for the write.
+      # What `betty update` does for a user whose betty is in a root-owned
+      # directory: the installer runs unprivileged and falls back to sudo for
+      # the write. A directory of its own, since the runners' /usr/local/bin is
+      # writable by the runner user.
       - name: Update a root-owned install as a regular user
         run: |
-          BETTY_SKIP_DEPS=true BETTY_SKIP_PATH=true BETTY_VERSION=v1.7.5 BETTY_INSTALL_DIR=/usr/local/bin sh install.sh
-          betty --version | grep -q '1.7.5'
-          # Homebrew on Intel macOS hands /usr/local/bin to the user; there the
-          # installer writes without sudo and the binary is the user's.
-          if [ -w /usr/local/bin ]; then echo "/usr/local/bin is writable; no sudo fallback here"; exit 0; fi
-          owner="$(stat -c %u /usr/local/bin/betty 2>/dev/null || stat -f %u /usr/local/bin/betty)"
-          [ "$owner" = "0" ] || { echo "/usr/local/bin/betty is owned by uid $owner, not root"; exit 1; }
+          sudo mkdir -p /opt/betty-root
+          [ ! -w /opt/betty-root ] || { echo "/opt/betty-root should not be writable"; exit 1; }
+          BETTY_SKIP_DEPS=true BETTY_SKIP_PATH=true BETTY_VERSION=v1.7.5 BETTY_INSTALL_DIR=/opt/betty-root sh install.sh
+          /opt/betty-root/betty --version | grep -q '1.7.5'
+          owner="$(stat -c %u /opt/betty-root/betty 2>/dev/null || stat -f %u /opt/betty-root/betty)"
+          [ "$owner" = "0" ] || { echo "/opt/betty-root/betty is owned by uid $owner, not root"; exit 1; }
 
       # A custom directory in the user's home must stay owned by the user, not
       # by root after a sudo fallback.
