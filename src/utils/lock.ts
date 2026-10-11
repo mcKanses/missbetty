@@ -102,10 +102,12 @@ const acquire = (): void => {
     throw busyError()
   }
   // The file moved could already be a fresh lock taken between the check and
-  // the rename; that one goes back. linkSync, unlike renameSync, fails instead
-  // of replacing a lock a third process created in the meantime.
+  // the rename, possibly still empty as its owner writes it; that one goes
+  // back. linkSync, unlike renameSync, fails instead of replacing a lock a
+  // third process created in the meantime.
   const movedOwner = readOwnerOf(claimed)
-  if (movedOwner !== null && movedOwner.pid !== owner?.pid) {
+  const fresh = movedOwner === null ? lockAge(claimed) < UNREADABLE_STALE_MS : movedOwner.pid !== owner?.pid
+  if (fresh) {
     try {
       fs.linkSync(claimed, LOCK_PATH)
     } catch (err) {

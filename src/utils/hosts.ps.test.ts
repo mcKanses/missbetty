@@ -77,6 +77,15 @@ describeOnWindows('elevated hosts script (Windows PowerShell)', () => {
     expect(fs.readFileSync(hostsPath)).toEqual(Buffer.concat([bom, umlaut]))
   })
 
+  test('keeps the byte-order mark when the first line is removed', () => {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf])
+    fs.writeFileSync(hostsPath, Buffer.concat([bom, Buffer.from('127.0.0.1 a.test # added by betty\r\n127.0.0.1 localhost\r\n')]))
+
+    expect(run([], ['a.test'])).toBe(0)
+
+    expect(fs.readFileSync(hostsPath)).toEqual(Buffer.concat([bom, Buffer.from('127.0.0.1 localhost\r\n')]))
+  })
+
   test('sees an entry on the first line behind a byte-order mark', () => {
     fs.writeFileSync(hostsPath, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('127.0.0.1 a.test\r\n')]))
 

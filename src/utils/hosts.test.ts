@@ -29,7 +29,7 @@ jest.mock('fs', () => ({
 
 import fs from 'fs'
 import { execFileSync } from 'child_process'
-import { ensureHostsEntries, ensureHostsEntry, hasHostsEntry, removeHostsEntries, removeHostsEntry } from './hosts'
+import { ensureHostsEntries, ensureHostsEntry, hasHostsEntry, hostsEntryProblem, removeHostsEntries, removeHostsEntry } from './hosts'
 
 const originalPlatform = process.platform
 const originalEnv = { ...process.env }
@@ -440,7 +440,46 @@ describe('batched hosts edits', () => {
 
     expect(removeHostsEntries(['a.test', 'b.test'])).toBe(true)
     expect(execFileSync).toHaveBeenNthCalledWith(1, 'sudo', ['-v'], expect.anything())
-    expect(execFileSync).toHaveBeenNthCalledWith(2, 'sudo', ['-n', 'tee', '/etc/hosts'], expect.objectContaining({ input: Buffer.from('127.0.0.1 localhost\n', 'latin1') }))
+    expect(execFileSync).toHaveBeenNthCalledWith(2, 'sudo', ['-n', 'true'], expect.anything())
+    expect(execFileSync).toHaveBeenNthCalledWith(3, 'sudo', ['-n', 'tee', '/etc/hosts'], expect.objectContaining({ input: Buffer.from('127.0.0.1 localhost\n', 'latin1') }))
+  })
+
+  it('asks for the password again only when sudo caches none, not after a failed write', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 a.test # added by betty\n')
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation((_cmd: unknown, args: unknown) => {
+      const a = args as string[]
+      if (a.includes('true')) throw new Error('a password is required')
+      if (a.includes('tee')) throw new Error('read-only file system')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(removeHostsEntry('a.test')).toBe(false)
+    const tees = (execFileSync as unknown as jest.Mock).mock.calls.filter((call) => (call[1] as string[]).includes('tee'))
+    expect(tees).toHaveLength(1)
+    expect(tees[0][1]).toEqual(['tee', '/etc/hosts'])
+  })
+
+  it('keeps the byte-order mark when the first line is removed', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('\u00EF\u00BB\u00BF127.0.0.1 a.test # added by betty\n127.0.0.1 localhost\n')
+
+    expect(removeHostsEntry('a.test')).toBe(true)
+    expect(fs.writeFileSync).toHaveBeenCalledWith('/etc/hosts', '\u00EF\u00BB\u00BF127.0.0.1 localhost\n', 'latin1')
+  })
+
+  it('names why a domain has no usable entry', () => {
+    setPlatform('linux')
+    delete process.env.WSL_DISTRO_NAME
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('10.0.0.5 app.test\n127.0.0.1 app.test # added by betty\n127.0.0.1 ok.test\n')
+
+    expect(hostsEntryProblem('app.test')).toBe('mapped to 10.0.0.5 first')
+    expect(hostsEntryProblem('gone.test')).toBe('missing')
+    expect(hostsEntryProblem('bad$(name).test')).toMatch('not a valid host name')
+    expect(hostsEntryProblem('ok.test')).toBeUndefined()
   })
 
   it('keeps lines added to /etc/hosts while sudo waited for the password', () => {
