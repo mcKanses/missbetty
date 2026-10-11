@@ -18,11 +18,17 @@ const next = `${String(major)}.${String(minor + 1)}.0`
 describe('update command', () => {
   let logSpy: jest.SpyInstance
 
+  const stdinIsTTY = process.stdin.isTTY
+  const setTTY = (value: boolean | undefined): void => { Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true }) }
   beforeEach(() => {
     jest.clearAllMocks()
     logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    setTTY(true)
   })
-  afterEach(() => { logSpy.mockRestore() })
+  afterEach(() => {
+    logSpy.mockRestore()
+    setTTY(stdinIsTTY)
+  })
 
   const output = (): string => logSpy.mock.calls.map((c) => String(c[0])).join('\n')
 
@@ -51,6 +57,14 @@ describe('update command', () => {
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ install: false })
     await updateCommand()
     expect(inquirer.prompt).toHaveBeenCalled()
+    expect(installUpdate).not.toHaveBeenCalled()
+  })
+
+  test('refuses to prompt without a terminal and points at --yes', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue(next)
+    setTTY(undefined)
+    await expect(updateCommand()).rejects.toThrow('no terminal to confirm')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(installUpdate).not.toHaveBeenCalled()
   })
 
