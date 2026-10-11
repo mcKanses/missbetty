@@ -345,12 +345,20 @@ describe('project routes', () => {
     const platform = process.platform
     Object.defineProperty(process, 'platform', { value: 'win32' })
     try {
+      ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
       ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-project-config: C:\\Users\\me\\app\\.betty.yml\nhttp: {}\n')
       expect(loadedFromElsewhere('app', 'c:\\users\\me\\app\\.betty.yml')).toBeNull()
       expect(loadedFromElsewhere('app', 'C:\\Users\\me\\other\\.betty.yml')).not.toBeNull()
     } finally {
       Object.defineProperty(process, 'platform', { value: platform })
     }
+  })
+
+  it('ignores an origin that no longer exists, e.g. a moved project directory', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# betty-project-config: /old/app/.betty.yml\nhttp: {}\n')
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => !String(p).replace(/\\/g, '/').startsWith('/old/'))
+
+    expect(loadedFromElsewhere('app', '/new/app/.betty.yml')).toBeNull()
   })
 })
 
@@ -461,6 +469,14 @@ describe('removeRouteFromFile', () => {
 
     expect(deleted).toBe(false)
     expect(fs.writeFileSync).toHaveBeenCalledWith(filePath, '# betty-project-config: /a/app/.betty.yml\nyaml-out\n', 'utf8')
+  })
+
+  it('deletes a file that was emptied meanwhile instead of crashing', () => {
+    const filePath = path.join(DYNAMIC_DIR, 'app.yml')
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('# only a comment\n')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(null)
+
+    expect(removeRouteFromFile({ filePath, fileName: 'app.yml', routerName: 'app-1', container: 'app-1', domain: 'a.localhost', target: '', port: '' })).toBe(true)
   })
 })
 

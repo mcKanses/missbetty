@@ -231,7 +231,11 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
   const composePath = resolveTraefikComposePath()
   const routes = readRoutes()
 
+  // A named link that does not exist fails the same way whether or not other
+  // links exist, so scripts see one exit status for it.
   if (routes.length === 0) {
+    if (opts.project !== undefined) throw new BettyError(`No project found with name '${opts.project}'.`)
+    if (opts.domain !== undefined) throw new BettyError(`No link found for domain '${opts.domain}'.`)
     console.log('No links found.')
     return
   }

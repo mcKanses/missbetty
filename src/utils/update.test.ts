@@ -182,8 +182,15 @@ describe('update utils', () => {
     const fetchMock = mockFetch(() => Promise.resolve({ ok: true, body: { cancel: jest.fn(() => Promise.resolve()) } }))
     await expect(isOnNpm('1.10.3')).resolves.toBe(true)
     expect(String(fetchMock.mock.calls[0][0])).toBe('https://registry.npmjs.org/missbetty/1.10.3')
-    mockFetch(() => Promise.resolve({ ok: false, body: null }))
+    mockFetch(() => Promise.resolve({ ok: false, status: 404, body: null }))
     await expect(isOnNpm('1.10.3')).resolves.toBe(false)
+  })
+
+  test('isOnNpm lets npm try when the public registry cannot say, e.g. behind a proxy', async () => {
+    mockFetch(() => Promise.resolve({ ok: false, status: 502, body: null }))
+    await expect(isOnNpm('1.10.3')).resolves.toBe(true)
+    mockFetch(() => Promise.reject(new Error('ECONNREFUSED')))
+    await expect(isOnNpm('1.10.3')).resolves.toBe(true)
   })
 
   test('installs betty does not update itself get their own command', () => {

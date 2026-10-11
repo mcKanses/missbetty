@@ -6,7 +6,7 @@ import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
 import { checkDockerRunning, getMkcertRootCaPath, isHttpsRequestedDomain, runMkcertInstall } from '../utils/setup'
 import { ensureCertificate, restartTraefik } from '../utils/docker'
-import { ensureHostsEntries, hasHostsEntry, removeHostsEntries } from '../utils/hosts'
+import { hasHostsEntry, updateHostsEntries } from '../utils/hosts'
 import unlinkCommand from './unlink'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService, TraefikTcpService } from '../types'
 import {
@@ -225,30 +225,41 @@ const writeProjectRoute = (
   fs.writeFileSync(path.join(BETTY_DYNAMIC_DIR, `${sanitizeName(project)}.yml`), `${origin}${yaml.stringify(config)}`, 'utf8')
 }
 
-const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
+// Adds the missing entries and removes those of dropped domains (no longer in
+// .betty.yml) as permissions.hosts allows, in one hosts edit: a single
+// elevation prompt on Windows.
+const prepareHosts = async (config: DevProjectConfig, dropped: string[]): Promise<void> => {
   const missing = config.domains.filter((domain) => !hasHostsEntry(domain.host))
-  if (missing.length === 0) return
+  const stale = dropped.filter((domain) => hasHostsEntry(domain))
+  if (missing.length === 0 && stale.length === 0) return
   const mode = config.permissions?.hosts ?? 'prompt'
 
-  // All entries go in one hosts edit: a single elevation prompt on Windows.
+  const leftAlone = (adds: string[], removals: string[]): void => {
+    for (const host of adds) {
+      printWarn(`Hosts entry was not changed for ${host}.`)
+      printHint(`Add manually: 127.0.0.1 ${host} # added by betty`)
+    }
+    for (const host of removals) {
+      printWarn(`${host} is no longer in .betty.yml, but its hosts entry was kept.`)
+      printHint(`Remove its line manually: 127.0.0.1 ${host} # added by betty`)
+    }
+  }
+
   if (mode === 'allowed') {
-    ensureHostsEntries(missing.map((domain) => domain.host))
+    updateHostsEntries(missing.map((domain) => domain.host), stale)
     return
   }
 
   if (mode === 'manual' || mode === 'denied') {
-    for (const domain of missing) {
-      printWarn(`Hosts entry was not changed for ${domain.host}.`)
-      printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
-    }
+    leftAlone(missing.map((domain) => domain.host), stale)
     return
   }
 
-  let selected: string[]
+  let selected: string[] = []
   if (missing.length === 1) {
     const ok = await confirmPermission(`Add hosts entry for ${missing[0].host}?`, 'prompt')
     selected = ok ? [missing[0].host] : []
-  } else {
+  } else if (missing.length > 1) {
     const answer = await inquirer.prompt([{
       type: 'checkbox',
       name: 'hosts',
@@ -257,12 +268,10 @@ const prepareHosts = async (config: DevProjectConfig): Promise<void> => {
     }]) as { hosts: string[] }
     selected = answer.hosts
   }
+  const removeStale = stale.length > 0 && await confirmPermission(`Remove the hosts entries of domains no longer in .betty.yml (${stale.join(', ')})?`, 'prompt')
 
-  ensureHostsEntries(selected)
-  for (const domain of missing) if (!selected.includes(domain.host)) {
-    printWarn(`Hosts entry was not changed for ${domain.host}.`)
-    printHint(`Add manually: 127.0.0.1 ${domain.host} # added by betty`)
-  }
+  updateHostsEntries(selected, removeStale ? stale : [])
+  leftAlone(missing.map((domain) => domain.host).filter((host) => !selected.includes(host)), removeStale ? [] : stale)
 }
 
 const prepareCertificates = async (config: DevProjectConfig): Promise<Record<string, { certFile: string; keyFile: string }>> => {
@@ -335,7 +344,7 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   const ownRouteFile = projectRouteFile(config.project)
   const loadedFrom = opts.configPath !== undefined ? loadedFromElsewhere(config.project, opts.configPath) : null
   if (loadedFrom !== null) throw new BettyError(`Project '${config.project}' is already loaded from ${loadedFrom}.`, {
-    hints: ['Give this project another name in .betty.yml, or run `betty project stop` in the other project first.'],
+    hints: ['Give this project another name in .betty.yml, or run `betty project stop` in the other project first.', `Or remove its links from anywhere: betty project unlink ${config.project}`],
   })
   // Project routers are named <project>-<n>. Anything else in the file means it
   // is a `betty link` route file whose name happens to match the project.
@@ -367,16 +376,15 @@ const linkProjectImpl = async (config: DevProjectConfig, opts: LinkProjectOption
   ensureProxyNetwork()
   ensureProxyRunning(BETTY_PROXY_COMPOSE, 'project load')
 
-  await prepareHosts(effectiveConfig)
-  writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true, opts.configPath)
-
   // Domains dropped from .betty.yml since the last load would keep their hosts
-  // entries forever: nothing else knows they belonged to this project. Done
-  // before the restart, which can fail, while the old routes are still known.
+  // entries forever: nothing else knows they belonged to this project. Found
+  // while the old routes are still known; other links may still need them.
   const kept = new Set(config.domains.map((d) => d.host.toLowerCase()))
-  const linked = new Set(readRoutes().map((r) => r.domain.toLowerCase()))
+  const linked = new Set(readRoutes().filter((r) => !samePath(r.filePath, ownRouteFile)).map((r) => r.domain.toLowerCase()))
   const dropped = [...new Set(previousRoutes.map((r) => r.domain.toLowerCase()))].filter((d) => d !== '' && !kept.has(d) && !linked.has(d))
-  if (dropped.length > 0) removeHostsEntries(dropped)
+
+  await prepareHosts(effectiveConfig, dropped)
+  writeProjectRoute(config.project, config.domains, certificates, config.https?.enabled === true, opts.configPath)
 
   restartTraefik(BETTY_PROXY_COMPOSE)
 }
