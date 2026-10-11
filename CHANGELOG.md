@@ -1,3 +1,13 @@
+## [1.10.4](https://github.com/mcKanses/missbetty/compare/v1.10.3...v1.10.4) (2026-10-11)
+
+
+### Bug Fixes
+
+* Installers survive sudo's secure_path, running and interrupted installs, and bracket paths; harden CI ([53b0f7c](https://github.com/mcKanses/missbetty/commit/53b0f7ccbb4dbe6f2b683c2b51463740006af15d))
+* Keep the BOM and fresh locks, ask sudo again only when needed, and name hosts problems ([b2cc5d4](https://github.com/mcKanses/missbetty/commit/b2cc5d4441ff6bb668240b7c4ae69153f4651819))
+* Keep the exit status on Ctrl+C at the update prompt and decide the update route before asking ([9c6526b](https://github.com/mcKanses/missbetty/commit/9c6526bb00d38c1dcce318fc8e4e04f6055e4f81))
+* One elevation for relink to a new domain, and tell old links from project routes ([59fb3b9](https://github.com/mcKanses/missbetty/commit/59fb3b9c7f2dadbfa0d5be43b559a722f904370f))
+
 ## [1.10.3](https://github.com/mcKanses/missbetty/compare/v1.10.2...v1.10.3) (2026-10-10)
 
 
