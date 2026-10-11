@@ -1,7 +1,8 @@
+import { EventEmitter } from 'events'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import { getUpdateCheck } from './config'
-import { fetchLatestVersion, installMethod, installUpdate, isOnNpm } from './update'
+import { fetchLatestVersion, installMethod, installUpdate, updateRoute } from './update'
 import { offerUpdate, updateCheckApplies } from './updateCheck'
 
 jest.mock('inquirer', () => ({ prompt: jest.fn() }))
@@ -12,7 +13,7 @@ jest.mock('./update', () => ({
   fetchLatestVersion: jest.fn(),
   installUpdate: jest.fn(),
   installMethod: jest.fn(() => 'binary'),
-  isOnNpm: jest.fn(() => Promise.resolve(true)),
+  updateRoute: jest.fn(() => Promise.resolve({ by: 'betty' })),
 }))
 jest.mock('fs', () => ({
   readFileSync: jest.fn(),
@@ -41,6 +42,8 @@ describe('update check', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(installMethod as jest.Mock).mockReturnValue('binary')
+    ;(updateRoute as jest.Mock).mockResolvedValue({ by: 'betty' })
     ;(getUpdateCheck as jest.Mock).mockReturnValue(true)
     process.stdin.isTTY = true
     process.stdout.isTTY = true
@@ -148,27 +151,30 @@ describe('update check', () => {
     expect(fs.renameSync).toHaveBeenCalledWith(tmp, expect.stringMatching(/update-check\.json$/))
   })
 
-  test('does not offer an npm install a version npm does not have yet, and asks again later', async () => {
-    ;(installMethod as jest.Mock).mockReturnValue('npm')
-    ;(isOnNpm as jest.Mock).mockResolvedValue(false)
+  test('while npm lags the release, says nothing and asks the registry again tomorrow', async () => {
+    ;(updateRoute as jest.Mock).mockResolvedValue({ by: 'later' })
     ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
 
     await offerUpdate(argv('status'), '1.9.1')
 
     expect(inquirer.prompt).not.toHaveBeenCalled()
-    expect(savedState().askedAt).toBeUndefined()
-    ;(installMethod as jest.Mock).mockReturnValue('binary')
+    expect(logSpy).not.toHaveBeenCalled()
+    expect(savedState().askedAt).toEqual(expect.any(Number))
+
+    setState(savedState())
+    ;(updateRoute as jest.Mock).mockClear()
+    await offerUpdate(argv('status'), '1.9.1')
+    expect(updateRoute).not.toHaveBeenCalled()
   })
 
   test('only shows the command for installs betty cannot update itself', async () => {
-    ;(installMethod as jest.Mock).mockReturnValue('pnpm')
+    ;(updateRoute as jest.Mock).mockResolvedValue({ by: 'hand', command: 'pnpm add -g missbetty@1.10.0' })
     ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
 
     await offerUpdate(argv('status'), '1.9.1')
 
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith('Update with: pnpm add -g missbetty@1.10.0')
-    ;(installMethod as jest.Mock).mockReturnValue('binary')
   })
 
   test('says nothing to npx runs', async () => {
@@ -178,21 +184,42 @@ describe('update check', () => {
     await offerUpdate(argv('status'), '1.9.1')
 
     expect(logSpy).not.toHaveBeenCalled()
-    ;(installMethod as jest.Mock).mockReturnValue('binary')
+    expect(updateRoute).not.toHaveBeenCalled()
   })
 
-  test('Ctrl+C at the prompt ends with exit code 0, since the command succeeded', async () => {
+  test('Ctrl+C at the prompt closes it and ends with exit code 0, since the command succeeded', async () => {
     ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
-    // What inquirer 8 does on Ctrl+C: it signals the process instead of rejecting.
+    // inquirer 8 handles Ctrl+C on its readline with onForceClose, which
+    // signals the process: on Windows that ends it with exit code 1.
+    const rl = new EventEmitter()
+    const ui = { rl, onForceClose: jest.fn(), close: jest.fn() }
+    rl.on('SIGINT', ui.onForceClose)
     ;(inquirer.prompt as unknown as jest.Mock).mockImplementation(() => {
-      process.emit('SIGINT')
-      return new Promise(() => undefined)
+      setImmediate(() => rl.emit('SIGINT'))
+      return Object.assign(new Promise(() => undefined), { ui })
     })
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => { throw new Error(`exit ${String(code)}`) })
+    const exited = new Promise<unknown>((resolve) => {
+      exitSpy.mockImplementation((code) => { resolve(code); return undefined as never })
+    })
 
-    await expect(offerUpdate(argv('status'), '1.9.1')).rejects.toThrow('exit 0')
+    void offerUpdate(argv('status'), '1.9.1')
 
+    await expect(exited).resolves.toBe(0)
+    expect(ui.onForceClose).not.toHaveBeenCalled()
+    expect(ui.close).toHaveBeenCalled()
     exitSpy.mockRestore()
+  })
+
+  test('a time in the future does not silence the check', async () => {
+    setState({ checkedAt: Date.now() + 30 * 24 * HOUR, latest: '1.9.1', askedAt: Date.now() + 30 * 24 * HOUR })
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue('1.10.0')
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ choice: 'later' })
+
+    await offerUpdate(argv('status'), '1.9.1')
+
+    expect(fetchLatestVersion).toHaveBeenCalled()
+    expect(inquirer.prompt).toHaveBeenCalled()
   })
 
   test('starts over from a malformed state file', async () => {

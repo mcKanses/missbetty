@@ -1,6 +1,6 @@
 import inquirer from 'inquirer'
 import { BettyError } from '../utils/errors'
-import { fetchLatestVersion, installMethod, installUpdate, isNewer, manualUpdateCommand, releaseUrl } from '../utils/update'
+import { fetchLatestVersion, installUpdate, isNewer, notOnNpmYet, releaseUrl, updateRoute } from '../utils/update'
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version: currentVersion } = require('../../package.json') as { version: string }
@@ -26,11 +26,12 @@ const updateCommand = async (opts: UpdateOptions = {}): Promise<void> => {
   console.log(`What's new: ${releaseUrl(latest)}`)
   if (opts.check === true) return
 
-  const manual = manualUpdateCommand(installMethod(), latest)
-  if (manual !== null) {
-    console.log(`Update with: ${manual}`)
+  const route = await updateRoute(latest)
+  if (route.by === 'hand') {
+    console.log(`Update with: ${route.command}`)
     return
   }
+  if (route.by === 'later') throw notOnNpmYet(latest)
 
   if (opts.yes !== true) {
     const { install } = await inquirer.prompt<{ install: boolean }>([{
