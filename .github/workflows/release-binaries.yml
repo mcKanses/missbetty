@@ -69,6 +69,12 @@ jobs:
             const releases = await github.paginate(github.rest.repos.listReleases, { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 })
             const release = releases.find((r) => r.tag_name === tag)
             if (release === undefined) return core.setFailed(`No GitHub release exists for ${tag}.`)
+            // A rerun of an earlier Publish run finds its release already out;
+            // only a manual run may replace published assets.
+            if (context.eventName !== 'workflow_dispatch' && !release.draft) {
+              core.notice(`${tag} is already published; nothing to build.`)
+              return core.setOutput('tag_name', '')
+            }
 
             core.setOutput('tag_name', tag)
             core.setOutput('draft', String(release.draft))
