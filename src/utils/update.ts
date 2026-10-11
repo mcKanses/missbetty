@@ -71,14 +71,16 @@ const MANUAL_UPDATE: Partial<Record<InstallMethod, (version: string) => string>>
 export const manualUpdateCommand = (method: InstallMethod, version: string): string | null => MANUAL_UPDATE[method]?.(version) ?? null
 
 // npm is published after the GitHub release and may lag behind or fail; an npm
-// install is only offered a version that is already on npm.
+// install is only offered a version that is already on npm. Only a 404 says it
+// is not: behind a proxy or a company registry, registry.npmjs.org may be out
+// of reach while npm itself installs fine, so anything else lets npm try.
 export const isOnNpm = async (version: string, timeoutMs = 5000): Promise<boolean> => {
   try {
     const res = await fetch(`https://registry.npmjs.org/missbetty/${version}`, { signal: AbortSignal.timeout(timeoutMs) })
     await res.body?.cancel()
-    return res.ok
+    return res.status !== 404
   } catch {
-    return false
+    return true
   }
 }
 
