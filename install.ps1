@@ -191,22 +191,28 @@ if ($version -eq 'latest') {
 $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("betty-install-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmpDir | Out-Null
 
+# -OutFile has no literal form and reads [ and ] in a TEMP path as wildcards; a
+# bare file name inside the temp directory avoids them.
+function Save-Download([string]$Uri, [string]$Name) {
+  Push-Location -LiteralPath $tmpDir
+  try { Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Name }
+  finally { Pop-Location }
+  Join-Path $tmpDir $Name
+}
+
 try {
-  $zipPath = Join-Path $tmpDir 'betty.zip'
-  $checksumPath = Join-Path $tmpDir 'betty.zip.sha256'
-
   Write-Host "Downloading $url"
-  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zipPath
-  Invoke-WebRequest -UseBasicParsing -Uri $checksumUrl -OutFile $checksumPath
+  $zipPath = Save-Download $url 'betty.zip'
+  $checksumPath = Save-Download $checksumUrl 'betty.zip.sha256'
 
-  $expectedLine = Get-Content -Path $checksumPath | Select-Object -First 1
+  $expectedLine = Get-Content -LiteralPath $checksumPath | Select-Object -First 1
   $expectedHash = ($expectedLine -split '\s+')[0].ToLower()
 
   if ([string]::IsNullOrWhiteSpace($expectedHash)) {
     throw 'Missing checksum content in checksum file.'
   }
 
-  $actualHash = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLower()
+  $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLower()
 
   if ($actualHash -ne $expectedHash) {
     throw "Checksum verification failed for $asset."
@@ -225,10 +231,8 @@ try {
   $signerIssuer = 'https://token.actions.githubusercontent.com'
 
   if ($null -ne (Get-Command cosign -ErrorAction SilentlyContinue)) {
-    $signaturePath = Join-Path $tmpDir 'betty.zip.sig'
-    $certificatePath = Join-Path $tmpDir 'betty.zip.pem'
-    Invoke-WebRequest -UseBasicParsing -Uri "$url.sig" -OutFile $signaturePath
-    Invoke-WebRequest -UseBasicParsing -Uri "$url.pem" -OutFile $certificatePath
+    $signaturePath = Save-Download "$url.sig" 'betty.zip.sig'
+    $certificatePath = Save-Download "$url.pem" 'betty.zip.pem'
     # cosign reports even success on stderr; Windows PowerShell 5.1 would turn
     # that into a terminating error under 'Stop', so judge by exit code only.
     $previousPreference = $ErrorActionPreference
@@ -248,7 +252,10 @@ try {
     Write-Host 'Signature not verified: cosign is not installed (checksum only).'
   }
 
-  Expand-Archive -LiteralPath $zipPath -DestinationPath $tmpDir -Force
+  # Not Expand-Archive: Windows PowerShell's version reads [ and ] in the
+  # destination as wildcards, even with -LiteralPath.
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, (Join-Path $tmpDir 'extracted'))
 
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
   $target = Join-Path $installDir 'betty.exe'
@@ -261,7 +268,7 @@ try {
   $previous = "$target.$([System.Guid]::NewGuid().ToString('N')).old"
   $swapped = $false
   try {
-    Copy-Item -LiteralPath (Join-Path $tmpDir 'betty.exe') -Destination $staged -Force
+    Copy-Item -LiteralPath (Join-Path $tmpDir 'extracted\betty.exe') -Destination $staged -Force
     if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination $previous }
     Move-Item -LiteralPath $staged -Destination $target
     $swapped = $true
@@ -307,8 +314,8 @@ try {
   Write-Host 'Run: betty --help'
 }
 finally {
-  if (Test-Path $tmpDir) {
-    Remove-Item -Path $tmpDir -Recurse -Force
+  if (Test-Path -LiteralPath $tmpDir) {
+    Remove-Item -LiteralPath $tmpDir -Recurse -Force
   }
   $ErrorActionPreference = $bettyCallerErrorAction
   $ProgressPreference = $bettyCallerProgress

@@ -106,23 +106,54 @@ install_dependencies_linux() {
     return 1
   }
 
+  distro_id() {
+    ( . /etc/os-release 2>/dev/null && echo "${ID:-}" ) || true
+  }
+
+  # get.docker.com covers Debian, Ubuntu, Fedora, CentOS and RHEL and refuses
+  # other distributions; those ship Docker in their own repositories, or (Alma,
+  # Rocky) use Docker's RHEL repository.
+  install_docker_from_distro() {
+    case "$1" in
+      arch|manjaro|endeavouros) install_with_pm docker && install_with_pm docker-compose ;;
+      opensuse*|sles) install_with_pm docker && install_with_pm docker-compose ;;
+      alpine) install_with_pm docker && install_with_pm docker-cli-compose ;;
+      amzn) install_with_pm docker ;;
+      almalinux|rocky)
+        $SUDO dnf install -y dnf-plugins-core &&
+          $SUDO dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo &&
+          $SUDO dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin ;;
+    esac
+  }
+
   install_docker_linux() {
     if command -v docker >/dev/null 2>&1; then
       return
     fi
 
     echo "Installing Docker Engine..."
-    if command -v curl >/dev/null 2>&1; then
-      curl -fsSL https://get.docker.com | $SUDO sh
-    elif command -v wget >/dev/null 2>&1; then
-      wget -qO- https://get.docker.com | $SUDO sh
-    else
-      echo "Neither curl nor wget is available; cannot install Docker automatically."
-      exit 1
-    fi
+    DISTRO="$(distro_id)"
+    case "$DISTRO" in
+      arch|manjaro|endeavouros|opensuse*|sles|alpine|amzn|almalinux|rocky)
+        # A failure is reported by the docker check after this function.
+        install_docker_from_distro "$DISTRO" || true ;;
+      *)
+        if command -v curl >/dev/null 2>&1; then
+          curl -fsSL https://get.docker.com | $SUDO sh
+        elif command -v wget >/dev/null 2>&1; then
+          wget -qO- https://get.docker.com | $SUDO sh
+        else
+          echo "Neither curl nor wget is available; cannot install Docker automatically."
+          exit 1
+        fi ;;
+    esac
 
     if command -v systemctl >/dev/null 2>&1; then
       $SUDO systemctl enable --now docker || true
+    elif command -v rc-update >/dev/null 2>&1; then
+      # OpenRC (Alpine)
+      $SUDO rc-update add docker default || true
+      $SUDO rc-service docker start || true
     elif command -v service >/dev/null 2>&1; then
       $SUDO service docker start || true
     fi
@@ -250,6 +281,7 @@ install_dependencies_linux() {
 
   if ! command -v docker >/dev/null 2>&1; then
     echo "Docker installation failed."
+    echo "Install Docker Engine for your distribution: https://docs.docker.com/engine/install/"
     exit 1
   fi
 
@@ -260,7 +292,7 @@ install_dependencies_linux() {
 
   if ! docker compose version >/dev/null 2>&1 && ! $SUDO docker compose version >/dev/null 2>&1; then
     echo "Docker is installed, but Docker Compose plugin is not available yet."
-    echo "Try: $SUDO apt-get install -y docker-compose-plugin (or your distro equivalent)."
+    echo "Install it: https://docs.docker.com/compose/install/linux/"
   fi
 
   echo "✓ Dependencies installed (Docker + mkcert)"
@@ -359,7 +391,11 @@ else
 fi
 
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+# The EXIT trap cleans up; INT and TERM must end the script, which a trap for
+# them alone would not.
+trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if command -v curl >/dev/null 2>&1; then
   fetch() { curl -fsSL "$1" -o "$2"; }
@@ -367,6 +403,12 @@ elif command -v wget >/dev/null 2>&1; then
   fetch() { wget -qO "$2" "$1"; }
 else
   echo "Neither curl nor wget is available."
+  exit 1
+fi
+
+# Minimal images (openSUSE, Amazon Linux) ship without tar.
+if ! command -v tar >/dev/null 2>&1; then
+  echo "tar is required to unpack betty. Install it with your package manager and run this script again."
   exit 1
 fi
 
