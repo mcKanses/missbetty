@@ -1072,3 +1072,30 @@ describe('domains dropped from .betty.yml', () => {
     expect(warn.mock.calls.flat().join('\n')).toContain('old.test is no longer in .betty.yml')
   })
 })
+
+describe('a project renamed in .betty.yml', () => {
+  test('replaces the routes loaded under the old name and drops their hosts entries', async () => {
+    const configPath = path.resolve(process.cwd(), '.betty.yml')
+    const config = ['project: shop-new', 'domains:', '  - host: new.test', '    target: http://127.0.0.1:3000', 'permissions:', '  hosts: allowed', '  docker: allowed'].join('\n')
+    // Loaded from this very .betty.yml while it still said `project: shop`.
+    const oldRoute = `# betty-project-config: ${configPath}\n${yaml.stringify({ http: { routers: { 'shop-0': { rule: 'Host("old.test")', service: 'shop-0' } }, services: { 'shop-0': { loadBalancer: { servers: [{ url: 'http://host.docker.internal:3000' }] } } } } })}`
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).split(path.sep).join('/')
+      if (normalized.endsWith('.betty.yml')) return config
+      if (normalized.endsWith('/dynamic/shop.yml')) return oldRoute
+      if (normalized.endsWith('hosts')) return '127.0.0.1 old.test # added by betty\n'
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) =>
+      Buffer.from(String(cmd).includes('docker ps') ? 'betty-traefik\t0.0.0.0:443->443/tcp\n' : ''))
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '.betty.yml' })
+
+    expect(fs.rmSync).toHaveBeenCalledWith(expect.stringMatching(/shop\.yml$/), { force: true })
+    const hostsWrite = (fs.writeFileSync as unknown as jest.Mock).mock.calls.find((c) => String(c[0]).endsWith('hosts'))
+    expect(String(hostsWrite?.[1])).not.toContain('old.test')
+  })
+})

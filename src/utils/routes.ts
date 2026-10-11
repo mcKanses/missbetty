@@ -129,6 +129,8 @@ export const readRoutes = (): RouteEntry[] => {
 export interface ConflictIgnore {
   filePath: string;
   routerName?: string;
+  // Further files to skip entirely, e.g. those a project load replaces.
+  alsoFiles?: string[];
 }
 
 // `exact` compares the domains themselves. Project routes need only that: their
@@ -143,8 +145,9 @@ export const findDomainConflict = (domain: string, ignore?: ConflictIgnore, exac
   const key = (d: string, exactMatch: boolean): string => (exactMatch ? d.toLowerCase() : normalizeServiceName(d.toLowerCase()))
   const routes = readRoutes()
   for (const route of routes) {
-    const ignored = ignore !== undefined && samePath(ignore.filePath, route.filePath)
-      && (ignore.routerName === undefined || route.routerName === ignore.routerName)
+    const ignored = ignore !== undefined && ((samePath(ignore.filePath, route.filePath)
+      && (ignore.routerName === undefined || route.routerName === ignore.routerName))
+      || (ignore.alsoFiles ?? []).some((file) => samePath(file, route.filePath)))
     if (ignored) continue
     const exactMatch = exact || route.project === true
     if (key(route.domain, exactMatch) !== key(domain, exactMatch)) continue
@@ -255,6 +258,17 @@ export const readProjectOrigin = (routeFile: string): string | null => {
   } catch {
     return null
   }
+}
+
+// Route files of projects loaded from this .betty.yml under another name, left
+// behind when `project:` was renamed.
+export const routeFilesUnderOtherNames = (project: string, configPath: string): string[] => {
+  const own = projectRouteFile(project)
+  const files = [...new Set(readRoutes().filter((r) => r.project === true && !samePath(r.filePath, own)).map((r) => r.filePath))]
+  return files.filter((file) => {
+    const origin = readProjectOrigin(file)
+    return origin !== null && samePath(origin, configPath)
+  })
 }
 
 // The other .betty.yml a project's route file was loaded from, or null when it

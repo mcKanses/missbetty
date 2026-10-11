@@ -150,6 +150,8 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   if (resolvedContainer === undefined || resolvedContainer === '') throw new BettyError('No container provided.')
 
   if (resolvedDomain === undefined || resolvedDomain === '') throw new BettyError('No domain provided.')
+  // validateDomain ignores surrounding spaces; the route and hosts entry must not get them.
+  resolvedDomain = resolvedDomain.trim()
 
   const domainValidation = validateDomain(resolvedDomain)
   if (domainValidation !== true) throw new BettyError(domainValidation)

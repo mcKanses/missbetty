@@ -100,7 +100,7 @@ export const hasHostsEntry = (domain: string): boolean => {
 // Why a domain has no usable entry, for doctor; undefined when it has one.
 export const hostsEntryProblem = (domain: string): string | undefined => {
   if (!needsEntry(domain)) return undefined
-  if (validateDomain(domain) !== true) return 'not a valid host name; betty does not write it'
+  if (domain !== domain.trim() || validateDomain(domain) !== true) return 'not a valid host name; betty does not write it'
   const content = readOrNull(getHostsPath())
   if (content === null) return 'hosts file not readable'
   const other = foreignMapping(content, domain)
@@ -232,7 +232,7 @@ const editHostsElevated = (hostsPath: string, edit: HostsEdit): boolean =>
 // leaves the file untouched instead of half-updated.
 // Only valid host names reach the file or the elevated script: a route file can
 // be edited by hand, and its Host() value must not inject lines or code.
-const writable = (domain: string): boolean => needsEntry(domain) && validateDomain(domain) === true
+const writable = (domain: string): boolean => needsEntry(domain) && domain === domain.trim() && validateDomain(domain) === true
 
 const editHosts = (add: string[], remove: string[]): boolean => {
   for (const domain of [...add, ...remove]) if (needsEntry(domain) && !writable(domain)) console.log(`\n⚠️  Skipped hosts entry for '${domain}': not a valid host name.`)

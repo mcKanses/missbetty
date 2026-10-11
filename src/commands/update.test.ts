@@ -84,6 +84,13 @@ describe('update command', () => {
     expect(output()).toContain(`Update with: npm install missbetty@${next}`)
   })
 
+  test('--yes fails when betty cannot install the update itself, so scripts notice', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue(next)
+    ;(updateRoute as jest.Mock).mockResolvedValueOnce({ by: 'hand', command: `pnpm add -g missbetty@${next}` })
+    await expect(updateCommand({ yes: true })).rejects.toThrow('cannot update itself')
+    expect(installUpdate).not.toHaveBeenCalled()
+  })
+
   test('fails before asking while npm lags the release', async () => {
     ;(fetchLatestVersion as jest.Mock).mockResolvedValue(next)
     ;(updateRoute as jest.Mock).mockResolvedValueOnce({ by: 'later' })

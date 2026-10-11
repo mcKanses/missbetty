@@ -139,17 +139,28 @@ const installBinary = async (version: string): Promise<void> => {
   const platformPath = windows ? path.win32 : path.posix
   const fileName = platformPath.basename(process.execPath)
   const expected = windows ? 'betty.exe' : 'betty'
-  if (fileName.toLowerCase() !== expected) throw new BettyError(`This binary is named ${fileName}; the installer only replaces ${expected}.`, {
+  // The installer writes betty or betty.exe. Only file systems that ignore case
+  // (Windows, macOS by default) make Betty the same file.
+  const sameName = windows || process.platform === 'darwin' ? fileName.toLowerCase() === expected : fileName === expected
+  if (!sameName) throw new BettyError(`This binary is named ${fileName}; the installer only replaces ${expected}.`, {
     hints: [`Rename it to ${expected}, or install the update with the installer: ${releaseUrl(version)}`],
   })
 
+  const installDir = platformPath.dirname(process.execPath)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     BETTY_VERSION: `v${version}`,
     BETTY_SKIP_DEPS: 'true',
     BETTY_SKIP_PATH: 'true',
-    BETTY_INSTALL_DIR: platformPath.dirname(process.execPath),
+    BETTY_INSTALL_DIR: installDir,
   }
+  // Run by hand without BETTY_INSTALL_DIR, the installer would put a second
+  // betty into its default directory instead of replacing this one.
+  const defaultDir = windows ? path.win32.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'betty') : '/usr/local/bin'
+  const ownDir = windows ? installDir.toLowerCase() !== defaultDir.toLowerCase() : installDir !== defaultDir
+  const manualInstall = windows
+    ? `${ownDir ? `$env:BETTY_INSTALL_DIR='${installDir.replace(/'/g, "''")}'; ` : ''}irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex`
+    : `curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo ${ownDir ? `BETTY_INSTALL_DIR='${installDir.replace(/'/g, "'\\''")}' ` : ''}sh`
   const installer = await downloadInstaller(version, windows ? 'install.ps1' : 'install.sh')
   try {
     if (windows) {
@@ -162,12 +173,7 @@ const installBinary = async (version: string): Promise<void> => {
   } catch {
     // The installer has printed its own reason above.
     throw new BettyError('The update did not complete.', {
-      hints: [
-        windows
-          ? 'Run the installer yourself: irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex'
-          : 'Run the installer yourself: curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo sh',
-        `Release: ${releaseUrl(version)}`,
-      ],
+      hints: [`Run the installer yourself: ${manualInstall}`, `Release: ${releaseUrl(version)}`],
     })
   } finally {
     fs.rmSync(installer.dir, { recursive: true, force: true })
@@ -228,8 +234,13 @@ export const installUpdate = async (version: string): Promise<void> => {
       // Through the shell: npm is a .cmd script on Windows.
       outlastingCtrlC(() => execSync(`npm install -g missbetty@${version}`, { stdio: 'inherit' }))
     } catch {
+      // npm has printed its reason above; running the same command again would
+      // only fail the same way.
       throw new BettyError('npm could not install the update.', {
-        hints: [`Run it yourself: npm install -g missbetty@${version}`],
+        hints: [
+          'If npm reported EACCES, the global npm folder needs other permissions: https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally',
+          'If it reported a busy file (EBUSY/EPERM on Windows), close other betty windows and run: betty update',
+        ],
       })
     }
     return
