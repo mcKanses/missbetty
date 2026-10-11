@@ -13,10 +13,13 @@ export const BETTY_TRAEFIK_CONTAINER = 'betty-traefik'
 // Renders the global Traefik compose file. Only the host-side port mapping is
 // configurable; Traefik always listens on 80/443 inside the container, so
 // routing and certificates stay standard regardless of the published ports.
+// A file written for an older image (traefik:v2.10) differs, so
+// ensureProxySetup rewrites it and the next `docker compose up -d` recreates
+// the proxy with the new one; the route files work unchanged.
 export const renderTraefikCompose = (httpPort: number, httpsPort: number): string => `
 services:
   traefik:
-    image: traefik:v2.10
+    image: traefik:v3.7
     container_name: ${BETTY_TRAEFIK_CONTAINER}
     restart: unless-stopped
     command:
