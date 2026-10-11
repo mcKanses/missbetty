@@ -1,13 +1,13 @@
 import inquirer from 'inquirer'
 import updateCommand from './update'
-import { fetchLatestVersion, installUpdate } from '../utils/update'
+import { fetchLatestVersion, installUpdate, updateRoute } from '../utils/update'
 
 jest.mock('inquirer', () => ({ prompt: jest.fn() }))
 jest.mock('../utils/update', () => ({
   ...jest.requireActual<object>('../utils/update'),
   fetchLatestVersion: jest.fn(),
   installUpdate: jest.fn(),
-  installMethod: jest.fn(() => 'binary'),
+  updateRoute: jest.fn(() => Promise.resolve({ by: 'betty' })),
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -60,5 +60,20 @@ describe('update command', () => {
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(installUpdate).toHaveBeenCalledWith(next)
     expect(output()).toContain(`updated to ${next}`)
+  })
+
+  test('does not ask when betty cannot install the update itself', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue(next)
+    ;(updateRoute as jest.Mock).mockResolvedValueOnce({ by: 'hand', command: `npm install missbetty@${next} (in the project that uses betty)` })
+    await updateCommand()
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(output()).toContain(`Update with: npm install missbetty@${next}`)
+  })
+
+  test('fails before asking while npm lags the release', async () => {
+    ;(fetchLatestVersion as jest.Mock).mockResolvedValue(next)
+    ;(updateRoute as jest.Mock).mockResolvedValueOnce({ by: 'later' })
+    await expect(updateCommand()).rejects.toThrow('not on npm yet')
+    expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 })
