@@ -11,6 +11,7 @@ jest.mock('fs', () => ({
     rmSync: jest.fn(),
     renameSync: jest.fn(),
     linkSync: jest.fn(),
+    utimesSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
@@ -20,6 +21,7 @@ jest.mock('fs', () => ({
   rmSync: jest.fn(),
   renameSync: jest.fn(),
   linkSync: jest.fn(),
+  utimesSync: jest.fn(),
 }))
 
 jest.mock('./constants', () => ({
@@ -236,6 +238,22 @@ describe('withLockAsync', () => {
     await expect(withLockAsync(async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
 
     expect(fs.rmSync).toHaveBeenCalledWith(LOCK_PATH, { force: true })
+  })
+
+  it('keeps the lock young while fn waits, e.g. at a prompt left open', async () => {
+    jest.useFakeTimers()
+    try {
+      let finish: () => void = () => undefined
+      const running = withLockAsync(() => new Promise<void>((resolve) => { finish = resolve }))
+      jest.advanceTimersByTime(11 * 60_000)
+      expect(fs.utimesSync).toHaveBeenCalledTimes(2)
+      finish()
+      await running
+      jest.advanceTimersByTime(10 * 60_000)
+      expect(fs.utimesSync).toHaveBeenCalledTimes(2)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('refuses to run while the owning process is still running', async () => {

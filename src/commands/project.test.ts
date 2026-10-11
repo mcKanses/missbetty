@@ -578,6 +578,13 @@ describe('projectStatusCommand', () => {
     ],
   }
 
+  test('reports a local .betty.yml that does not parse instead of calling it missing', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockImplementation(() => { throw new Error('domains[0].host is required.') })
+
+    await expect(projectStatusCommand({})).rejects.toThrow('domains[0].host is required.')
+  })
+
   test('shows "no project specified" message when no --file and no local .betty.yml found', async () => {
     ;(readRoutes as unknown as jest.Mock).mockReturnValue([])
     ;(resolveConfigPath as unknown as jest.Mock).mockImplementation(() => { throw new Error('No .betty.yml found') })
