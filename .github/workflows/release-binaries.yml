@@ -281,6 +281,18 @@ jobs:
             cosign sign-blob --yes --output-signature "$asset.sha256.sig" --output-certificate "$asset.sha256.pem" "$asset.sha256"
           done
 
+      # Checked before anything is uploaded: a bad signature must not replace
+      # the assets of a published release.
+      - name: Verify signatures
+        working-directory: assets
+        run: |
+          identity="^https://github\.com/${GITHUB_REPOSITORY}/\.github/workflows/release-binaries\.yml@${GITHUB_REF}$"
+          for blob in betty-*.tar.gz betty-*.zip betty-*.sha256; do
+            cosign verify-blob "$blob" --signature "$blob.sig" --certificate "$blob.pem" \
+              --certificate-identity-regexp "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          done
+
       # A published release is replaced only when asked for: its assets are
       # swapped one by one, so archive and checksum briefly disagree and installs
       # in that moment fail.

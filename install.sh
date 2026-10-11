@@ -189,8 +189,19 @@ install_dependencies_linux() {
     exit 1
   }
 
+  # Found by path as well: sudo's secure_path (RHEL, Fedora) leaves out
+  # /usr/local/bin, where the fallback below installs mkcert.
+  find_mkcert() {
+    if command -v mkcert 2>/dev/null; then
+      return
+    fi
+    if [ -x /usr/local/bin/mkcert ]; then
+      echo /usr/local/bin/mkcert
+    fi
+  }
+
   install_mkcert_linux() {
-    if command -v mkcert >/dev/null 2>&1; then
+    if [ -n "$(find_mkcert)" ]; then
       return
     fi
 
@@ -199,7 +210,7 @@ install_dependencies_linux() {
     install_with_pm mkcert || true
     install_with_pm libnss3-tools || true
 
-    if ! command -v mkcert >/dev/null 2>&1; then
+    if [ -z "$(find_mkcert)" ]; then
       # mkcert publishes no checksums; these are the sha256 of the v1.4.4
       # release binaries, so a swapped download is refused.
       MKCERT_VERSION="v1.4.4"
@@ -225,10 +236,11 @@ install_dependencies_linux() {
 
     # The CA must belong to the user who runs betty: run as root, mkcert would
     # create and trust a second CA under /root that betty never uses.
+    MKCERT_BIN="$(find_mkcert)"
     if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-      sudo -u "$SUDO_USER" -H mkcert -install >/dev/null 2>&1 || true
+      sudo -u "$SUDO_USER" -H "$MKCERT_BIN" -install >/dev/null 2>&1 || true
     else
-      mkcert -install >/dev/null 2>&1 || true
+      "$MKCERT_BIN" -install >/dev/null 2>&1 || true
     fi
   }
 
@@ -241,7 +253,7 @@ install_dependencies_linux() {
     exit 1
   fi
 
-  if ! command -v mkcert >/dev/null 2>&1; then
+  if [ -z "$(find_mkcert)" ]; then
     echo "mkcert installation failed."
     exit 1
   fi
