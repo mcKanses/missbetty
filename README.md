@@ -80,7 +80,7 @@ $env:BETTY_REQUIRE_SIGNATURE = 'true'; irm https://raw.githubusercontent.com/mcK
 ```
 
 To verify a downloaded asset by hand with cosign 3, use its Sigstore bundle
-(published from 1.10.6 on):
+(published from 1.11.0 on):
 
 ```sh
 cosign verify-blob betty-linux-x64.tar.gz \
