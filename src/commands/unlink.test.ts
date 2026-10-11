@@ -165,6 +165,14 @@ describe('unlink command', () => {
     logSpy.mockRestore()
   })
 
+  test('fails for a named domain or project even when there are no links at all', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => normalizePath(String(p)).endsWith('/.betty/docker-compose.yml'))
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue([])
+
+    await expect(unlinkCommand({ domain: 'gone.localhost' })).rejects.toThrow("No link found for domain 'gone.localhost'.")
+    await expect(unlinkCommand({ project: 'gone' })).rejects.toThrow("No project found with name 'gone'.")
+  })
+
   test('logs "No links found." when dynamic dir does not exist', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
       const np = normalizePath(String(p))

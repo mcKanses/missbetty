@@ -1021,3 +1021,54 @@ describe('dev command', () => {
     expect(execCalls.some((c) => c.includes('compose down'))).toBe(false)
   })
 })
+
+describe('domains dropped from .betty.yml', () => {
+  const configWith = (mode: string): string => [
+    'project: shop',
+    'domains:',
+    '  - host: new.test',
+    '    target: http://127.0.0.1:3000',
+    'permissions:',
+    `  hosts: ${mode}`,
+    '  docker: allowed',
+  ].join('\n')
+  // The last load routed old.test; its hosts entry is still there. (.localhost
+  // names need no entry.)
+  const previousRoute = yaml.stringify({ http: { routers: { 'shop-0': { rule: 'Host("old.test")', service: 'shop-0' } }, services: { 'shop-0': { loadBalancer: { servers: [{ url: 'http://host.docker.internal:3000' }] } } } } })
+  const hostsFile = '127.0.0.1 old.test # added by betty\n'
+
+  const loadWith = async (mode: string): Promise<void> => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const normalized = String(p).replace(/\\/g, '/')
+      if (normalized.endsWith('.betty.yml')) return configWith(mode)
+      if (normalized.endsWith('/dynamic/shop.yml')) return previousRoute
+      if (normalized.endsWith('hosts')) return hostsFile
+      return ''
+    })
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) =>
+      Buffer.from(String(cmd).includes('docker ps') ? 'betty-traefik\t0.0.0.0:443->443/tcp\n' : ''))
+    await devCommand({ config: '.betty.yml' })
+  }
+
+  test('removes their hosts entries when permissions.hosts allows it', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await loadWith('allowed')
+
+    const hostsWrites = (fs.writeFileSync as unknown as jest.Mock).mock.calls.filter((c) => String(c[0]).endsWith('hosts'))
+    expect(hostsWrites).toHaveLength(1)
+    expect(String(hostsWrites[0][1])).not.toContain('old.test')
+  })
+
+  test('keeps their hosts entries and says so when permissions.hosts is denied', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const warn = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await loadWith('denied')
+
+    expect((fs.writeFileSync as unknown as jest.Mock).mock.calls.some((c) => String(c[0]).endsWith('hosts'))).toBe(false)
+    expect(warn.mock.calls.flat().join('\n')).toContain('old.test is no longer in .betty.yml')
+  })
+})

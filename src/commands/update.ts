@@ -34,6 +34,10 @@ const updateCommand = async (opts: UpdateOptions = {}): Promise<void> => {
   if (route.by === 'later') throw notOnNpmYet(latest)
 
   if (opts.yes !== true) {
+    // Without a terminal (CI, cron, piped input) the prompt cannot be answered.
+    if (!process.stdin.isTTY) throw new BettyError(`Betty ${latest} is available, but there is no terminal to confirm the install.`, {
+      hints: ['Run: betty update --yes'],
+    })
     const { install } = await inquirer.prompt<{ install: boolean }>([{
       type: 'confirm',
       name: 'install',

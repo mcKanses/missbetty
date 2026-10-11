@@ -12,12 +12,10 @@ const describeOnWindows = process.platform === 'win32' ? describe : describe.ski
 describeOnWindows('elevated hosts script (Windows PowerShell)', () => {
   let dir: string
   let hostsPath: string
-  let errorFile: string
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'betty-hosts-ps-'))
     hostsPath = path.join(dir, 'hosts')
-    errorFile = path.join(dir, 'error.txt')
   })
   afterEach(() => {
     try { fs.chmodSync(hostsPath, 0o666) } catch { /* not created */ }
@@ -25,7 +23,7 @@ describeOnWindows('elevated hosts script (Windows PowerShell)', () => {
   })
 
   const run = (add: string[], remove: string[]): number => {
-    const encoded = Buffer.from(hostsEditScript(hostsPath, { add, remove }, errorFile), 'utf16le').toString('base64')
+    const encoded = Buffer.from(hostsEditScript(hostsPath, { add, remove }), 'utf16le').toString('base64')
     try {
       execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { stdio: 'pipe' })
       return 0
@@ -110,12 +108,12 @@ describeOnWindows('elevated hosts script (Windows PowerShell)', () => {
     expect(fs.readFileSync(hostsPath, 'latin1')).toBe('127.0.0.1 a.test # added by betty\r\n')
   })
 
-  test('reports why it failed, e.g. a read-only hosts file', () => {
+  test('reports why it failed by its exit code, e.g. 2 for a read-only hosts file', () => {
     fs.writeFileSync(hostsPath, '127.0.0.1 localhost\r\n127.0.0.1 a.test # added by betty\r\n')
     fs.chmodSync(hostsPath, 0o444)
 
-    expect(run([], ['a.test'])).toBe(1)
-
-    expect(fs.readFileSync(errorFile, 'utf8')).toMatch(/denied|Zugriff|access/i)
+    expect(run([], ['a.test'])).toBe(2)
+    // Nothing is written outside the hosts file.
+    expect(fs.readdirSync(dir)).toEqual(['hosts'])
   })
 })

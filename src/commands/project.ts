@@ -196,7 +196,7 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
     // take down the routes of the other one that is actually loaded.
     const loadedFrom = loadedFromElsewhere(config.project, configPath)
     if (loadedFrom !== null) throw new BettyError(`Project '${config.project}' is loaded from ${loadedFrom}, not from this .betty.yml.`, {
-      hints: ['Run `betty project stop` in that project instead.'],
+      hints: ['Run `betty project stop` in that project instead.', `Or remove its links from anywhere: betty project unlink ${config.project}`],
     })
 
     if (opts.yes !== true) {
@@ -209,15 +209,23 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
       if (!confirm) { console.log('Cancelled.'); return }
     }
 
+    // A failing down command must not keep the links: they are removed anyway,
+    // and the failure is reported afterwards.
+    let downError: Error | null = null
     if (config.down?.command !== undefined) {
       console.log(`Running: ${config.down.command}`)
-      runProjectCommand(config.down.command, configPath)
+      try {
+        runProjectCommand(config.down.command, configPath)
+      } catch (err) {
+        downError = err instanceof Error ? err : new Error(String(err))
+      }
     }
 
     // The routes can already be gone, e.g. after Ctrl+C in `betty project load`.
     const linked = readRoutes().some((r) => path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === sanitizeName(config.project).toLowerCase() && isProjectRouter(r.routerName, config.project))
     if (linked) await unlinkCommand({ project: sanitizeName(config.project), yes: true })
     else console.log(`Project '${config.project}' has no domain links to remove.`)
+    if (downError !== null) throw downError
   } catch (err) {
     if (err instanceof BettyError) throw err
     throw new BettyError(err instanceof Error ? err.message : String(err))
