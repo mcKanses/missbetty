@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, jest, test } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import {
   checkDockerRunning,
@@ -20,6 +20,7 @@ jest.mock('os', () => ({
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -207,6 +208,23 @@ describe('setup utils', () => {
 
     expect(result).toEqual({ ok: true })
     expect(execSync).toHaveBeenCalledWith('winget install --id FiloSottile.mkcert -e', { stdio: 'inherit' })
+  })
+
+  test('installMkcertPackage finds a winget mkcert through the PATH winget just updated', () => {
+    setPlatform('win32')
+    const originalPath = process.env.PATH
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(Buffer.from('C:\\WinGet\\Links'))
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      const command = String(cmd)
+      // Found only once the refreshed PATH holds the WinGet links folder.
+      if (command === 'mkcert -help' && !(process.env.PATH ?? '').includes('WinGet')) throw new Error('missing')
+      return Buffer.from('')
+    })
+    try {
+      expect(installMkcertPackage()).toEqual({ ok: true })
+    } finally {
+      process.env.PATH = originalPath
+    }
   })
 
   test('installMkcertPackage returns warning when winget is not available on Windows', () => {

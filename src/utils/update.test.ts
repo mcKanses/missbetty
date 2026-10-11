@@ -145,6 +145,26 @@ describe('update utils', () => {
     expect(fs.rmSync).toHaveBeenCalledWith('/tmp/betty-update-x', { recursive: true, force: true })
   })
 
+  test('the failure hint keeps a custom install directory', async () => {
+    setPlatform('linux')
+    setExecPath('/opt/tools/betty')
+    ;(isSea as jest.Mock).mockReturnValue(true)
+    mockFetch(scriptResponse)
+    ;(execFileSync as jest.Mock).mockImplementation(() => { throw new Error('installer failed') })
+
+    const err = await installUpdate('1.10.0').catch((e: unknown) => e) as BettyError
+    expect(err.hints.join(' ')).toContain("| sudo BETTY_INSTALL_DIR='/opt/tools' sh")
+  })
+
+  test('on Linux, Betty is another file than betty and is not replaced', async () => {
+    setPlatform('linux')
+    setExecPath('/usr/local/bin/Betty')
+    ;(isSea as jest.Mock).mockReturnValue(true)
+
+    await expect(installUpdate('1.10.0')).rejects.toThrow('only replaces betty')
+    expect(execFileSync).not.toHaveBeenCalled()
+  })
+
   test('the installer does not run for a renamed binary', async () => {
     setPlatform('linux')
     setExecPath('/home/me/Downloads/betty-linux-x64')

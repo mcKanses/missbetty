@@ -5,6 +5,7 @@ import {
   checkMkcertCaInstalled,
   checkMkcertInstalled,
   collectSetupStatus,
+  findMissingHostsEntries,
   installMkcertPackage,
   printDockerInstallInstructions,
   printMkcertInstallInstructions,
@@ -80,7 +81,9 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
   if (!status.hostsEntryExists) {
     const missing = status.missingHostsEntries.join(', ')
     const shouldAddHosts = await askYesNo(`Add hosts entries for ${missing}? This may ask for admin rights. [Y/n]`, yes)
-    if (shouldAddHosts) withLock(() => ensureHostsEntries(status.missingHostsEntries))
+    // Read again under the lock: links can have changed while the prompts were
+    // open, and an entry for a domain unlinked meanwhile would never be removed.
+    if (shouldAddHosts) withLock(() => ensureHostsEntries(findMissingHostsEntries()))
   }
 
   if (!status.dockerInstalled) printDockerInstallInstructions()
