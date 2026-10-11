@@ -1,7 +1,6 @@
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
-import path from 'path'
 import { validateDomain } from './names'
 
 // Marker Betty appends to every hosts entry it creates. Removal is gated on this
@@ -133,10 +132,18 @@ const applyEdit = (content: string, edit: HostsEdit): string => {
   return edit.add.length > 0 ? `${rest}${appendText(rest, edit.add.map(entryFor))}` : rest
 }
 
-// Runs the script elevated and passes on its exit code. A failure inside it (a
-// read-only or locked file) is written to errorFile, since the elevated window
-// closes before anyone can read it.
-const elevateWithPowerShell = (script: string, errorFile: string): boolean => {
+// Why the elevated script failed, by its exit code: the elevated window closes
+// before anyone can read it. No file carries the reason back, since an elevated
+// write to a path an unelevated process can predict could be redirected by a
+// link planted there. 1 is also a declined UAC prompt, which needs no message.
+const ELEVATED_FAILURES: Partial<Record<number, string>> = {
+  2: 'access denied (is the hosts file read-only, or guarded by security software?)',
+  3: 'the hosts file is in use by another program',
+  4: 'unexpected error while editing the hosts file',
+}
+
+// Runs the script elevated and passes on its exit code.
+const elevateWithPowerShell = (script: string): boolean => {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   try {
     // Started directly, not through cmd.exe: cmd caps a command line at 8191
@@ -147,14 +154,10 @@ const elevateWithPowerShell = (script: string, errorFile: string): boolean => {
       { stdio: 'inherit' }
     )
     return true
-  } catch {
-    try {
-      const reason = fs.readFileSync(errorFile, 'utf8').trim()
-      if (reason !== '') console.log(`\n⚠️  The elevated hosts edit failed: ${reason}`)
-    } catch { /* declined UAC prompt: nothing was written */ }
+  } catch (err) {
+    const reason = ELEVATED_FAILURES[(err as { status?: number }).status ?? 1]
+    if (reason !== undefined) console.log(`\n⚠️  The elevated hosts edit failed: ${reason}`)
     return false
-  } finally {
-    fs.rmSync(errorFile, { force: true })
   }
 }
 
@@ -170,7 +173,7 @@ const psString = (value: string): string => `'${value.replace(/['\u2018\u2019\u2
 // Betty widens no ACL: a lasting Write grant would let any unelevated process
 // of the user redirect domains without a prompt.
 // Exported for tests, which run it unelevated against a scratch file.
-export const hostsEditScript = (hostsPath: string, edit: HostsEdit, errorFile: string): string => {
+export const hostsEditScript = (hostsPath: string, edit: HostsEdit): string => {
   const list = (domains: string[]): string => `@(${domains.map(psString).join(', ')})`
   // Latin-1 (28591) round-trips every byte, like HOSTS_ENCODING. Without
   // removals only the new lines are appended; the rest of the file is not
@@ -210,16 +213,18 @@ export const hostsEditScript = (hostsPath: string, edit: HostsEdit, errorFile: s
     '  [System.IO.File]::WriteAllText($path, $body + $new, $enc)',
     '}',
     '} catch {',
-    `  [System.IO.File]::WriteAllText(${psString(errorFile)}, $_.Exception.Message)`,
-    '  exit 1',
+    // .NET methods called from PowerShell wrap their exception.
+    '  $e = $_.Exception',
+    '  while ($null -ne $e.InnerException) { $e = $e.InnerException }',
+    '  if ($e -is [System.UnauthorizedAccessException]) { exit 2 }',
+    '  if ($e -is [System.IO.IOException]) { exit 3 }',
+    '  exit 4',
     '}',
   ].join('\n')
 }
 
-const editHostsElevated = (hostsPath: string, edit: HostsEdit): boolean => {
-  const errorFile = path.join(os.tmpdir(), `betty-hosts-${String(process.pid)}.err`)
-  return elevateWithPowerShell(hostsEditScript(hostsPath, edit, errorFile), errorFile)
-}
+const editHostsElevated = (hostsPath: string, edit: HostsEdit): boolean =>
+  elevateWithPowerShell(hostsEditScript(hostsPath, edit))
 
 // Adds and removes Betty's hosts entries in one step: a direct write when
 // permitted, otherwise a single elevated write (UAC on Windows, sudo elsewhere).
