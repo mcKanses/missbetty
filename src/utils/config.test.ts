@@ -265,6 +265,14 @@ describe('getStoredDomainSuffix', () => {
 
     expect(getStoredDomainSuffix()).toBeNull()
   })
+
+  test('treats a config file that holds no object, e.g. null, as empty', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    for (const raw of ['null', '42', '[]']) {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(raw)
+      expect(getStoredDomainSuffix()).toBeNull()
+    }
+  })
 })
 
 describe('update check setting', () => {
