@@ -248,7 +248,7 @@ try {
     Write-Host 'Signature not verified: cosign is not installed (checksum only).'
   }
 
-  Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
+  Expand-Archive -LiteralPath $zipPath -DestinationPath $tmpDir -Force
 
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
   $target = Join-Path $installDir 'betty.exe'
@@ -256,23 +256,24 @@ try {
   # A running betty.exe (e.g. during `betty update`) cannot be overwritten, but
   # it can be renamed. The aside name is unique, since an older betty still
   # running may hold an earlier one; betty removes them on its next start.
+  # -LiteralPath throughout: [ and ] in a user name are wildcards to -Path.
   $staged = "$target.new"
-  Copy-Item -Path (Join-Path $tmpDir 'betty.exe') -Destination $staged -Force
   $previous = "$target.$([System.Guid]::NewGuid().ToString('N')).old"
   $swapped = $false
   try {
-    if (Test-Path $target) { Move-Item $target $previous }
-    Move-Item $staged $target
+    Copy-Item -LiteralPath (Join-Path $tmpDir 'betty.exe') -Destination $staged -Force
+    if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination $previous }
+    Move-Item -LiteralPath $staged -Destination $target
     $swapped = $true
   }
   finally {
     # finally, not catch: Ctrl+C runs only finally blocks.
     if (-not $swapped) {
-      if ((Test-Path $previous) -and -not (Test-Path $target)) { Move-Item $previous $target }
-      Remove-Item $staged -Force -ErrorAction SilentlyContinue
+      if ((Test-Path -LiteralPath $previous) -and -not (Test-Path -LiteralPath $target)) { Move-Item -LiteralPath $previous -Destination $target }
+      Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
     }
   }
-  Remove-Item $previous -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $previous -Force -ErrorAction SilentlyContinue
 
   # The user PATH is read and written unexpanded, as REG_EXPAND_SZ:
   # [Environment]::Get/SetEnvironmentVariable would expand every %VAR% entry and

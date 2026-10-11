@@ -175,6 +175,18 @@ jobs:
         with:
           name: release-docs
 
+      # A manual run republishes an existing tag, whose commit predates the
+      # changelog and README synced after the release; take them from the
+      # branch the run was started on.
+      - name: Take the changelog and README from the branch
+        if: steps.tag.outputs.version != '' && github.event_name == 'workflow_dispatch'
+        env:
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          git checkout "origin/$BRANCH" -- CHANGELOG.md README.md
+          grep -q "$VERSION" CHANGELOG.md || echo "::warning::CHANGELOG.md on $BRANCH has no entry for $VERSION"
+
       - name: Install dependencies
         if: steps.tag.outputs.version != ''
         run: npm ci
