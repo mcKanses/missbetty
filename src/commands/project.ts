@@ -275,9 +275,13 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
       }
 
     const config = readDevProjectConfig(configPath)
+    // Only the project's own routes count: a domain linked by something else is
+    // not this project's.
+    const name = sanitizeName(config.project).toLowerCase()
+    const own = routes.filter((r) => path.basename(r.fileName, path.extname(r.fileName)).toLowerCase() === name && isProjectRouter(r.routerName, name))
     printStatusTable(
       config.domains.map((d) => ({
-        status: routes.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
+        status: own.some((r) => r.domain.toLowerCase() === d.host.toLowerCase()) ? 'linked' : 'unlinked',
         domain: d.host,
         target: d.target,
       })),
