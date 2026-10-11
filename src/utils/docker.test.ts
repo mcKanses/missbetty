@@ -18,6 +18,8 @@ jest.mock('./setup', () => ({
   isHttpsRequestedDomain: jest.fn(),
 }))
 
+jest.mock('./certs', () => ({ checkCertificate: jest.fn() }))
+
 jest.mock('./constants', () => ({
   BETTY_PROXY_COMPOSE: '/home/test/.betty/docker-compose.yml',
   BETTY_CERTS_DIR: '/home/test/.betty/certs',
@@ -39,6 +41,7 @@ import { execFileSync } from 'child_process'
 import { BettyError } from './errors'
 import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import { sanitizeName } from './names'
+import { checkCertificate } from './certs'
 import {
   resolveTraefikComposePath,
   getRunningContainers,
@@ -200,6 +203,24 @@ describe('ensureCertificate', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(true)
     ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(false)
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: null })
+  })
+
+  it('renews an existing certificate that expires soon', () => {
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-11-01' })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
+    expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-cert-file', '/home/test/.betty/certs/myapp.dev.pem', '-key-file', '/home/test/.betty/certs/myapp.dev-key.pem', 'myapp.dev'], { stdio: 'inherit' })
+  })
+
+  it('keeps an old certificate when mkcert is missing to renew it', () => {
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expired on 2026-01-01' })
+    ;(checkMkcertInstalled as unknown as jest.Mock).mockReturnValue(false)
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
+    expect(execFileSync).not.toHaveBeenCalled()
   })
 
   it('returns cert paths when cert files already exist', () => {
