@@ -1,6 +1,6 @@
 import { printHint } from '../cli/ui/output'
 import { BettyError } from '../utils/errors'
-import { isWsl } from '../utils/hosts'
+import { hostsEntryProblem, isWsl } from '../utils/hosts'
 import { collectSetupStatus } from '../utils/setup'
 
 export const statusLine = (label: string, ok: boolean, detail?: string): void => {
@@ -24,7 +24,10 @@ const doctorCommand = (): void => {
   // tell and fix, which `betty setup` runs.
   statusLine('mkcert CA created', status.mkcertCaInstalled)
   if (status.linkedDomains.length === 0) statusLine('hosts entries (no linked domains need one)', true)
-  for (const domain of status.linkedDomains) statusLine(`hosts entry for ${domain}`, !status.missingHostsEntries.includes(domain))
+  for (const domain of status.linkedDomains) {
+    const ok = !status.missingHostsEntries.includes(domain)
+    statusLine(`hosts entry for ${domain}`, ok, ok ? undefined : hostsEntryProblem(domain))
+  }
 
   if (isWsl() && status.mkcertCaInstalled) printHint('WSL: browsers on Windows trust only CAs in the Windows store. Run mkcert -install on Windows as well, with CAROOT pointing at the same CA.')
 
