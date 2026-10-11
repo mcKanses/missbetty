@@ -480,7 +480,10 @@ If required values are missing, Betty asks interactively for:
 Betty links the container into the global Docker network `betty_proxy`, writes
 a route file to `~/.betty/dynamic`, and reloads the global Traefik container.
 If mkcert is installed, Betty also creates a certificate in `~/.betty/certs`
-and enables HTTPS for the linked domain.
+and enables HTTPS for the linked domain. mkcert certificates last about 27
+months; `betty link`, `betty relink` and `betty project load` create a new one
+when the old one expires within 30 days, comes from another mkcert CA, or does
+not cover the domain.
 
 Use `.localhost` domains when possible, for example `my-app.localhost`. Betty
 also accepts custom domains such as `.dev` and can add an append-only hosts
@@ -553,9 +556,11 @@ Betty prints the domain so you can remove it manually.
 ### `betty doctor`
 
 Checks, without changing anything, whether Docker is installed and running,
-whether mkcert and its local CA exist, and whether every linked domain that
-needs one has a hosts entry. Exits with a non-zero status when Docker or a
-hosts entry is missing, so it can be used in scripts.
+whether mkcert and its local CA exist, whether every linked domain that needs
+one has a hosts entry, and whether the certificates in `~/.betty/certs` are
+valid: not expiring within 30 days and issued by the current mkcert CA. Exits
+with a non-zero status when Docker, a hosts entry or a valid certificate is
+missing, so it can be used in scripts.
 
 ```sh
 betty doctor
@@ -564,8 +569,9 @@ betty doctor
 ### `betty setup`
 
 Fixes what `betty doctor` finds: installs mkcert when it is missing, runs
-`mkcert -install` so browsers trust the local CA, and adds missing hosts
-entries. Hosts changes may ask for admin rights.
+`mkcert -install` so browsers trust the local CA, renews certificates that
+expire soon or come from another CA (and restarts the proxy to serve them), and
+adds missing hosts entries. Hosts changes may ask for admin rights.
 
 ```sh
 betty setup

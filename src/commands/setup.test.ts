@@ -23,6 +23,15 @@ jest.mock('../utils/hosts', () => ({
   ensureHostsEntries: jest.fn(),
 }))
 
+jest.mock('../utils/certs', () => ({
+  checkAllCertificates: jest.fn(() => []),
+  renewCertificates: jest.fn(() => []),
+}))
+
+jest.mock('../utils/docker', () => ({ restartTraefik: jest.fn() }))
+
+jest.mock('../utils/lock', () => ({ withLock: (fn: () => unknown) => fn() }))
+
 jest.mock('../utils/setup', () => ({
   __esModule: true,
   checkMkcertCaInstalled: jest.fn(),
