@@ -312,6 +312,9 @@ const editHosts = (add: string[], remove: string[]): boolean => {
 
 export const ensureHostsEntries = (domains: string[]): boolean => editHosts(domains, [])
 
+// Adds and removes in one edit: a single elevation prompt on Windows.
+export const updateHostsEntries = (add: string[], remove: string[]): boolean => editHosts(add, remove)
+
 export const removeHostsEntries = (domains: string[]): boolean => editHosts([], domains)
 
 export const ensureHostsEntry = (domain: string): boolean => ensureHostsEntries([domain])

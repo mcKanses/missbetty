@@ -731,6 +731,25 @@ describe('relink command', () => {
   })
 })
 
+describe('relink of a link from an older betty', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+    wireExecFileSyncToExecSync()
+  })
+
+  test('asks for the container rather than taking the link for a project route', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    await expect(relinkCommand('app', { port: '3000', yes: true })).rejects.toThrow('linked by an older betty')
+  })
+})
+
 describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () => {
   const originalPlatform = process.platform
   const originalEnv = { USERDOMAIN: process.env.USERDOMAIN, USERNAME: process.env.USERNAME }
@@ -883,6 +902,28 @@ describe('ensureHostsEntry (via relinkCommand with non-localhost domain)', () =>
     expect(output).not.toContain('only reachable after the hosts entry')
 
     logSpy.mockRestore()
+  })
+
+  test('moves the hosts entry to a new domain with a single elevation on Windows', async () => {
+    setPlatform('win32')
+    mockBaseSetup()
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).includes('drivers/etc/hosts')) throw new Error('EACCES')
+    })
+    const elevated = (): boolean => (execSync as unknown as jest.Mock).mock.calls.some((call) => String(call[0]).includes('EncodedCommand'))
+    ;(fs.readFileSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      if (normalizePath(String(p)).includes('drivers/etc/hosts')) return elevated()
+        ? '127.0.0.1 localhost\n127.0.0.1 myapp.test # added by betty\n'
+        : '127.0.0.1 localhost\n127.0.0.1 app.test # added by betty\n'
+      return YAML_APP_ROUTE.replace('app.localhost', 'app.test')
+    })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await relinkCommand('app', { container: 'myapp', domain: 'myapp.test', port: '3000', yes: true })
+
+    const elevations = (execSync as unknown as jest.Mock).mock.calls.filter((call) => String(call[0]).includes('EncodedCommand'))
+    expect(elevations).toHaveLength(1)
   })
 
   test('prints manual hint when PowerShell elevation fails on Windows', async () => {
