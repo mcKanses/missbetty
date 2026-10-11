@@ -176,7 +176,8 @@ export const tlsOptionsName = (routerName: string): string => `${routerName}-tls
 // Project files hold several domains, so the other routes must survive.
 export const removeRouteFromFile = (route: RouteEntry): boolean => {
   const content = fs.readFileSync(route.filePath, 'utf8')
-  const doc = yaml.parse(content) as TraefikDynamicConfig
+  // The file can have been emptied since it was read: nothing left to keep.
+  const doc = (yaml.parse(content) ?? {}) as TraefikDynamicConfig
   // yaml.stringify drops comments; keep the leading ones Betty stores metadata in
   // (the project origin, the source container).
   const header = /^(?:#[^\n]*\n)*/.exec(content)?.[0] ?? ''
@@ -258,9 +259,11 @@ export const readProjectOrigin = (routeFile: string): string | null => {
 
 // The other .betty.yml a project's route file was loaded from, or null when it
 // is this one, unknown, or not loaded at all.
+// An origin that no longer exists does not count: the project directory was
+// moved or renamed, and the project there could never be stopped otherwise.
 export const loadedFromElsewhere = (project: string, configPath: string): string | null => {
   const origin = readProjectOrigin(projectRouteFile(project))
-  return origin !== null && !samePath(origin, configPath) ? origin : null
+  return origin !== null && !samePath(origin, configPath) && fs.existsSync(origin) ? origin : null
 }
 
 export const writeRouteConfig = (
