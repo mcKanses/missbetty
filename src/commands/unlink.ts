@@ -82,7 +82,7 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
   const remainingRoutes = readRoutes()
   const removedDomains: string[] = []
   for (const r of projectRoutes) {
-    const stillUsed = remainingRoutes.some((rem) => rem.domain === r.domain)
+    const stillUsed = remainingRoutes.some((rem) => rem.domain.toLowerCase() === r.domain.toLowerCase())
     if (!stillUsed) removedDomains.push(r.domain)
   }
   const hostsRemoved = removeHostsEntries(removedDomains)
@@ -99,7 +99,7 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
 const removeSingleWithSummary = (route: RouteEntry, composePath: string): void => {
   const fileDeleted = removeRouteFromFile(route)
   const remainingRoutes = readRoutes()
-  const domainStillUsed = remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)
+  const domainStillUsed = remainingRoutes.some((r) => r.domain.toLowerCase() === route.domain.toLowerCase() && r.filePath !== route.filePath)
   let hostsStatus: string
   if (!domainStillUsed) {
     const hostsUpdated = removeHostsEntry(route.domain)
@@ -200,7 +200,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
     fs.unlinkSync(filePath)
     removeLinkContainer(path.basename(filePath))
     const remainingRoutes = readRoutes()
-    for (const r of group) if (!remainingRoutes.some((rem) => rem.domain === r.domain)) removedDomains.push(r.domain)
+    for (const r of group) if (!remainingRoutes.some((rem) => rem.domain.toLowerCase() === r.domain.toLowerCase())) removedDomains.push(r.domain)
     
   }
 
@@ -212,7 +212,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
     }
     removeRouteFromFile(route)
     const remainingRoutes = readRoutes()
-    if (!remainingRoutes.some((r) => r.domain === route.domain && r.filePath !== route.filePath)) removedDomains.push(route.domain)
+    if (!remainingRoutes.some((r) => r.domain.toLowerCase() === route.domain.toLowerCase() && r.filePath !== route.filePath)) removedDomains.push(route.domain)
     else console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
   }
 
