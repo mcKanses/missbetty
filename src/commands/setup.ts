@@ -1,4 +1,8 @@
+import { execFileSync } from 'child_process'
 import inquirer from 'inquirer'
+import { checkAllCertificates, renewCertificates } from '../utils/certs'
+import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
+import { restartTraefik } from '../utils/docker'
 import { ensureHostsEntries } from '../utils/hosts'
 import { withLock } from '../utils/lock'
 import {
@@ -28,6 +32,19 @@ const askYesNo = async (message: string, yes?: boolean): Promise<boolean> => {
   return answer.ok
 }
 
+// Renews the certificates that expire soon or come from another CA, and
+// restarts a running proxy so it serves them: it does not reload certificate
+// files on its own.
+const renewDueCertificates = (): void => {
+  const renewed = withLock(() => renewCertificates(checkAllCertificates()))
+  if (renewed.length === 0) return
+  let proxyRunning = false
+  try {
+    proxyRunning = execFileSync('docker', ['ps', '--filter', `name=^${BETTY_TRAEFIK_CONTAINER}$`, '--format', '{{.Names}}'], { stdio: 'pipe' }).toString().trim() !== ''
+  } catch { /* Docker is not running: the proxy reads them when it starts */ }
+  if (proxyRunning) restartTraefik(BETTY_PROXY_COMPOSE)
+}
+
 const runSetupFix = (): void => {
   const status = collectSetupStatus()
 
@@ -44,6 +61,7 @@ const runSetupFix = (): void => {
   if (checkMkcertInstalled()) {
     const mkcertResult = runMkcertInstall()
     if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
+    renewDueCertificates()
   }
 
   if (!status.hostsEntryExists) console.log(`Warning: hosts entries missing for ${status.missingHostsEntries.join(', ')}. Run 'betty setup' to add them.`)
@@ -76,6 +94,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
       const mkcertResult = runMkcertInstall()
       if (!mkcertResult.ok && mkcertResult.warning !== undefined) console.log(`Warning: ${mkcertResult.warning}`)
     }
+    renewDueCertificates()
   }
 
   if (!status.hostsEntryExists) {

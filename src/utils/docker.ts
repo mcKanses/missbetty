@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { getHttpPort } from './config'
 import { BettyError } from './errors'
+import { checkCertificate } from './certs'
 import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
 import type { DockerInspectEntry } from '../types'
 import {
@@ -80,7 +81,9 @@ export const restartTraefik = (composePath: string): void => {
   }
 }
 
-// Returns the certificate for a domain, creating it with mkcert when missing.
+// Returns the certificate for a domain, creating it with mkcert when missing,
+// and again when it expires soon, comes from another CA or does not cover the
+// domain.
 // Without a certificate it falls back to HTTP unless HTTPS is required: always
 // for .dev (browsers force HTTPS there), or when the caller asks for it, as a
 // project with `https.enabled` does.
@@ -88,7 +91,16 @@ export const ensureCertificate = (domain: string, opts: { required?: boolean } =
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
   const { hostPath: certPath, keyPath, certFile, keyFile } = certificatePaths(domain)
-  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) return { certFile, keyFile }
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    const { problem } = checkCertificate(certPath, { domain })
+    if (problem === null) return { certFile, keyFile }
+    // Without mkcert the old certificate is still better than none.
+    if (!checkMkcertInstalled()) {
+      console.log(`\n⚠️  The certificate for ${domain} ${problem}; install mkcert to renew it (betty setup).`)
+      return { certFile, keyFile }
+    }
+    console.log(`Renewing the certificate for ${domain}: it ${problem}.`)
+  }
 
   const httpsRequested = opts.required === true || isHttpsRequestedDomain(domain)
   if (!checkMkcertInstalled()) {
