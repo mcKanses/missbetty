@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { getDomainSuffix } from './config'
@@ -92,6 +92,19 @@ export const runMkcertInstall = (): { ok: boolean; warning?: string } => {
   }
 }
 
+// winget puts a portable mkcert on the PATH of new processes only. Betty reads
+// the PATH back from the registry, so the same run finds what it installed.
+const refreshWindowsPath = (): void => {
+  try {
+    const fresh = execFileSync(
+      'powershell',
+      ['-NoProfile', '-Command', "[Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')"],
+      { stdio: 'pipe', timeout: CHECK_TIMEOUT_MS }
+    ).toString().trim()
+    if (fresh !== '') process.env.PATH = `${fresh};${process.env.PATH ?? ''}`
+  } catch { /* the hint to open a new terminal covers it */ }
+}
+
 export const installMkcertPackage = (): { ok: boolean; warning?: string } => {
   if (checkMkcertInstalled()) return { ok: true }
 
@@ -104,6 +117,7 @@ export const installMkcertPackage = (): { ok: boolean; warning?: string } => {
     } else if (platform.isWindows) {
       if (!runCheck('winget --version')) return { ok: false, warning: 'winget is not available. Install mkcert manually and run betty setup again.' }
       execSync('winget install --id FiloSottile.mkcert -e', { stdio: 'inherit' })
+      refreshWindowsPath()
     } else if (platform.isLinux) if (hasCommand('apt-get')) execSync('sudo apt-get install -y mkcert', { stdio: 'inherit' })
       else if (hasCommand('apt')) execSync('sudo apt install -y mkcert', { stdio: 'inherit' })
       else if (hasCommand('pacman')) execSync('sudo pacman -S --noconfirm mkcert', { stdio: 'inherit' })
@@ -114,14 +128,19 @@ export const installMkcertPackage = (): { ok: boolean; warning?: string } => {
   }
 
   if (checkMkcertInstalled()) return { ok: true }
-  return { ok: false, warning: 'mkcert still not found after installation attempt.' }
+  return { ok: false, warning: platform.isWindows
+    ? 'mkcert was installed but is not on the PATH of this terminal yet. Open a new terminal and run betty setup again.'
+    : 'mkcert still not found after installation attempt.' }
 }
+
+// Without a linked domain there is nothing to map. An entry for a placeholder
+// domain would belong to no route, and no betty command would ever remove it.
+export const findMissingHostsEntries = (linkedDomains = linkedDomainsNeedingHosts()): string[] =>
+  linkedDomains.filter((domain) => !hasHostsEntry(domain))
 
 export const collectSetupStatus = (): SetupStatus => {
   const linkedDomains = linkedDomainsNeedingHosts()
-  // Without a linked domain there is nothing to map. An entry for a placeholder
-  // domain would belong to no route, and no betty command would ever remove it.
-  const missingHostsEntries = linkedDomains.filter((domain) => !hasHostsEntry(domain))
+  const missingHostsEntries = findMissingHostsEntries(linkedDomains)
   const mkcertInstalled = checkMkcertInstalled()
   return {
     dockerInstalled: checkDockerInstalled(),

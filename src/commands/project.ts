@@ -266,21 +266,25 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
 
     let configPath: string
     if (opts.file !== undefined) configPath = resolveConfigPath(opts.file)
-     else try {
+    else {
+      try {
         configPath = resolveConfigPath(undefined)
-        const foundConfig = readDevProjectConfig(configPath)
-        const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
-        const { confirm } = await inquirer.prompt([{
-          type: 'confirm',
-          name: 'confirm',
-          message: `Found project '${foundConfig.project}' in ${relPath}. Show status?`,
-          default: true,
-        }]) as { confirm: boolean }
-        if (!confirm) { console.log('Cancelled.'); return }
       } catch {
         console.log('\nNo project specified. Use --file <path> or --name <name> to target a specific project.')
         return
       }
+      // A .betty.yml that was found but does not parse is reported, not taken
+      // for a missing one.
+      const foundConfig = readDevProjectConfig(configPath)
+      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+      const { confirm } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'confirm',
+        message: `Found project '${foundConfig.project}' in ${relPath}. Show status?`,
+        default: true,
+      }]) as { confirm: boolean }
+      if (!confirm) { console.log('Cancelled.'); return }
+    }
 
     const config = readDevProjectConfig(configPath)
     // Only the project's own routes count: a domain linked by something else is
