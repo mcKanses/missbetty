@@ -27,7 +27,7 @@ jobs:
         # macos-15-intel runs the cross-built Intel binary.
         os: [ubuntu-latest, macos-latest, macos-15-intel]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -42,6 +42,23 @@ jobs:
           # only the owner check shows the difference.
           owner="$(stat -c %u /usr/local/bin/betty 2>/dev/null || stat -f %u /usr/local/bin/betty)"
           [ "$owner" = "0" ] || { echo "/usr/local/bin/betty is owned by uid $owner, not root"; exit 1; }
+
+      # What `betty update` does for a user whose betty is in a root-owned
+      # directory: the installer runs unprivileged and falls back to sudo for
+      # the write. A directory of its own, since the runners' /usr/local/bin is
+      # writable by the runner user.
+      - name: Update a root-owned install as a regular user
+        run: |
+          sudo mkdir -p /opt/betty-root
+          # The Ubuntu image gives the runner user write access to /opt by a
+          # default ACL, which the new directory would inherit.
+          sudo chmod 0755 /opt/betty-root
+          if command -v setfacl >/dev/null 2>&1; then sudo setfacl -b /opt/betty-root; fi
+          [ ! -w /opt/betty-root ] || { echo "/opt/betty-root should not be writable"; exit 1; }
+          BETTY_SKIP_DEPS=true BETTY_SKIP_PATH=true BETTY_VERSION=v1.7.5 BETTY_INSTALL_DIR=/opt/betty-root sh install.sh
+          /opt/betty-root/betty --version | grep -q '1.7.5'
+          owner="$(stat -c %u /opt/betty-root/betty 2>/dev/null || stat -f %u /opt/betty-root/betty)"
+          [ "$owner" = "0" ] || { echo "/opt/betty-root/betty is owned by uid $owner, not root"; exit 1; }
 
       # A custom directory in the user's home must stay owned by the user, not
       # by root after a sudo fallback.
@@ -59,7 +76,7 @@ jobs:
             exit 1
           fi
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       # cosign-installer puts cosign in a user directory, which sudo's PATH drops.
       - name: Install with a verified signature
@@ -73,7 +90,7 @@ jobs:
     name: install.ps1 (windows arm64)
     runs-on: windows-11-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -92,7 +109,7 @@ jobs:
     name: install.ps1 (windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -123,7 +140,7 @@ jobs:
           $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', './install.ps1' -Wait -PassThru -NoNewWindow
           if ($p.ExitCode -eq 0) { throw 'The installer should have refused to install without cosign.' }
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       # Windows PowerShell 5.1, the shell `irm … | iex` usually runs in: it treats
       # stderr from cosign differently from pwsh. The step runs in 5.1 itself;

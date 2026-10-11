@@ -10,7 +10,7 @@ import {
   restartTraefik,
   ensureCertificate,
 } from '../utils/docker'
-import { ensureHostsEntry, removeHostsEntry } from '../utils/hosts'
+import { updateHostsEntries } from '../utils/hosts'
 import { ensureProxyNetwork, ensureProxyRunning } from '../utils/proxy'
 import { readRoutes, findDomainConflict, removeRouteFromFile, routeFileOccupant, writeRouteConfig, type RouteEntry } from '../utils/routes'
 import { normalizeServiceName, validateDomain } from '../utils/names'
@@ -87,8 +87,12 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   // A project route points at a host service from .betty.yml, not at a
   // container, so there is no container to keep. Only an explicit container
   // turns it into a regular link; anything else belongs in .betty.yml.
-  if (route.containerKnown === false && opts?.container === undefined && !shouldPromptValues) throw new BettyError(`'${route.domain}' comes from a .betty.yml project and points at ${route.target || 'a host service'}, not at a container.`, {
+  if (route.project === true && opts?.container === undefined && !shouldPromptValues) throw new BettyError(`'${route.domain}' comes from a .betty.yml project and points at ${route.target || 'a host service'}, not at a container.`, {
     hints: ['Change it in .betty.yml and run `betty project load`, or pass --container <name> to move it to a container.'],
+  })
+  // A link from an older betty that pointed at an IP has no container on record.
+  if (route.containerKnown === false && opts?.container === undefined && !shouldPromptValues) throw new BettyError(`The container of '${route.domain}' is not on record (it was linked by an older betty).`, {
+    hints: [`Pass it once: betty relink ${route.domain} --container <name>`],
   })
 
   const answers = await inquirer.prompt([
@@ -160,16 +164,15 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     removeRouteFromFile(route)
     writeRouteConfig(linkedContainer, domain, port, certificate)
   } else writeRouteConfig(linkedContainer, domain, port, certificate, route.filePath)
-  const hostsUpdated = ensureHostsEntry(domain)
-  if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 
   // Moving a link to a new domain would otherwise leave the old hosts entry behind.
   // The old route file is being replaced, so only other files can still need it.
+  // Both changes go in one hosts edit: a single elevation prompt on Windows.
   const previousDomain = route.domain
-  if (previousDomain !== '' && previousDomain.toLowerCase() !== domain.toLowerCase()) {
-    const stillUsed = readRoutes().some((r) => r.filePath !== route.filePath && r.domain.toLowerCase() === previousDomain.toLowerCase())
-    if (!stillUsed) removeHostsEntry(previousDomain)
-  }
+  const dropPrevious = previousDomain !== '' && previousDomain.toLowerCase() !== domain.toLowerCase()
+    && !readRoutes().some((r) => r.filePath !== route.filePath && r.domain.toLowerCase() === previousDomain.toLowerCase())
+  const hostsUpdated = updateHostsEntries([domain], dropPrevious ? [previousDomain] : [])
+  if (!hostsUpdated) console.log(`\n⚠️  The domain is only reachable after the hosts entry has been set: ${domain}`)
 
   restartTraefik(composePath)
 

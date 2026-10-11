@@ -10,15 +10,24 @@
     Join-Path $env:LOCALAPPDATA 'Programs\betty'
   }
 
+  # -LiteralPath throughout: [ and ] in a user name are wildcards to -Path.
   $target = Join-Path $installDir 'betty.exe'
-  if (Test-Path $target) {
-    Remove-Item -Path $target -Force
-    Write-Host "betty uninstalled from $target"
+  if (Test-Path -LiteralPath $target) {
+    try {
+      Remove-Item -LiteralPath $target -Force
+      Write-Host "betty uninstalled from $target"
+    } catch {
+      # A running betty.exe cannot be deleted. The PATH is cleaned up anyway.
+      Write-Warning "Could not remove $target ($($_.Exception.Message)). Close betty and delete the file."
+    }
   } else {
     Write-Host "betty not found at $target"
   }
-  # Left behind by `betty update` when betty.exe was replaced while running.
-  Get-ChildItem -Path $installDir -Filter 'betty.exe*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  # Left behind by `betty update` when betty.exe was replaced while running, or
+  # by an interrupted install.
+  Get-ChildItem -LiteralPath $installDir -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like 'betty.exe*.old' -or $_.Name -eq 'betty.exe.new' } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
   # Takes the install directory back out of the user PATH, read and written
   # unexpanded so other %VAR% entries stay as they are.
@@ -38,7 +47,7 @@
     $envKey.Close()
   }
 
-  if ((Test-Path $installDir) -and ((Get-ChildItem -Path $installDir -Force | Measure-Object).Count -eq 0)) {
-    Remove-Item -Path $installDir -Force
+  if ((Test-Path -LiteralPath $installDir) -and ((Get-ChildItem -LiteralPath $installDir -Force | Measure-Object).Count -eq 0)) {
+    Remove-Item -LiteralPath $installDir -Force
   }
 }
