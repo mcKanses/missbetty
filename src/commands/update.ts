@@ -28,6 +28,8 @@ const updateCommand = async (opts: UpdateOptions = {}): Promise<void> => {
 
   const route = await updateRoute(latest)
   if (route.by === 'hand') {
+    // --yes asked for the install; a script must not take this for success.
+    if (opts.yes === true) throw new BettyError('This betty cannot update itself.', { hints: [`Update with: ${route.command}`] })
     console.log(`Update with: ${route.command}`)
     return
   }

@@ -1,12 +1,14 @@
 import { describe, expect, jest, test } from '@jest/globals'
 import doctorCommand, { statusLine } from './doctor'
 import { collectSetupStatus } from '../utils/setup'
+import { checkAllCertificates } from '../utils/certs'
 
 jest.mock('../utils/setup', () => ({
   __esModule: true,
   collectSetupStatus: jest.fn(),
 }))
 jest.mock('../utils/hosts', () => ({ isWsl: () => false, hostsEntryProblem: () => 'mapped to 10.0.0.5 first' }))
+jest.mock('../utils/certs', () => ({ checkAllCertificates: jest.fn(() => []) }))
 
 describe('doctor command', () => {
   test('prints diagnostics for every linked domain and fails when one lacks a hosts entry', () => {
@@ -50,6 +52,29 @@ describe('doctor command', () => {
 
     expect(() => { doctorCommand() }).not.toThrow()
     expect(logSpy).toHaveBeenCalledWith('✓ hosts entries (no linked domains need one)')
+
+    logSpy.mockRestore()
+  })
+
+  test('fails for a certificate that needs renewing and names why', () => {
+    ;(collectSetupStatus as unknown as jest.Mock).mockReturnValue({
+      dockerInstalled: true,
+      dockerRunning: true,
+      mkcertInstalled: true,
+      mkcertCaInstalled: true,
+      hostsEntryExists: true,
+      domain: 'app.dev',
+      linkedDomains: [],
+      missingHostsEntries: [],
+    })
+    ;(checkAllCertificates as unknown as jest.Mock).mockReturnValueOnce([
+      { file: '/c/app.dev.pem', domains: ['app.dev'], validTo: null, problem: 'expired on 2026-01-01' },
+      { file: '/c/ok.dev.pem', domains: ['ok.dev'], validTo: null, problem: null },
+    ])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(() => { doctorCommand() }).toThrow('Some checks failed')
+    expect(logSpy).toHaveBeenCalledWith('✗ certificate for app.dev (expired on 2026-01-01)')
 
     logSpy.mockRestore()
   })

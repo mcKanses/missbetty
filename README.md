@@ -79,15 +79,19 @@ curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh 
 $env:BETTY_REQUIRE_SIGNATURE = 'true'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
-To verify a downloaded asset by hand:
+To verify a downloaded asset by hand with cosign 3, use its Sigstore bundle
+(published from 1.10.6 on):
 
 ```sh
 cosign verify-blob betty-linux-x64.tar.gz \
-  --signature betty-linux-x64.tar.gz.sig \
-  --certificate betty-linux-x64.tar.gz.pem \
+  --bundle betty-linux-x64.tar.gz.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/mcKanses/missbetty/\.github/workflows/release-binaries\.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+With cosign 2, or for older releases, pass the signature and certificate
+instead of the bundle: `--signature betty-linux-x64.tar.gz.sig --certificate
+betty-linux-x64.tar.gz.pem`. The installers pick the right form themselves.
 
 Current prebuilt targets:
 
@@ -113,11 +117,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.10.4 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.10.5 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.10.4'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.10.5'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Installer options:
@@ -480,7 +484,10 @@ If required values are missing, Betty asks interactively for:
 Betty links the container into the global Docker network `betty_proxy`, writes
 a route file to `~/.betty/dynamic`, and reloads the global Traefik container.
 If mkcert is installed, Betty also creates a certificate in `~/.betty/certs`
-and enables HTTPS for the linked domain.
+and enables HTTPS for the linked domain. mkcert certificates last about 27
+months; `betty link`, `betty relink` and `betty project load` create a new one
+when the old one expires within 30 days, comes from another mkcert CA, or does
+not cover the domain.
 
 Use `.localhost` domains when possible, for example `my-app.localhost`. Betty
 also accepts custom domains such as `.dev` and can add an append-only hosts
@@ -553,9 +560,11 @@ Betty prints the domain so you can remove it manually.
 ### `betty doctor`
 
 Checks, without changing anything, whether Docker is installed and running,
-whether mkcert and its local CA exist, and whether every linked domain that
-needs one has a hosts entry. Exits with a non-zero status when Docker or a
-hosts entry is missing, so it can be used in scripts.
+whether mkcert and its local CA exist, whether every linked domain that needs
+one has a hosts entry, and whether the certificates in `~/.betty/certs` are
+valid: not expiring within 30 days and issued by the current mkcert CA. Exits
+with a non-zero status when Docker, a hosts entry or a valid certificate is
+missing, so it can be used in scripts.
 
 ```sh
 betty doctor
@@ -564,8 +573,9 @@ betty doctor
 ### `betty setup`
 
 Fixes what `betty doctor` finds: installs mkcert when it is missing, runs
-`mkcert -install` so browsers trust the local CA, and adds missing hosts
-entries. Hosts changes may ask for admin rights.
+`mkcert -install` so browsers trust the local CA, renews certificates that
+expire soon or come from another CA (and restarts the proxy to serve them), and
+adds missing hosts entries. Hosts changes may ask for admin rights.
 
 ```sh
 betty setup
@@ -675,8 +685,11 @@ npm run release:check
 ```
 
 After a merge to `main`, GitHub Actions runs semantic-release. If releasable
-commits exist, it creates the Git tag, GitHub release, and npm publish
-automatically without pushing a release commit back to `main`.
+commits exist, it creates the Git tag and a draft GitHub release and publishes
+to npm, without pushing a release commit back to `main`. The Release Binaries
+workflow then builds, signs and uploads the binaries and publishes the release.
+The updated changelog and README reach `development` through the
+`chore/release-metadata` pull request.
 
 Publishing uses npm trusted publishing, so no npm token is stored in the
 repository. The `missbetty` package on npmjs.com lists this repository's
@@ -684,10 +697,13 @@ repository. The `missbetty` package on npmjs.com lists this repository's
 `id-token: write` permission it needs to authenticate.
 
 To publish an already released version to npm (semantic-release never
-republishes a tag), start the Publish workflow by hand with that tag:
+republishes a tag), start the Publish workflow by hand with that tag. Start it
+on `development`, once the release metadata PR is merged: the package takes its
+changelog and README from the branch the run starts on, and `main` does not
+have the synced ones.
 
 ```sh
-gh workflow run publish.yml -f tag=v1.7.4
+gh workflow run publish.yml --ref development -f tag=v1.7.4
 ```
 
 The publish workflow uses Node.js 24. Betty itself requires Node.js 24 or newer at runtime.
@@ -700,7 +716,10 @@ npm run release:minor
 npm run release:major
 ```
 
-The fallback scripts are guarded and only run on the `main` branch.
+The fallback scripts are guarded and only run on the `main` branch. They only
+bump the version and tag it locally: no GitHub release and no binaries come of
+them. After pushing such a tag, create its release on GitHub and build the
+binaries with `gh workflow run release-binaries.yml --ref main -f tag=<tag>`.
 
 For emergency manual publishing:
 

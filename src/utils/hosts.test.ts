@@ -495,6 +495,8 @@ describe('batched hosts edits', () => {
     expect(hostsEntryProblem('app.test')).toBe('mapped to 10.0.0.5 first')
     expect(hostsEntryProblem('gone.test')).toBe('missing')
     expect(hostsEntryProblem('bad$(name).test')).toMatch('not a valid host name')
+    // A line for ' a.test' could never be matched, and so never removed.
+    expect(hostsEntryProblem(' padded.test')).toMatch('not a valid host name')
     expect(hostsEntryProblem('ok.test')).toBeUndefined()
   })
 

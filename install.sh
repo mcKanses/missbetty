@@ -239,7 +239,13 @@ install_dependencies_linux() {
     echo "Installing mkcert..."
 
     install_with_pm mkcert || true
-    install_with_pm libnss3-tools || true
+    # certutil, which mkcert needs for Firefox and Chrome, has a different
+    # package name in each family.
+    if command -v apt-get >/dev/null 2>&1 || command -v apt >/dev/null 2>&1; then install_with_pm libnss3-tools || true
+    elif command -v pacman >/dev/null 2>&1; then install_with_pm nss || true
+    elif command -v zypper >/dev/null 2>&1; then install_with_pm mozilla-nss-tools || true
+    else install_with_pm nss-tools || true
+    fi
 
     if [ -z "$(find_mkcert)" ]; then
       # mkcert publishes no checksums; these are the sha256 of the v1.4.4
@@ -380,6 +386,13 @@ else
   exit 1
 fi
 
+# The Linux binaries are built against glibc and do not start on musl.
+if [ "$OS" = "linux" ] && { ldd --version 2>&1 | grep -qi musl || ls /lib/ld-musl-* >/dev/null 2>&1; }; then
+  echo "This system uses musl (e.g. Alpine Linux); betty's Linux binaries need glibc."
+  echo "Install betty with npm instead: npm install -g missbetty"
+  exit 1
+fi
+
 ASSET="betty-${OS}-${ARCH}.tar.gz"
 
 if [ "$VERSION" = "latest" ]; then
@@ -449,18 +462,31 @@ SIGNER_IDENTITY='^https://github\.com/mcKanses/missbetty/\.github/workflows/rele
 SIGNER_ISSUER='https://token.actions.githubusercontent.com'
 
 # sudo may drop cosign's directory from PATH (e.g. Homebrew's), so look in the
-# usual install locations too.
+# usual install locations too, including those in the invoking user's home.
 COSIGN="$(command -v cosign 2>/dev/null || true)"
-for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign; do
+USER_HOME=""
+if [ -n "${SUDO_USER:-}" ]; then
+  # Linux only; on macOS cosign comes from Homebrew, whose paths are listed.
+  USER_HOME="$( (getent passwd "$SUDO_USER" 2>/dev/null || true) | cut -d: -f6)"
+fi
+for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign /home/linuxbrew/.linuxbrew/bin/cosign \
+  ${USER_HOME:+"$USER_HOME/.local/bin/cosign"} ${USER_HOME:+"$USER_HOME/go/bin/cosign"} ${USER_HOME:+"$USER_HOME/.linuxbrew/bin/cosign"}; do
   if [ -z "$COSIGN" ] && [ -x "$candidate" ]; then COSIGN="$candidate"; fi
 done
 
 if [ -n "$COSIGN" ]; then
-  fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
-  fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
-  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" \
-    --signature "$TMP_DIR/betty.tar.gz.sig" \
-    --certificate "$TMP_DIR/betty.tar.gz.pem" \
+  # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
+  # bundle. Releases from 1.10.6 carry one; older ones and older cosign use the
+  # signature and certificate.
+  COSIGN_MAJOR="$("$COSIGN" version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  if [ "${COSIGN_MAJOR:-0}" -ge 3 ] && fetch "$URL.sigstore.json" "$TMP_DIR/betty.tar.gz.sigstore.json" 2>/dev/null; then
+    set -- --bundle "$TMP_DIR/betty.tar.gz.sigstore.json"
+  else
+    fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
+    fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
+    set -- --signature "$TMP_DIR/betty.tar.gz.sig" --certificate "$TMP_DIR/betty.tar.gz.pem"
+  fi
+  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" "$@" \
     --certificate-identity-regexp "$SIGNER_IDENTITY" \
     --certificate-oidc-issuer "$SIGNER_ISSUER" 2>&1)"; then
     echo "Signature verification failed for ${ASSET}:"

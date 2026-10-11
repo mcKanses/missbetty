@@ -15,8 +15,10 @@ const UNREADABLE_STALE_MS = 60_000
 
 // A lock older than this is reclaimed even if its PID is alive: the system may
 // have reused the PID of a betty process that was killed without cleaning up.
-// No betty command holds the lock for this long, prompts included.
+// Async commands, which can wait at a prompt for any length of time, keep the
+// lock young with a heartbeat; no synchronous work takes this long.
 const MAX_LOCK_AGE_MS = 60 * 60_000
+const HEARTBEAT_MS = 5 * 60_000
 
 const busyError = (): BettyError => new BettyError('Another betty command is already running. Please retry in a moment.', {
   hints: [`If no other betty command is running, delete the lock file: ${LOCK_PATH}`],
@@ -150,13 +152,27 @@ export const withLock = <T>(fn: () => T): T => {
   }
 }
 
+// Renews the lock's age while this process still owns it.
+const touch = (): void => {
+  try {
+    if (readOwner() !== process.pid) return
+    const now = new Date()
+    fs.utimesSync(LOCK_PATH, now, now)
+  } catch { /* best effort */ }
+}
+
 // Async variant: holds the lock until the returned promise settles, so the
-// lock is not released while async work is still in flight.
+// lock is not released while async work is still in flight. A prompt left
+// open for over an hour must not let another command reclaim the lock.
 export const withLockAsync = async <T>(fn: () => Promise<T>): Promise<T> => {
   acquire()
+  const heartbeat = setInterval(touch, HEARTBEAT_MS)
+  // The heartbeat alone must not keep betty running.
+  heartbeat.unref()
   try {
     return await fn()
   } finally {
+    clearInterval(heartbeat)
     release()
   }
 }
