@@ -1,3 +1,13 @@
+## [1.10.5](https://github.com/mcKanses/missbetty/compare/v1.10.4...v1.10.5) (2026-10-11)
+
+
+### Bug Fixes
+
+* **commands:** Moved projects, failing down commands, empty route files and exit codes ([16238f7](https://github.com/mcKanses/missbetty/commit/16238f7f824fcfa5653ed588226b8e730dc08fd8))
+* **hosts:** Report elevated failures by exit code and honor hosts permission for dropped domains ([f41083f](https://github.com/mcKanses/missbetty/commit/f41083ffc9bf51465e36d571261b1d918188cb6b))
+* **installers:** Docker on more distributions, Ctrl+C, bracketed TEMP; quiet Publish reruns ([90cf4aa](https://github.com/mcKanses/missbetty/commit/90cf4aaa06a1019d0207fe2342a37cd0794d93c1))
+* **update:** No prompt without a terminal; npm check behind proxies; non-object config ([2623c60](https://github.com/mcKanses/missbetty/commit/2623c600a76fbad4e015d6fb2f4f2a6ad3482231))
+
 ## [1.10.4](https://github.com/mcKanses/missbetty/compare/v1.10.3...v1.10.4) (2026-10-11)
 
 
