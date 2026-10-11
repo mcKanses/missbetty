@@ -3,6 +3,7 @@ import fs from 'fs'
 import yaml from 'yaml'
 import type { TraefikDynamicConfig, TraefikRouter, TraefikService, TraefikTcpService } from '../types'
 import { BETTY_DYNAMIC_DIR } from './constants'
+import { isWsl } from './hosts'
 import { certificateBaseName, normalizeServiceName, sanitizeName } from './names'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
@@ -19,6 +20,8 @@ export interface RouteEntry {
   // False when no container is recorded and container is just the router name,
   // as for project routes, which point at host services rather than containers.
   containerKnown?: boolean;
+  // A route of a .betty.yml project rather than of `betty link`.
+  project?: boolean;
   domain: string;
   target: string;
   port: string;
@@ -71,6 +74,15 @@ export const parseRoutes = (doc: TraefikDynamicConfig | null, fallbackName: stri
   return [...httpRoutes, ...tcpRoutes]
 }
 
+// Links written before betty recorded their container still name it in their
+// target, http://<container>:<port>. Older ones point at an IP, which says
+// nothing about the container.
+const containerFromTarget = (target: string): string | undefined => {
+  const host = /^https?:\/\/([^:/]+)(?::\d+)?\/?$/.exec(target)?.[1]
+  if (host === undefined || /^[\d.]+$/.test(host) || ['localhost', 'host.docker.internal'].includes(host.toLowerCase())) return undefined
+  return host
+}
+
 export const readRoutes = (): RouteEntry[] => {
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return []
 
@@ -82,19 +94,27 @@ export const readRoutes = (): RouteEntry[] => {
       const content = fs.readFileSync(filePath, 'utf8')
       const doc = yaml.parse(content) as TraefikDynamicConfig | null
       const storedContainer = CONTAINER_COMMENT.exec(content)?.[1]
-      const knownContainer = getLinkContainer(file) ?? storedContainer
+      const recordedContainer = getLinkContainer(file) ?? storedContainer
+      const baseName = path.basename(file, path.extname(file))
 
-      for (const route of parseRoutes(doc, path.basename(file, path.extname(file)))) entries.push({
-        filePath,
-        fileName: file,
-        routerName: route.routerName,
-        container: knownContainer ?? route.routerName,
-        containerKnown: knownContainer !== undefined,
-        domain: route.domain,
-        target: route.target,
-        port: route.port,
-        tcp: route.tcp,
-      })
+      for (const route of parseRoutes(doc, baseName)) {
+        // Project routers are named after their file, <project>-<n>; a link's
+        // router after its domain.
+        const project = isProjectRouter(route.routerName, baseName)
+        const knownContainer = recordedContainer ?? (project ? undefined : containerFromTarget(route.target))
+        entries.push({
+          filePath,
+          fileName: file,
+          routerName: route.routerName,
+          container: knownContainer ?? route.routerName,
+          containerKnown: knownContainer !== undefined,
+          project,
+          domain: route.domain,
+          target: route.target,
+          port: route.port,
+          tcp: route.tcp,
+        })
+      }
     } catch {
       // Ignore malformed route files.
     }
@@ -126,7 +146,7 @@ export const findDomainConflict = (domain: string, ignore?: ConflictIgnore, exac
     const ignored = ignore !== undefined && samePath(ignore.filePath, route.filePath)
       && (ignore.routerName === undefined || route.routerName === ignore.routerName)
     if (ignored) continue
-    const exactMatch = exact || route.containerKnown === false
+    const exactMatch = exact || route.project === true
     if (key(route.domain, exactMatch) !== key(domain, exactMatch)) continue
     return { fileName: route.fileName, routerName: route.routerName }
   }
@@ -219,10 +239,13 @@ export const isProjectRouter = (routerName: string, project: string): boolean =>
 }
 
 // Windows and macOS file systems ignore case, and a shell keeps whatever case
-// was typed in `cd`, so c:\proj and C:\Proj are the same project.
+// was typed in `cd`, so c:\proj and C:\Proj are the same project. So do the
+// Windows drives WSL mounts under /mnt.
 export const samePath = (a: string, b: string): boolean => {
-  const fold = process.platform === 'win32' || process.platform === 'darwin'
-  return fold ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b)
+  const [x, y] = [path.resolve(a), path.resolve(b)]
+  const onWindowsDrive = (p: string): boolean => /^\/mnt\/[a-z](\/|$)/i.test(p)
+  const fold = process.platform === 'win32' || process.platform === 'darwin' || (isWsl() && onWindowsDrive(a) && onWindowsDrive(b))
+  return fold ? x.toLowerCase() === y.toLowerCase() : x === y
 }
 
 export const readProjectOrigin = (routeFile: string): string | null => {

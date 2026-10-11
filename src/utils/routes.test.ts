@@ -39,7 +39,7 @@ jest.mock('./state', () => ({
 
 import fs from 'fs'
 import yaml from 'yaml'
-import { readRoutes, findDomainConflict, writeRouteConfig, removeRouteFromFile, isProjectRouter, loadedFromElsewhere } from './routes'
+import { readRoutes, findDomainConflict, writeRouteConfig, removeRouteFromFile, isProjectRouter, loadedFromElsewhere, samePath } from './routes'
 import { getLinkContainer, setLinkContainer, removeLinkContainer } from './state'
 
 const DYNAMIC_DIR = '/home/test-user/.betty/dynamic'
@@ -286,6 +286,50 @@ describe('findDomainConflict against project routes', () => {
 
     expect(findDomainConflict('a-b.test')).toBeNull()
     expect(findDomainConflict('A.B.test')).not.toBeNull()
+  })
+})
+
+describe('links from before betty recorded containers', () => {
+  const linkFile = (target: string): void => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['web-test.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('web-test', 'web.test', target))
+  }
+
+  it('takes the container from a target that names it, and is no project route', () => {
+    linkFile('http://web:3000')
+    expect(readRoutes()[0]).toMatchObject({ container: 'web', containerKnown: true, project: false })
+  })
+
+  it('knows no container behind an IP target, but is still no project route', () => {
+    linkFile('http://172.18.0.2:3000')
+    expect(readRoutes()[0]).toMatchObject({ containerKnown: false, project: false })
+  })
+
+  it('tells a project route by its <project>-<n> router', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['shop.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('content')
+    ;(yaml.parse as unknown as jest.Mock).mockReturnValue(makeDoc('shop-1', 'shop.test', 'http://host.docker.internal:3000'))
+    expect(readRoutes()[0]).toMatchObject({ containerKnown: false, project: true })
+  })
+})
+
+describe('samePath under WSL', () => {
+  it('ignores case on the Windows drives below /mnt only', () => {
+    const platform = process.platform
+    const distro = process.env.WSL_DISTRO_NAME
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    process.env.WSL_DISTRO_NAME = 'Ubuntu'
+    try {
+      expect(samePath('/mnt/c/Users/me/app/.betty.yml', '/mnt/c/users/me/app/.betty.yml')).toBe(true)
+      expect(samePath('/home/me/App/.betty.yml', '/home/me/app/.betty.yml')).toBe(false)
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform })
+      if (distro === undefined) delete process.env.WSL_DISTRO_NAME
+      else process.env.WSL_DISTRO_NAME = distro
+    }
   })
 })
 
