@@ -258,6 +258,22 @@ describe('ensureHostsEntry', () => {
     expect(ensureHostsEntry('myapp.dev')).toBe(false)
   })
 
+  it('explains an elevated failure from its exit code, and stays quiet for a declined prompt', () => {
+    setPlatform('win32')
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('127.0.0.1 other.dev\n')
+    ;(fs.appendFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('EACCES') })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw Object.assign(new Error('exit 2'), { status: 2 }) })
+
+    expect(ensureHostsEntry('myapp.dev')).toBe(false)
+    expect(log.mock.calls.flat().join('\n')).toContain('access denied')
+
+    log.mockClear()
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw Object.assign(new Error('exit 1'), { status: 1 }) })
+    expect(ensureHostsEntry('myapp.dev')).toBe(false)
+    expect(log.mock.calls.flat().join('\n')).not.toContain('elevated hosts edit failed')
+  })
+
   it('returns false when elevation succeeds but append still fails on win32', () => {
     setPlatform('win32')
     process.env.USERDOMAIN = 'WORKSTATION'
