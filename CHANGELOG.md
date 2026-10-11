@@ -1,3 +1,17 @@
+# [1.11.0](https://github.com/mcKanses/missbetty/compare/v1.10.5...v1.11.0) (2026-10-11)
+
+
+### Bug Fixes
+
+* **installers:** Musl, certutil and cosign lookup; release job hardening; docs ([39bc9f0](https://github.com/mcKanses/missbetty/commit/39bc9f08c63546a7b60c037c6134c2af6dc5b94e))
+* Remaining review findings in lock, setup, update, project load and status ([06f43fb](https://github.com/mcKanses/missbetty/commit/06f43fb7e04ea83e08d9d2acfaf47d9ce3534450))
+
+
+### Features
+
+* **certs:** Renew expiring certificates and check them in doctor ([0facaf7](https://github.com/mcKanses/missbetty/commit/0facaf71fd4dd6340d4ee0482fbca429387614b8))
+* **proxy:** Traefik v3.7 and Sigstore bundles for the release assets ([6a76648](https://github.com/mcKanses/missbetty/commit/6a766487393452b8dfbb99378cfeff4aec409288))
+
 ## [1.10.5](https://github.com/mcKanses/missbetty/compare/v1.10.4...v1.10.5) (2026-10-11)
 
 
