@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -14,7 +15,8 @@ const LOCK_PATH = path.join(BETTY_HOME_DIR, '.lock')
 const UNREADABLE_STALE_MS = 60_000
 
 // A lock older than this is reclaimed even if its PID is alive: the system may
-// have reused the PID of a betty process that was killed without cleaning up.
+// have reused the PID of a betty process that was killed without cleaning up,
+// and the start times could not be compared (see isOwnerAlive).
 // Async commands, which can wait at a prompt for any length of time, keep the
 // lock young with a heartbeat; no synchronous work takes this long.
 const MAX_LOCK_AGE_MS = 60 * 60_000
@@ -24,14 +26,33 @@ const busyError = (): BettyError => new BettyError('Another betty command is alr
   hints: [`If no other betty command is running, delete the lock file: ${LOCK_PATH}`],
 })
 
-// The lock holds the owner's PID and host name. A PID means nothing on another
-// machine (a home directory on a network share), so a lock from another host is
-// only reclaimed by age.
-const writeLockFile = (): void => {
-  fs.writeFileSync(LOCK_PATH, `${String(process.pid)}\n${os.hostname()}`, { flag: 'wx' })
+// Two start times of the same process differ by Node's startup and by the
+// whole seconds `ps` reports; a reused PID belongs to a process started after
+// the old owner was killed.
+const START_TOLERANCE_MS = 5_000
+
+const ownStartTime = (): number => Math.round(Date.now() - process.uptime() * 1000)
+
+// Renews the lock's age while this process still owns it.
+const touch = (): void => {
+  try {
+    if (readOwner() !== process.pid) return
+    const now = new Date()
+    fs.utimesSync(LOCK_PATH, now, now)
+  } catch { /* best effort */ }
 }
 
-interface LockOwner { pid: number; host: string | null }
+// The lock holds the owner's PID, host name and start time. A PID means nothing
+// on another machine (a home directory on a network share), so a lock from
+// another host is only reclaimed by age.
+const writeLockFile = (): void => {
+  fs.writeFileSync(LOCK_PATH, `${String(process.pid)}\n${os.hostname()}\n${String(ownStartTime())}`, { flag: 'wx' })
+  // On a network share the file server stamps a new file with its own clock;
+  // the age check and the heartbeat use this machine's.
+  touch()
+}
+
+interface LockOwner { pid: number; host: string | null; startedAt: number | null }
 
 const parseOwner = (content: string): LockOwner | null => {
   const lines = content.split('\n')
@@ -39,7 +60,8 @@ const parseOwner = (content: string): LockOwner | null => {
   if (!Number.isInteger(pid) || pid <= 0) return null
   // Locks of older betty versions carry only the PID.
   const host = lines.length > 1 ? lines[1].trim() : ''
-  return { pid, host: host === '' ? null : host }
+  const startedAt = lines.length > 2 ? parseInt(lines[2], 10) : NaN
+  return { pid, host: host === '' ? null : host, startedAt: Number.isFinite(startedAt) ? startedAt : null }
 }
 
 const readOwnerOf = (filePath: string): LockOwner | null => {
@@ -62,6 +84,29 @@ const isRunning = (pid: number): boolean => {
   }
 }
 
+// When the process with this PID started, or null if that cannot be told. Only
+// asked when a lock is contended, so the cost of a child process is fine.
+const startTimeOf = (pid: number): number | null => {
+  try {
+    const output = process.platform === 'win32'
+      ? execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${String(pid)}).StartTime.ToUniversalTime().ToString('o')`], { stdio: 'pipe', timeout: 10_000 })
+      : execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { stdio: 'pipe', timeout: 10_000, env: { ...process.env, LC_ALL: 'C' } })
+    const time = Date.parse(output.toString().trim())
+    return Number.isNaN(time) ? null : time
+  } catch {
+    return null
+  }
+}
+
+// A running process that started at another time than the lock's owner is not
+// that betty: the system has reused the PID.
+const isOwnerAlive = (owner: LockOwner): boolean => {
+  if (!isRunning(owner.pid)) return false
+  if (owner.startedAt === null) return true
+  const startedAt = startTimeOf(owner.pid)
+  return startedAt === null || Math.abs(startedAt - owner.startedAt) <= START_TOLERANCE_MS
+}
+
 const lockAge = (filePath: string): number => {
   try {
     return Date.now() - fs.statSync(filePath).mtimeMs
@@ -75,7 +120,7 @@ const isStale = (owner: LockOwner | null): boolean => {
   if (owner === null) return age >= UNREADABLE_STALE_MS
   if (age >= MAX_LOCK_AGE_MS) return true
   if (owner.host !== null && owner.host !== os.hostname()) return false
-  return !isRunning(owner.pid)
+  return !isOwnerAlive(owner)
 }
 
 const acquire = (): void => {
@@ -150,15 +195,6 @@ export const withLock = <T>(fn: () => T): T => {
   } finally {
     release()
   }
-}
-
-// Renews the lock's age while this process still owns it.
-const touch = (): void => {
-  try {
-    if (readOwner() !== process.pid) return
-    const now = new Date()
-    fs.utimesSync(LOCK_PATH, now, now)
-  } catch { /* best effort */ }
 }
 
 // Async variant: holds the lock until the returned promise settles, so the
