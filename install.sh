@@ -476,7 +476,7 @@ done
 
 if [ -n "$COSIGN" ]; then
   # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
-  # bundle. Releases from 1.10.6 carry one; older ones and older cosign use the
+  # bundle. Releases from 1.11.0 carry one; older ones and older cosign use the
   # signature and certificate.
   COSIGN_MAJOR="$("$COSIGN" version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
   if [ "${COSIGN_MAJOR:-0}" -ge 3 ] && fetch "$URL.sigstore.json" "$TMP_DIR/betty.tar.gz.sigstore.json" 2>/dev/null; then
