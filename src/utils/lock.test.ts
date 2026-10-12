@@ -24,10 +24,15 @@ jest.mock('fs', () => ({
   utimesSync: jest.fn(),
 }))
 
+jest.mock('child_process', () => ({
+  execFileSync: jest.fn(),
+}))
+
 jest.mock('./constants', () => ({
   BETTY_HOME_DIR: '/home/test/.betty',
 }))
 
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -37,7 +42,8 @@ import { BettyError } from './errors'
 // Match the platform-specific separators that path.join uses in lock.ts.
 const LOCK_PATH = path.join('/home/test/.betty', '.lock')
 const OTHER_PID = 424242
-const OWN_LOCK = `${String(process.pid)}\n${os.hostname()}`
+// PID, host and start time, which differs by a few milliseconds between reads.
+const OWN_LOCK = expect.stringMatching(new RegExp(`^${String(process.pid)}\n${os.hostname()}\n\\d+$`))
 
 // What fs throws for an O_EXCL create when the file already exists.
 const eexist = (): Error => Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' })
@@ -119,6 +125,44 @@ describe('withLock', () => {
     expect(result).toBe('ok')
     expect(fn).toHaveBeenCalled()
     expect(fs.writeFileSync).toHaveBeenLastCalledWith(LOCK_PATH, OWN_LOCK, { flag: 'wx' })
+  })
+
+  it('stamps a new lock with this machine\'s clock, not a file server\'s', () => {
+    withLock(() => undefined)
+
+    expect(fs.utimesSync).toHaveBeenCalledWith(LOCK_PATH, expect.any(Date), expect.any(Date))
+  })
+
+  it('reclaims a lock whose PID now belongs to a process started at another time', () => {
+    const startedAt = Date.now() - 10 * 60_000
+    lockHeldBy(`${String(OTHER_PID)}\n${os.hostname()}\n${String(startedAt)}`)
+    processRunning(true)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(Buffer.from(new Date(startedAt + 3 * 60_000).toISOString()))
+
+    const result = withLock(() => {
+      ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(String(process.pid))
+      return 'ok'
+    })
+
+    expect(result).toBe('ok')
+    expect(execFileSync).toHaveBeenCalledWith(process.platform === 'win32' ? 'powershell' : 'ps', expect.arrayContaining([expect.stringContaining(String(OTHER_PID))]), expect.anything())
+  })
+
+  it('keeps a lock whose owner started when the lock says, give or take a second', () => {
+    const startedAt = Date.now() - 10 * 60_000
+    lockHeldBy(`${String(OTHER_PID)}\n${os.hostname()}\n${String(startedAt)}`)
+    processRunning(true)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(Buffer.from(`${new Date(startedAt - 800).toISOString()}\n`))
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
+  })
+
+  it('keeps a lock whose owner\'s start time cannot be read', () => {
+    lockHeldBy(`${String(OTHER_PID)}\n${os.hostname()}\n${String(Date.now() - 60_000)}`)
+    processRunning(true)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('ps: not found') })
+
+    expect(() => withLock(() => 'x')).toThrow('Another betty command is already running')
   })
 
   it('reclaims a lock older than an hour even if its PID is alive, since the PID may have been reused', () => {
@@ -245,12 +289,13 @@ describe('withLockAsync', () => {
     try {
       let finish: () => void = () => undefined
       const running = withLockAsync(() => new Promise<void>((resolve) => { finish = resolve }))
+      // Once when the lock is taken, then every five minutes.
       jest.advanceTimersByTime(11 * 60_000)
-      expect(fs.utimesSync).toHaveBeenCalledTimes(2)
+      expect(fs.utimesSync).toHaveBeenCalledTimes(3)
       finish()
       await running
       jest.advanceTimersByTime(10 * 60_000)
-      expect(fs.utimesSync).toHaveBeenCalledTimes(2)
+      expect(fs.utimesSync).toHaveBeenCalledTimes(3)
     } finally {
       jest.useRealTimers()
     }
