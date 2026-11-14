@@ -820,3 +820,22 @@ $env:TRUST_STORES = "system"; betty project load
 Add `nss` (`TRUST_STORES=system,nss`) if you use Firefox. Only include `java`
 when a Java app needs to call your local domains, and then run the command from
 an elevated shell.
+
+### `ERR_USE_AFTER_CLOSE: readline was closed` without a terminal
+
+Commands that ask for confirmation (such as `betty project load`) currently
+crash instead of failing cleanly when stdin is not an interactive terminal, for
+example in CI or from a script:
+
+```text
+? Load project 'my-app' from .betty.yml? (Y/n)
+Error [ERR_USE_AFTER_CLOSE]: readline was closed
+    at PromptUI.close (...\node_modules\inquirer\lib\ui\baseUI.js:56:13)
+```
+
+Until betty detects the missing TTY itself, pass `--yes` to accept the prompts
+up front:
+
+```sh
+betty project load --yes
+```
