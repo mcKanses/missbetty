@@ -14,7 +14,8 @@ export const isWsl = (): boolean => process.platform === 'linux' &&
 
 const getHostsPath = (): string => {
   // Windows need not live on C:.
-  if (process.platform === 'win32') return path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts')
+  const systemRoot = process.env.SystemRoot ?? ''
+  if (process.platform === 'win32') return path.win32.join(systemRoot !== '' ? systemRoot : 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts')
   // Under WSL the browser runs on Windows, so the Windows hosts file (reachable
   // via /mnt/c) is the one that matters.
   if (isWsl()) return '/mnt/c/Windows/System32/drivers/etc/hosts'

@@ -67,13 +67,13 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
   // One hosts edit for all domains: a single elevation prompt on Windows.
   const hostsRemoved = removeHostsEntries(removedDomains)
 
-  restartTraefikIfRunning(composePath)
+  const restarted = restartTraefikIfRunning(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
   for (const d of failedDomains) console.log(`  ❌ failed:  ${d}`)
   if (!hostsRemoved) console.log('- hosts: manual action required (see above)')
-  console.log('- traefik: restarted')
+  console.log(restarted ? '- traefik: restarted' : '- traefik: not running (applies when it starts)')
 }
 
 const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], composePath: string): void => {
@@ -86,13 +86,13 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
     if (!stillUsed) removedDomains.push(r.domain)
   }
   const hostsRemoved = removeHostsEntries(removedDomains)
-  restartTraefikIfRunning(composePath)
+  const restarted = restartTraefikIfRunning(composePath)
   const projectName = path.basename(route.filePath, path.extname(route.filePath))
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`- removed domain: ${d}`)
   console.log(`- removed route file: ${route.fileName}`)
   if (!hostsRemoved) console.log('- hosts: manual action required (see above)')
-  console.log('- traefik: restarted')
+  console.log(restarted ? '- traefik: restarted' : '- traefik: not running (applies when it starts)')
   console.log(`\n✅ Removed project: ${projectName} (${String(removedDomains.length)} domain(s))`)
 }
 
@@ -109,13 +109,13 @@ const removeSingleWithSummary = (route: RouteEntry, composePath: string): void =
     console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
     hostsStatus = 'kept (domain still used)'
   }
-  restartTraefikIfRunning(composePath)
+  const restarted = restartTraefikIfRunning(composePath)
   console.log('\nSummary:')
   console.log(`- removed domain: ${route.domain}`)
   if (fileDeleted) console.log(`- removed route file: ${route.fileName}`)
   else console.log(`- updated route file: ${route.fileName}`)
   console.log(`- hosts: ${hostsStatus}`)
-  console.log('- traefik: restarted')
+  console.log(restarted ? '- traefik: restarted' : '- traefik: not running (applies when it starts)')
   console.log(`\n✅ Removed link: ${route.domain}`)
 }
 
@@ -218,13 +218,13 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
 
   // One hosts edit for all selected domains: a single elevation prompt on Windows.
   const hostsRemoved = removeHostsEntries(removedDomains)
-  restartTraefikIfRunning(composePath)
+  const restarted = restartTraefikIfRunning(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
   for (const d of failedItems) console.log(`  ❌ failed:  ${d}`)
   if (!hostsRemoved) console.log('- hosts: manual action required (see above)')
-  console.log('- traefik: restarted')
+  console.log(restarted ? '- traefik: restarted' : '- traefik: not running (applies when it starts)')
 }
 
 const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {

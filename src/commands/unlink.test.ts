@@ -210,6 +210,7 @@ describe('unlink command', () => {
     expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('app.yml'))
     expect(execSync).not.toHaveBeenCalledWith(expect.stringContaining('restart traefik'), expect.anything())
     expect(logSpy).toHaveBeenCalledWith("Betty's proxy is not running; it picks up the change when it starts.")
+    expect(logSpy).toHaveBeenCalledWith('- traefik: not running (applies when it starts)')
     logSpy.mockRestore()
   })
 
