@@ -1,3 +1,15 @@
+## [1.11.3](https://github.com/mcKanses/missbetty/compare/v1.11.2...v1.11.3) (2026-11-15)
+
+
+### Bug Fixes
+
+* **config:** Keep unknown keys and clean up after a failed save ([5e05d10](https://github.com/mcKanses/missbetty/commit/5e05d10d198544c97a61e79401835eb75dfc4508))
+* **install:** Do not fail the Windows install over Docker's daemon or the optional mkcert ([ab7aa11](https://github.com/mcKanses/missbetty/commit/ab7aa116f2c4bc4102dacb10eeca8a2ce53ec746))
+* **install:** Never let root run or write into anything the invoking user controls ([74a1655](https://github.com/mcKanses/missbetty/commit/74a1655f2ea0c5682129d9d1b685a10fcb169182))
+* **project:** Reject control characters that could disguise a .betty.yml in the trust summary ([df9ff5d](https://github.com/mcKanses/missbetty/commit/df9ff5d3757903eb61b85814dc48b4ff76240932))
+* **prompt:** Need no terminal when there is nothing to ask ([b918959](https://github.com/mcKanses/missbetty/commit/b9189590916c25dd9c20595e579ff357db11d021))
+* **proxy:** Announce the proxy start and show only Docker's error lines ([b1a690e](https://github.com/mcKanses/missbetty/commit/b1a690e6c13b54a683dbb2a22378dcb7f804629a))
+
 ## [1.11.2](https://github.com/mcKanses/missbetty/compare/v1.11.1...v1.11.2) (2026-11-15)
 
 
