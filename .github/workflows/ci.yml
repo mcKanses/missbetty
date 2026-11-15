@@ -40,8 +40,6 @@ jobs:
       - name: Lint Markdown
         run: npm run lint:md
 
+      # Runs the whole test suite once, with coverage.
       - name: Test
-        run: npm test
-
-      - name: Coverage
         run: npm run test:coverage

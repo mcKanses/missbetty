@@ -153,7 +153,7 @@ describe('update utils', () => {
     ;(execFileSync as jest.Mock).mockImplementation(() => { throw new Error('installer failed') })
 
     const err = await installUpdate('1.10.0').catch((e: unknown) => e) as BettyError
-    expect(err.hints.join(' ')).toContain("| sudo BETTY_INSTALL_DIR='/opt/tools' sh")
+    expect(err.hints.join(' ')).toContain("/v1.10.0/install.sh | sudo BETTY_VERSION=v1.10.0 BETTY_INSTALL_DIR='/opt/tools' sh")
   })
 
   test('on Linux, Betty is another file than betty and is not replaced', async () => {

@@ -9,7 +9,7 @@ jest.mock('inquirer', () => ({
 
 describe('prompt', () => {
   const stdinIsTTY = process.stdin.isTTY
-  const setTTY = (value: boolean | undefined): void => { Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true }) }
+  const setTTY = (value: boolean | undefined): void => { Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true, writable: true }) }
   const question = [{ type: 'confirm', name: 'ok', message: 'Go?' }]
 
   beforeEach(() => { jest.clearAllMocks() })

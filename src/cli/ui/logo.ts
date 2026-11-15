@@ -64,14 +64,18 @@ const animateBettyLogo = async (): Promise<void> => {
     { topLeftCable: true,  middleHCable: true,  bottomLeftCable: true,  bottomRightCable: true,  bottomHLength: 3 },
   ]
 
-  for (const frame of frames) {
-    process.stdout.write('\x1Bc')
+  // Each frame is drawn over the last one: up five lines and clear below, not
+  // a terminal reset, which would wipe the screen and its scrollback.
+  const redraw = (frame: LogoFrame, first: boolean): void => {
+    if (!first) process.stdout.write('\x1B[5A\x1B[J')
     renderFrame(frame)
+  }
+  console.log('')
+  for (const [index, frame] of frames.entries()) {
+    redraw(frame, index === 0)
     await sleep(100)
   }
-
-  process.stdout.write('\x1Bc')
-  printBettyLogo()
+  redraw(FULL_FRAME, false)
 }
 
 export { printBettyLogo, animateBettyLogo }

@@ -53,7 +53,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     name: 'projectName',
     message: 'Project name:',
     default: opts.name?.trim() ?? path.basename(process.cwd()),
-    validate: (v: string) => v.trim() !== '' || 'Project name is required.',
+    validate: (v: string) => v.trim() === '' ? 'Project name is required.' : sanitizeName(v) !== '' || 'Use at least one letter or digit (a-z, 0-9).',
   }]) as { projectName: string }
 
   const domains: { host: string; target: string }[] = []
@@ -65,7 +65,11 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
         type: 'input',
         name: 'host',
         message: `Domain ${String(idx)} host (e.g. my-app.localhost):`,
-        validate: (v: string) => v.trim() !== '' ? validateDomain(v) : 'Host is required.',
+        validate: (v: string) => {
+          if (v.trim() === '') return 'Host is required.'
+          if (domains.some((d) => d.host.toLowerCase() === v.trim().toLowerCase())) return `${v.trim()} is already in this project.`
+          return validateDomain(v)
+        },
       },
       {
         type: 'input',

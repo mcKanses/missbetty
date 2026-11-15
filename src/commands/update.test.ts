@@ -19,7 +19,7 @@ describe('update command', () => {
   let logSpy: jest.SpyInstance
 
   const stdinIsTTY = process.stdin.isTTY
-  const setTTY = (value: boolean | undefined): void => { Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true }) }
+  const setTTY = (value: boolean | undefined): void => { Object.defineProperty(process.stdin, 'isTTY', { value, configurable: true, writable: true }) }
   beforeEach(() => {
     jest.clearAllMocks()
     logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
