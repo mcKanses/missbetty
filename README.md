@@ -790,3 +790,52 @@ Then run:
 ```sh
 betty serve
 ```
+
+### `mkcert -install failed` because of the Java keystore
+
+With HTTPS enabled, `betty project load` (and `betty setup`) run
+`mkcert -install`. When a JDK is installed and `JAVA_HOME` is set, mkcert also
+tries to add the local CA to Java's `cacerts` keystore. On Windows that file
+lives under `C:\Program Files\...` and needs administrator rights, so the call
+fails even though the CA is already trusted by the system store:
+
+```text
+The local CA is already installed in the system trust store! 👍
+ERROR: failed to execute "keytool -importcert": exit status 1
+Keytool-Fehler: java.io.FileNotFoundException: C:\Program Files\Eclipse Adoptium\jdk-8.0.512.9-hotspot\jre\lib\security\cacerts (Zugriff verweigert)
+Error: mkcert -install failed.
+```
+
+Browsers do not read the Java keystore, so it can be skipped. mkcert reads the
+`TRUST_STORES` variable to limit which stores it touches:
+
+```sh
+TRUST_STORES=system betty project load
+```
+
+```powershell
+$env:TRUST_STORES = "system"; betty project load
+```
+
+Add `nss` (`TRUST_STORES=system,nss`) if you use Firefox. Only include `java`
+when a Java app needs to call your local domains, and then run the command from
+an elevated shell.
+
+### `ERR_USE_AFTER_CLOSE: readline was closed` without a terminal
+
+Commands that ask for confirmation (such as `betty project load`) currently
+crash instead of failing cleanly when stdin is not an interactive terminal, for
+example in CI or from a script:
+
+```text
+? Load project 'my-app' from .betty.yml? (Y/n)
+Error [ERR_USE_AFTER_CLOSE]: readline was closed
+    at PromptUI.close (...\node_modules\inquirer\lib\ui\baseUI.js:56:13)
+```
+
+Until betty detects the missing TTY itself, pass `--yes` to accept the prompts
+up front:
+
+```sh
+betty project load --yes
+```
