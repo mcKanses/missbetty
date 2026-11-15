@@ -11,6 +11,12 @@ on:
         description: Existing release tag to publish to npm, e.g. v1.7.4
         required: true
 
+# Two pushes to main close together must not release in parallel: both runs
+# would compute the same version and race for its tag. The second one waits.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 # Each job gets only what it needs. npm trusted publishing trusts this workflow
 # file, not a job, so only npm-publish may mint the OIDC token that publishes.
 permissions:
