@@ -13,7 +13,6 @@ const serveCommand = (): void => { withLock(() => {
     ensureProxyNetwork()
     ensureHttpsPortAvailable()
 
-    console.log('Starting global Betty Traefik proxy...')
     ensureProxyRunning(BETTY_PROXY_COMPOSE, 'serve')
     console.log(`Traefik proxy is running as '${BETTY_TRAEFIK_CONTAINER}' on ports ${String(getHttpPort())} (HTTP) and ${String(getHttpsPort())} (HTTPS).`)
   } catch (err) {

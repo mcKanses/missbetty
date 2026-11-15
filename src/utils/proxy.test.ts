@@ -236,6 +236,21 @@ describe('ensureProxyRunning', () => {
     expect((thrown as { hints: string[] }).hints.join('\n')).toContain('betty config set httpPort')
     expect(execFileSync).toHaveBeenCalledWith('docker', expect.arrayContaining(['up', '-d']), expect.objectContaining({ stdio: ['inherit', 'inherit', 'pipe'] }))
   })
+
+  it("shows only Docker's error lines, not compose's status lines", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { execFileSync } = require('child_process') as { execFileSync: jest.Mock }
+    execFileSync.mockImplementation(() => {
+      throw Object.assign(new Error('Command failed'), {
+        stderr: Buffer.from(' Network betty_proxy  Created\n Container betty-traefik  Creating\nError response from daemon: no space left on device'),
+      })
+    })
+
+    let thrown: unknown
+    try { ensureProxyRunning('/home/test/.betty/docker-compose.yml', 'serve') } catch (err) { thrown = err }
+
+    expect((thrown as { hints: string[] }).hints).toEqual(['Error response from daemon: no space left on device'])
+  })
 })
 
 describe('proxyStartError', () => {
