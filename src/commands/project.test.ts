@@ -284,7 +284,9 @@ describe('projectCreateCommand', () => {
     const domainQuestions = (inquirer.prompt as unknown as jest.Mock).mock.calls[1][0] as PromptQuestion[]
     const hostQuestion = domainQuestions.find((q) => q.name === 'host')
     expect(hostQuestion?.validate?.('')).toBe('Host is required.')
-    expect(hostQuestion?.validate?.('app.localhost')).toBe(true)
+    expect(hostQuestion?.validate?.('api.localhost')).toBe(true)
+    // app.localhost was entered already: a host listed twice is rejected on load.
+    expect(hostQuestion?.validate?.('APP.localhost')).toBe('APP.localhost is already in this project.')
   })
 
   test('uses --name option as default for project name prompt', async () => {

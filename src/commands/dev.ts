@@ -361,8 +361,9 @@ export const printUrls = (config: DevProjectConfig): void => {
   if (databaseDomains.length === 0) return
   // libpq's sslrootcert=system reads OpenSSL's store, which on Windows is not the
   // one mkcert installs into, so point at the mkcert root CA file instead. The
-  // URI percent-decodes its values; spaces (e.g. in a user folder) are encoded.
-  const rootCa = (getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem').replace(/ /g, '%20')
+  // URI percent-decodes its values, so anything but plain path characters (a
+  // space, # or & in a user folder) is encoded.
+  const rootCa = (getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem').replace(/[^A-Za-z0-9\-._~/:\\]/gu, (c) => encodeURIComponent(c))
   printHint('Database domains need a PostgreSQL 17+ client with direct TLS, for example:')
   for (const domain of databaseDomains) printHint(`psql "${databaseUrl(domain.host).replace(/^postgres:\/\//, 'postgresql://postgres@')}/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=${rootCa}"`)
 }
@@ -504,7 +505,9 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
         }
         if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
         cleanExit = true
-      } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
+      } else if (result.status !== null && result.status !== 0) throw new BettyError(`Up command exited with code ${String(result.status)}`, {
+        hints: ['The domains are still linked. Fix the command and load the project again, or remove the links with: betty project stop'],
+      })
     }
     if (!cleanExit) printUrls(config)
   } catch (err) {

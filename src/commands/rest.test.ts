@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, jest } from '@jest/globals'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import path from 'path'
@@ -12,7 +12,7 @@ jest.mock('os', () => ({
 }))
 
 jest.mock('child_process', () => ({
-  execSync: jest.fn(),
+  execFileSync: jest.fn(),
 }))
 
 jest.mock('fs', () => ({
@@ -58,7 +58,7 @@ describe('rest command', () => {
     await restCommand()
 
     expect(fs.existsSync).toHaveBeenCalledWith(composePath)
-    expect(execSync).not.toHaveBeenCalled()
+    expect(execFileSync).not.toHaveBeenCalled()
     expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith("Betty's local switchboard service is not set up yet.")
     expect(logSpy).toHaveBeenCalledWith('Start it with: betty serve')
@@ -77,7 +77,7 @@ describe('rest command', () => {
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: 'confirm', type: 'confirm' })])
     )
-    expect(execSync).not.toHaveBeenCalled()
+    expect(execFileSync).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith('Cancelled.')
 
     logSpy.mockRestore()
@@ -91,7 +91,7 @@ describe('rest command', () => {
 
     await restCommand()
 
-    expect(execSync).toHaveBeenCalledWith(`docker compose -f "${composePath}" down`, {
+    expect(execFileSync).toHaveBeenCalledWith('docker', ['compose', '-f', composePath, 'down'], {
       cwd: homeDir,
       stdio: 'inherit',
     })
@@ -106,13 +106,13 @@ describe('rest command', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     let heldDuringDown = false
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => { heldDuringDown = mockLockState.held })
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { heldDuringDown = mockLockState.held })
 
     await restCommand({ yes: true })
 
     expect(heldDuringDown).toBe(true)
     expect(inquirer.prompt).not.toHaveBeenCalled()
-    expect(execSync).toHaveBeenCalledWith(`docker compose -f "${composePath}" down`, {
+    expect(execFileSync).toHaveBeenCalledWith('docker', ['compose', '-f', composePath, 'down'], {
       cwd: homeDir,
       stdio: 'inherit',
     })
@@ -123,7 +123,7 @@ describe('rest command', () => {
 
   test('throws when stopping fails', async () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
-    ;(execSync as unknown as jest.Mock).mockImplementation(() => {
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => {
       throw new Error('compose down failed')
     })
 

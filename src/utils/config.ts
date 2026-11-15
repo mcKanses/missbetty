@@ -139,6 +139,7 @@ export const databaseUrl = (domain: string): string => `postgres://${domain}:${S
 export const setHttpPort = (value: string): number => {
   const port = normalizePort(value)
   if (port === null) throw new Error('Invalid port. Example: betty config set httpPort 8080')
+  if (port === getHttpsPort()) throw new Error(`Port ${String(port)} is already the HTTPS port.`)
 
   updateBettyConfig({ httpPort: port })
   return port
@@ -164,6 +165,7 @@ export const setUpdateCheck = (value: string): boolean => {
 export const setHttpsPort = (value: string): number => {
   const port = normalizePort(value)
   if (port === null) throw new Error('Invalid port. Example: betty config set httpsPort 8443')
+  if (port === getHttpPort()) throw new Error(`Port ${String(port)} is already the HTTP port.`)
 
   updateBettyConfig({ httpsPort: port })
   return port

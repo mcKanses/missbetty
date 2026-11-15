@@ -70,6 +70,8 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
     try {
       const normalized = writeKey(key, value)
       console.log(`Saved: ${key}=${normalized}`)
+      // The running proxy keeps the ports it was started with.
+      if (key === 'httpPort' || key === 'httpsPort') console.log('Run `betty serve` to apply it to the running proxy.')
       return
     } catch (err) {
       if (err instanceof BettyError) throw err

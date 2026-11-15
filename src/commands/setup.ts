@@ -70,7 +70,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
   const status = collectSetupStatus()
 
   if (!status.mkcertInstalled) {
-    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now? [Y/n]', yes)
+    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now?', yes)
     if (shouldInstallMkcert) {
       const installResult = installMkcertPackage()
       if (!installResult.ok && installResult.warning !== undefined) {
@@ -84,7 +84,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
     // A created CA may still be untrusted (declined prompt, plain `mkcert <host>`).
     // mkcert -install only acts where it is missing, so it runs unasked then.
     const caCreated = status.mkcertCaInstalled && checkMkcertCaInstalled()
-    const shouldInstallCa = caCreated || await askYesNo('Run mkcert -install to create and trust a local CA? [Y/n]', yes)
+    const shouldInstallCa = caCreated || await askYesNo('Run mkcert -install to create and trust a local CA?', yes)
     if (shouldInstallCa) {
       if (caCreated) console.log('Making sure browsers trust the local CA (mkcert -install)...')
       const mkcertResult = runMkcertInstall()
@@ -95,7 +95,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
 
   if (!status.hostsEntryExists) {
     const missing = status.missingHostsEntries.join(', ')
-    const shouldAddHosts = await askYesNo(`Add hosts entries for ${missing}? This may ask for admin rights. [Y/n]`, yes)
+    const shouldAddHosts = await askYesNo(`Add hosts entries for ${missing}? This may ask for admin rights.`, yes)
     // Read again under the lock: links can have changed while the prompts were
     // open, and an entry for a domain unlinked meanwhile would never be removed.
     if (shouldAddHosts) withLock(() => ensureHostsEntries(findMissingHostsEntries()))
