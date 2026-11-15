@@ -1,3 +1,24 @@
+## [1.11.2](https://github.com/mcKanses/missbetty/compare/v1.11.1...v1.11.2) (2026-11-15)
+
+
+### Bug Fixes
+
+* **certs:** Check and renew only the certificates of linked domains ([cc14b9f](https://github.com/mcKanses/missbetty/commit/cc14b9f463f7d3fbdbe1f1467c72fc87ed441eec))
+* **certs:** Keep working certificates and finish unlink without a running proxy ([b8b7ff2](https://github.com/mcKanses/missbetty/commit/b8b7ff270b79d39f567fd9f9d79e885b5df63779))
+* **cli:** Small fixes from the code review ([e82a27a](https://github.com/mcKanses/missbetty/commit/e82a27ab259d75dcd661f4b8902f643396cb1072))
+* **config:** Ignore wrongly typed settings and never overwrite a broken config.json ([066cf14](https://github.com/mcKanses/missbetty/commit/066cf14bd30a3649e96b33fa649aee83ffb2d5eb))
+* **install:** Do not fail the install over the optional mkcert or a Docker daemon that is not up yet ([38673b4](https://github.com/mcKanses/missbetty/commit/38673b429c5abb50048eac9fd97d1aa78f5b4799))
+* **install:** Leave the Java keystore out of mkcert -install in the installers ([9be50e6](https://github.com/mcKanses/missbetty/commit/9be50e6205512c098871d5862b83bd61f1fbd008)), closes [#253](https://github.com/mcKanses/missbetty/issues/253)
+* **install:** Let a cosign run as the user check copies it can read ([80c0ccf](https://github.com/mcKanses/missbetty/commit/80c0ccfaa869a5a30ddf45c6c3d6bc31d9b95f81))
+* **install:** Run a cosign not owned by root as the invoking user ([8ce6aca](https://github.com/mcKanses/missbetty/commit/8ce6aca70c6a1b4de8e71929f9edd8cbef8f3bed))
+* **install:** Run install.ps1 in its own scope ([83fcefd](https://github.com/mcKanses/missbetty/commit/83fcefda80452544a7bd2784a012498d0cdab7d4))
+* **mkcert:** Leave the Java keystore out of mkcert -install ([167696f](https://github.com/mcKanses/missbetty/commit/167696fae1861fde51b81464509c35fd4cdafbc5))
+* **project:** Ask before acting on an untrusted .betty.yml ([506f260](https://github.com/mcKanses/missbetty/commit/506f2606980fe199944eae127de693b5805b01ad))
+* **prompt:** Fail cleanly when there is no terminal to answer a prompt ([176ee9c](https://github.com/mcKanses/missbetty/commit/176ee9c73c31cd73f55bb29c1fca315f5b15782f))
+* **proxy:** Match the proxy start hints on Docker's stderr ([50295a8](https://github.com/mcKanses/missbetty/commit/50295a84e27fda99a86a42b2efcde144cfb9514b))
+* **routes:** Write the new route file before removing the old one ([442f062](https://github.com/mcKanses/missbetty/commit/442f062150823eade15523a4eee8bc46e76f45ab))
+* **status:** Keep container details when one stops, and say when Docker is down ([07887f2](https://github.com/mcKanses/missbetty/commit/07887f216f557a3e68fece87dfec77b60b47e865))
+
 ## [1.11.1](https://github.com/mcKanses/missbetty/compare/v1.11.0...v1.11.1) (2026-10-12)
 
 
