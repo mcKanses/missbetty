@@ -15,6 +15,12 @@ describe('prompt', () => {
   beforeEach(() => { jest.clearAllMocks() })
   afterEach(() => { setTTY(stdinIsTTY) })
 
+  test('needs no terminal when there is nothing to ask', async () => {
+    setTTY(undefined)
+    await expect(prompt([])).resolves.toEqual({})
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
   test('asks through inquirer in a terminal', async () => {
     setTTY(true)
     ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true })

@@ -108,7 +108,9 @@
       Start-Sleep -Seconds 2
     }
 
-    throw "Docker was installed but the daemon did not become ready within $dockerWaitSeconds seconds. A reboot or first-time Docker Desktop setup may be required; raise the wait with BETTY_DOCKER_WAIT_SECONDS."
+    # betty is installed by now; a daemon that is not up yet is something to fix
+    # before using it, not a failed install.
+    Write-Warning "Docker's daemon did not become ready within $dockerWaitSeconds seconds. A reboot or first-time Docker Desktop setup may be required; start Docker Desktop before using betty (or raise the wait with BETTY_DOCKER_WAIT_SECONDS)."
   }
 
   function Ensure-MkcertInstalled {
@@ -116,8 +118,10 @@
       Refresh-ProcessPath
     }
 
+    # mkcert is optional: without it betty serves HTTP only.
     if ($null -eq (Get-Command mkcert -ErrorAction SilentlyContinue)) {
-      throw 'mkcert was not found after installation.'
+      Write-Warning 'mkcert is not installed, so betty serves HTTP only until you install it (winget install FiloSottile.mkcert).'
+      return
     }
 
     # mkcert also adds its CA to the Java keystore of JAVA_HOME, which needs admin
@@ -170,14 +174,15 @@
     }
 
     if ($missingTools -contains 'mkcert') {
-      Install-PackageAuto -Name 'mkcert' -ChocoPackage 'mkcert' -WingetId 'FiloSottile.mkcert'
+      try { Install-PackageAuto -Name 'mkcert' -ChocoPackage 'mkcert' -WingetId 'FiloSottile.mkcert' }
+      catch { Write-Warning "mkcert could not be installed: $($_.Exception.Message)" }
     }
 
     Refresh-ProcessPath
     Ensure-DockerDesktopRunning
     Ensure-MkcertInstalled
 
-    Write-Host '✓ Dependencies installed (Docker + mkcert)'
+    Write-Host '✓ Dependency setup finished'
     Write-Host ''
   }
 

@@ -15,12 +15,14 @@ jest.mock('fs', () => ({
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
     renameSync: jest.fn(),
+    rmSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
   renameSync: jest.fn(),
+  rmSync: jest.fn(),
 }))
 
 const originalEnv = process.env.BETTY_DOMAIN_SUFFIX
@@ -205,6 +207,27 @@ describe('domainUrl', () => {
 
     expect(domainUrl('app.dev', true)).toBe('https://app.dev:8443')
     expect(domainUrl('app.dev', false)).toBe('http://app.dev:8080')
+  })
+})
+
+describe('changing a setting', () => {
+  test('keeps keys betty does not know', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ futureSetting: 'x', httpPort: 'abc' }))
+
+    setDomainSuffix('.test')
+
+    const written = String((fs.writeFileSync as unknown as jest.Mock).mock.calls[0][1])
+    expect(JSON.parse(written)).toEqual({ futureSetting: 'x', httpPort: 'abc', domainSuffix: '.test' })
+  })
+
+  test('removes the temporary file when it cannot replace config.json', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('{}')
+    ;(fs.renameSync as unknown as jest.Mock).mockImplementationOnce(() => { throw new Error('EBUSY') })
+
+    expect(() => setDomainSuffix('.test')).toThrow('Could not save')
+    expect(fs.rmSync).toHaveBeenCalledWith(expect.stringMatching(/config\.json\.[0-9]+\.tmp$/), { force: true })
   })
 })
 

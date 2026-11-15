@@ -109,13 +109,18 @@ export const proxyStartError = (message: string, command: string): BettyError =>
 // proxyStartError so port conflicts and socket permissions get targeted hints.
 // Docker's error text reaches only stderr, so that is captured to match on;
 // --quiet-pull keeps the image download from filling it with progress bars.
+// With Docker's own progress hidden, the first start (which downloads Traefik)
+// is announced so it does not look stuck.
 export const ensureProxyRunning = (composePath: string, command: string): void => {
+  console.log("Starting Betty's proxy (the first start downloads the Traefik image)...")
   try {
     execFileSync('docker', ['compose', '-f', composePath, 'up', '-d', '--quiet-pull'], { cwd: path.dirname(composePath), stdio: ['inherit', 'inherit', 'pipe'] })
   } catch (err) {
     const captured = err instanceof Error && 'stderr' in err ? (err as { stderr: unknown }).stderr : undefined
     const stderr = (Buffer.isBuffer(captured) ? captured.toString() : typeof captured === 'string' ? captured : '').trim()
+    // stderr also carries compose's status lines; the hint needs only the error.
+    const errorLines = stderr.split(/\r?\n/).filter((line) => /error/i.test(line)).join('\n')
     const message = err instanceof Error ? err.message : String(err)
-    throw proxyStartError(stderr !== '' ? stderr : message, command)
+    throw proxyStartError(errorLines !== '' ? errorLines : stderr !== '' ? stderr : message, command)
   }
 }

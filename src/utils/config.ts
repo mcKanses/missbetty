@@ -33,17 +33,17 @@ const normalizeDomainSuffix = (value: string): string | null => {
 // The settings in config.json, each kept only with the expected type: a
 // hand-edited value of the wrong type is ignored instead of crashing betty.
 // `broken` is set when the file exists but is not a JSON object.
-const loadBettyConfig = (): { config: BettyConfig; broken: boolean } => {
-  if (!fs.existsSync(BETTY_CONFIG_PATH)) return { config: {}, broken: false }
+const loadBettyConfig = (): { config: BettyConfig; raw: Record<string, unknown>; broken: boolean } => {
+  if (!fs.existsSync(BETTY_CONFIG_PATH)) return { config: {}, raw: {}, broken: false }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(fs.readFileSync(BETTY_CONFIG_PATH, 'utf8'))
   } catch {
-    return { config: {}, broken: true }
+    return { config: {}, raw: {}, broken: true }
   }
   // Valid JSON need not be an object: null, a number or a list hold no settings.
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return { config: {}, broken: true }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return { config: {}, raw: {}, broken: true }
   const raw = parsed as Record<string, unknown>
   const config: BettyConfig = {}
   if (typeof raw.domainSuffix === 'string') config.domainSuffix = raw.domainSuffix
@@ -52,15 +52,16 @@ const loadBettyConfig = (): { config: BettyConfig; broken: boolean } => {
   const httpsPort = typeof raw.httpsPort === 'number' || typeof raw.httpsPort === 'string' ? normalizePort(raw.httpsPort) : null
   if (httpsPort !== null) config.httpsPort = httpsPort
   if (typeof raw.updateCheck === 'boolean') config.updateCheck = raw.updateCheck
-  return { config, broken: false }
+  return { config, raw, broken: false }
 }
 
 const readBettyConfig = (): BettyConfig => loadBettyConfig().config
 
-// Changes one setting. A config.json that does not parse is left alone:
-// rewriting it from the settings that could be read would drop all others.
+// Changes one setting and keeps everything else in the file as it is, keys
+// betty does not know included. A config.json that does not parse is left
+// alone: rewriting it would drop all other settings.
 const updateBettyConfig = (change: BettyConfig): void => {
-  const { config, broken } = loadBettyConfig()
+  const { raw, broken } = loadBettyConfig()
   if (broken) throw new BettyError(`${BETTY_CONFIG_PATH} is not valid JSON, so betty does not change it.`, {
     hints: ['Fix or delete the file, then run the command again.'],
   })
@@ -68,8 +69,15 @@ const updateBettyConfig = (change: BettyConfig): void => {
   // Written to a temporary file and renamed: an interrupted write must not
   // leave a torn file behind.
   const tmp = `${BETTY_CONFIG_PATH}.${String(process.pid)}.tmp`
-  fs.writeFileSync(tmp, `${JSON.stringify({ ...config, ...change }, null, 2)}\n`, 'utf8')
-  fs.renameSync(tmp, BETTY_CONFIG_PATH)
+  fs.writeFileSync(tmp, `${JSON.stringify({ ...raw, ...change }, null, 2)}\n`, 'utf8')
+  try {
+    fs.renameSync(tmp, BETTY_CONFIG_PATH)
+  } catch (err) {
+    fs.rmSync(tmp, { force: true })
+    throw new BettyError(`Could not save ${BETTY_CONFIG_PATH}: ${err instanceof Error ? err.message : String(err)}`, {
+      hints: ['Close any program that holds the file open, then run the command again.'],
+    })
+  }
 }
 
 export const getDomainSuffix = (): string => {

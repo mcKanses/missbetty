@@ -117,11 +117,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.11.1 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.11.2 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.11.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.11.2'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Installer options:
@@ -312,7 +312,11 @@ commands run. When the file changes in any of these, betty asks again.
 
 Betty remembers trusted files in `~/.betty/trusted-projects.json`. A
 `.betty.yml` created with `betty project create` is trusted right away, and
-`--yes` accepts the file without asking.
+`--yes` accepts the file without asking. Trust covers what the file says, not
+the repository around it: a trusted `up.command` such as `npm run dev` runs
+whatever the project's scripts do after a `git pull`. A `.betty.yml` with
+control characters (which could disguise a command in the summary) is
+rejected.
 
 ##### Database domains (PostgreSQL)
 
