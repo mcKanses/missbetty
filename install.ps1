@@ -120,7 +120,14 @@ function Ensure-MkcertInstalled {
     throw 'mkcert was not found after installation.'
   }
 
-  if (Test-NativeCommand { mkcert -install }) {
+  # mkcert also adds its CA to the Java keystore of JAVA_HOME, which needs admin
+  # rights under C:\Program Files and fails the whole install. Browsers only
+  # read the system store, so Java is skipped unless TRUST_STORES says otherwise.
+  $setTrustStores = [string]::IsNullOrEmpty($env:TRUST_STORES)
+  if ($setTrustStores) { $env:TRUST_STORES = 'system,nss' }
+  try { $caInstalled = Test-NativeCommand { mkcert -install } }
+  finally { if ($setTrustStores) { Remove-Item Env:TRUST_STORES } }
+  if ($caInstalled) {
     Write-Host '✓ mkcert CA installed'
   }
   else {
