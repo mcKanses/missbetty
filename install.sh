@@ -265,13 +265,19 @@ install_dependencies_linux() {
 
       MKCERT_URL="https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-${MKCERT_ARCH}"
 
-      fetch "$MKCERT_URL" "$TMP_DIR/mkcert"
+      if ! fetch "$MKCERT_URL" "$TMP_DIR/mkcert"; then
+        echo "Skipping mkcert: the download failed. Install it yourself for local HTTPS."
+        return
+      fi
       ACTUAL_MKCERT_SHA="$(sha256sum "$TMP_DIR/mkcert" | awk '{print $1}')"
       if [ "$ACTUAL_MKCERT_SHA" != "$MKCERT_SHA256" ]; then
         echo "Checksum verification failed for mkcert ${MKCERT_VERSION} (${MKCERT_ARCH}); it was not installed."
         return
       fi
-      $SUDO install -m 0755 "$TMP_DIR/mkcert" /usr/local/bin/mkcert
+      if ! $SUDO install -m 0755 "$TMP_DIR/mkcert" /usr/local/bin/mkcert; then
+        echo "Skipping mkcert: it could not be installed to /usr/local/bin."
+        return
+      fi
     fi
 
     # The CA must belong to the user who runs betty: run as root, mkcert would
@@ -364,8 +370,10 @@ install_dependencies_macos() {
     as_user() { "$@"; }
   fi
 
+  # betty is already installed by now: a failed update or an optional mkcert is
+  # reported, not taken for a failed install.
   echo "Running brew update..."
-  as_user "$BREW" update
+  as_user "$BREW" update || echo "brew update failed; installing with the formulae at hand."
 
   if echo "$MISSING_TOOLS" | grep -q "docker"; then
     echo "Installing Docker Desktop..."
@@ -376,9 +384,15 @@ install_dependencies_macos() {
 
   if echo "$MISSING_TOOLS" | grep -q "mkcert"; then
     echo "Installing mkcert..."
-    as_user "$BREW" install mkcert
-    as_user "$(dirname "$BREW")/mkcert" -install >/dev/null 2>&1 || true
-    echo "✓ mkcert installed"
+    if as_user "$BREW" install mkcert; then
+      # Without TRUST_STORES mkcert also writes to Java's keystore, and a
+      # failure there fails the whole step; browsers only need the system and
+      # NSS stores.
+      as_user env TRUST_STORES="${TRUST_STORES:-system,nss}" "$(dirname "$BREW")/mkcert" -install >/dev/null 2>&1 || true
+      echo "✓ mkcert installed"
+    else
+      echo "mkcert could not be installed, so betty serves HTTP only until you install it: brew install mkcert"
+    fi
   fi
 
   echo ""
@@ -474,26 +488,49 @@ SIGNER_ISSUER='https://token.actions.githubusercontent.com'
 # sudo may drop cosign's directory from PATH (e.g. Homebrew's), so look in the
 # usual install locations too, including those in the invoking user's home.
 COSIGN="$(command -v cosign 2>/dev/null || true)"
+# sudo run by root (e.g. after su) sets SUDO_USER=root: there is no other user.
+INVOKING_USER=""
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then INVOKING_USER="$SUDO_USER"; fi
 USER_HOME=""
-if [ -n "${SUDO_USER:-}" ]; then
+if [ -n "$INVOKING_USER" ]; then
   # Linux only; on macOS cosign comes from Homebrew, whose paths are listed.
-  USER_HOME="$( (getent passwd "$SUDO_USER" 2>/dev/null || true) | cut -d: -f6)"
+  USER_HOME="$( (getent passwd "$INVOKING_USER" 2>/dev/null || true) | cut -d: -f6)"
 fi
 for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign /home/linuxbrew/.linuxbrew/bin/cosign \
   ${USER_HOME:+"$USER_HOME/.local/bin/cosign"} ${USER_HOME:+"$USER_HOME/go/bin/cosign"} ${USER_HOME:+"$USER_HOME/.linuxbrew/bin/cosign"}; do
   if [ -z "$COSIGN" ] && [ -x "$candidate" ]; then COSIGN="$candidate"; fi
 done
 
-# Run as root, a cosign not owned by root (in the user's home, or a user-owned
-# Homebrew) could be replaced by anything running as that user, which would
-# then run as root. Such a cosign runs as the invoking user instead.
+# Whether root may run a file: it and every directory above it belong to root
+# and nobody else can write them, so nothing can swap it while it is checked
+# and run.
+root_only() {
+  p="$1"
+  while :; do
+    [ -n "$(find "$p" -prune -user 0 ! -perm -022 2>/dev/null)" ] || return 1
+    [ "$p" = "/" ] && return 0
+    p="$(dirname "$p")"
+  done
+}
+
+# Checking a signature needs no root. Run with sudo, cosign runs as the
+# invoking user: one in their home or a user-owned Homebrew could be replaced
+# by anything running as that user and must never run as root. The check is
+# then only as trustworthy as that account, which owns the cosign. Run as
+# root without such a user, only a cosign that root alone controls runs, by
+# its resolved path.
 COSIGN_USER=""
-if [ -n "$COSIGN" ] && [ "$(id -u)" -eq 0 ] && [ -n "$(find -L "$COSIGN" -prune ! -user 0 2>/dev/null)" ]; then
-  if [ -n "${SUDO_USER:-}" ]; then
-    COSIGN_USER="$SUDO_USER"
+if [ -n "$COSIGN" ] && [ "$(id -u)" -eq 0 ]; then
+  if [ -n "$INVOKING_USER" ]; then
+    COSIGN_USER="$INVOKING_USER"
   else
-    echo "Ignoring $COSIGN: it is not owned by root."
-    COSIGN=""
+    COSIGN_RESOLVED="$(readlink -f "$COSIGN" 2>/dev/null || true)"
+    if [ -n "$COSIGN_RESOLVED" ] && root_only "$COSIGN_RESOLVED"; then
+      COSIGN="$COSIGN_RESOLVED"
+    else
+      echo "Ignoring $COSIGN: it is not controlled by root alone."
+      COSIGN=""
+    fi
   fi
 fi
 
@@ -519,12 +556,15 @@ if [ -n "$COSIGN" ]; then
     set -- --signature betty.tar.gz.sig --certificate betty.tar.gz.pem
   fi
   # Root's temporary directory is out of the user's reach (on macOS its parent
-  # too), so a cosign running as the user checks copies in a directory of its own.
+  # too), so a cosign running as the user reads copies. Root creates their
+  # directory and the user may only read it: root never writes where the user
+  # could plant a symlink.
   VERIFY_IN="$TMP_DIR"
   if [ -n "$COSIGN_USER" ]; then
-    VERIFY_DIR="$(sudo -u "$COSIGN_USER" mktemp -d)"
+    VERIFY_DIR="$(mktemp -d /tmp/betty-verify.XXXXXX)"
     cp "$TMP_DIR"/betty.tar.gz* "$VERIFY_DIR"/
     chmod 644 "$VERIFY_DIR"/betty.tar.gz*
+    chmod 755 "$VERIFY_DIR"
     VERIFY_IN="$VERIFY_DIR"
   fi
   if ! COSIGN_OUTPUT="$(cd "$VERIFY_IN" && run_cosign verify-blob betty.tar.gz "$@" \

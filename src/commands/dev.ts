@@ -58,6 +58,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asString = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 
+// Control characters (an escape sequence, a carriage return) and bidi overrides
+// could make the trust summary show something other than what runs. Commands
+// may span lines.
+// eslint-disable-next-line no-control-regex
+const HIDING_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/u
+const assertVisible = (label: string, value: string | undefined, opts: { multiline?: boolean } = {}): void => {
+  if (value === undefined) return
+  if (HIDING_CHARACTERS.test(value) || (opts.multiline !== true && value.includes('\n'))) throw new Error(`.betty.yml: ${label} contains control characters.`)
+}
+
 const DEFAULT_POSTGRES_PORT = '5432'
 
 const parsePermission = (value: unknown): PermissionMode | undefined => {
@@ -130,6 +140,12 @@ export const readDevProjectConfig = (configPath: string): DevProjectConfig => {
   const databaseDomain = domains.find((domain) => isDatabaseTarget(domain.target))
   if (databaseDomain !== undefined && https?.enabled !== true) throw new Error(`${databaseDomain.host}: postgres targets need https.enabled: true in .betty.yml.`)
 
+  assertVisible('project', project)
+  domains.forEach((domain, index) => { assertVisible(`domains[${String(index)}].target`, domain.target) })
+  assertVisible('up.command', up?.command, { multiline: true })
+  assertVisible('down.command', down?.command, { multiline: true })
+  assertVisible('https.certificateAuthority', https?.certificateAuthority)
+
   const permissions = isRecord(parsed.permissions)
     ? {
         hosts: parsePermission(parsed.permissions.hosts),
@@ -182,8 +198,10 @@ export const confirmProject = async (config: DevProjectConfig, configPath: strin
   console.log(`  Project: ${config.project}`)
   for (const domain of config.domains) console.log(`  ${domain.host} -> ${domain.target}`)
   if (config.https?.enabled === true) console.log('  HTTPS: certificates from your local mkcert CA')
-  if (config.up?.command !== undefined) console.log(`  Start command: ${config.up.command}`)
-  if (config.down?.command !== undefined) console.log(`  Stop command: ${config.down.command}`)
+  // A command over several lines shows every line, indented under its label.
+  const showCommand = (label: string, command: string): void => { console.log(`  ${label}: ${command.split('\n').join(`\n${' '.repeat(label.length + 4)}`)}`) }
+  if (config.up?.command !== undefined) showCommand('Start command', config.up.command)
+  if (config.down?.command !== undefined) showCommand('Stop command', config.down.command)
   const granted = (Object.keys(PERMISSION_LABELS) as (keyof typeof PERMISSION_LABELS)[])
     .filter((key) => config.permissions?.[key] === 'allowed')
     .map((key) => PERMISSION_LABELS[key])

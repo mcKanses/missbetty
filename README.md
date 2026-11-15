@@ -312,7 +312,11 @@ commands run. When the file changes in any of these, betty asks again.
 
 Betty remembers trusted files in `~/.betty/trusted-projects.json`. A
 `.betty.yml` created with `betty project create` is trusted right away, and
-`--yes` accepts the file without asking.
+`--yes` accepts the file without asking. Trust covers what the file says, not
+the repository around it: a trusted `up.command` such as `npm run dev` runs
+whatever the project's scripts do after a `git pull`. A `.betty.yml` with
+control characters (which could disguise a command in the summary) is
+rejected.
 
 ##### Database domains (PostgreSQL)
 

@@ -155,8 +155,8 @@ describe('relink command', () => {
 
     await relinkCommand('app', { container: 'myapp', domain: 'newapp.localhost', port: '3000', yes: true })
 
-    // prompt is called with empty array when all opts are provided (no interactive fields)
-    expect(inquirer.prompt).toHaveBeenCalledWith([])
+    // Nothing to ask when all opts are given: no prompt, so no terminal needed.
+    expect(inquirer.prompt).not.toHaveBeenCalled()
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       expect.stringContaining('newapp-localhost.yml'),
       expect.any(String),

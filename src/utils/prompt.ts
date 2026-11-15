@@ -7,6 +7,8 @@ import { BettyError } from './errors'
 export const prompt = async <T extends inquirer.Answers = inquirer.Answers>(
   questions: inquirer.QuestionCollection<T>,
 ): Promise<T> => {
+  // Nothing to ask (e.g. relink with every value given): no terminal needed.
+  if (Array.isArray(questions) && questions.length === 0) return {} as T
   if (!process.stdin.isTTY) throw new BettyError('There is no terminal to answer the prompt.', {
     hints: ['Run the command in a terminal, or pass --yes where it is supported to accept the prompts up front.'],
   })
