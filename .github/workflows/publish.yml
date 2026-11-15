@@ -14,7 +14,7 @@ on:
 # Two pushes to main close together must not release in parallel: both runs
 # would compute the same version and race for its tag. The second one waits.
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 # Each job gets only what it needs. npm trusted publishing trusts this workflow
