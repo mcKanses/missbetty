@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { BETTY_HOME_DIR, BETTY_CONFIG_PATH } from './constants'
+import { BettyError } from './errors'
 
 interface BettyConfig {
   domainSuffix?: string;
@@ -29,22 +30,46 @@ const normalizeDomainSuffix = (value: string): string | null => {
   return null
 }
 
-const readBettyConfig = (): BettyConfig => {
-  if (!fs.existsSync(BETTY_CONFIG_PATH)) return {}
+// The settings in config.json, each kept only with the expected type: a
+// hand-edited value of the wrong type is ignored instead of crashing betty.
+// `broken` is set when the file exists but is not a JSON object.
+const loadBettyConfig = (): { config: BettyConfig; broken: boolean } => {
+  if (!fs.existsSync(BETTY_CONFIG_PATH)) return { config: {}, broken: false }
 
+  let parsed: unknown
   try {
-    const raw = fs.readFileSync(BETTY_CONFIG_PATH, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    // Valid JSON need not be an object: null, a number or a list hold no settings.
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : {}
+    parsed = JSON.parse(fs.readFileSync(BETTY_CONFIG_PATH, 'utf8'))
   } catch {
-    return {}
+    return { config: {}, broken: true }
   }
+  // Valid JSON need not be an object: null, a number or a list hold no settings.
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return { config: {}, broken: true }
+  const raw = parsed as Record<string, unknown>
+  const config: BettyConfig = {}
+  if (typeof raw.domainSuffix === 'string') config.domainSuffix = raw.domainSuffix
+  const httpPort = typeof raw.httpPort === 'number' || typeof raw.httpPort === 'string' ? normalizePort(raw.httpPort) : null
+  if (httpPort !== null) config.httpPort = httpPort
+  const httpsPort = typeof raw.httpsPort === 'number' || typeof raw.httpsPort === 'string' ? normalizePort(raw.httpsPort) : null
+  if (httpsPort !== null) config.httpsPort = httpsPort
+  if (typeof raw.updateCheck === 'boolean') config.updateCheck = raw.updateCheck
+  return { config, broken: false }
 }
 
-const writeBettyConfig = (config: BettyConfig): void => {
+const readBettyConfig = (): BettyConfig => loadBettyConfig().config
+
+// Changes one setting. A config.json that does not parse is left alone:
+// rewriting it from the settings that could be read would drop all others.
+const updateBettyConfig = (change: BettyConfig): void => {
+  const { config, broken } = loadBettyConfig()
+  if (broken) throw new BettyError(`${BETTY_CONFIG_PATH} is not valid JSON, so betty does not change it.`, {
+    hints: ['Fix or delete the file, then run the command again.'],
+  })
   if (!fs.existsSync(BETTY_HOME_DIR)) fs.mkdirSync(BETTY_HOME_DIR, { recursive: true })
-  fs.writeFileSync(BETTY_CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+  // Written to a temporary file and renamed: an interrupted write must not
+  // leave a torn file behind.
+  const tmp = `${BETTY_CONFIG_PATH}.${String(process.pid)}.tmp`
+  fs.writeFileSync(tmp, `${JSON.stringify({ ...config, ...change }, null, 2)}\n`, 'utf8')
+  fs.renameSync(tmp, BETTY_CONFIG_PATH)
 }
 
 export const getDomainSuffix = (): string => {
@@ -62,8 +87,7 @@ export const setDomainSuffix = (value: string): string => {
   const normalized = normalizeDomainSuffix(value)
   if (normalized === null) throw new Error('Invalid domain suffix. Example: .dev or .localhost')
 
-  const current = readBettyConfig()
-  writeBettyConfig({ ...current, domainSuffix: normalized })
+  updateBettyConfig({ domainSuffix: normalized })
   return normalized
 }
 
@@ -116,8 +140,7 @@ export const setHttpPort = (value: string): number => {
   const port = normalizePort(value)
   if (port === null) throw new Error('Invalid port. Example: betty config set httpPort 8080')
 
-  const current = readBettyConfig()
-  writeBettyConfig({ ...current, httpPort: port })
+  updateBettyConfig({ httpPort: port })
   return port
 }
 
@@ -134,7 +157,7 @@ export const setUpdateCheck = (value: string): boolean => {
   if (!['true', 'false', 'on', 'off'].includes(normalized)) throw new Error('Invalid value. Example: betty config set updateCheck false')
 
   const enabled = normalized === 'true' || normalized === 'on'
-  writeBettyConfig({ ...readBettyConfig(), updateCheck: enabled })
+  updateBettyConfig({ updateCheck: enabled })
   return enabled
 }
 
@@ -142,7 +165,6 @@ export const setHttpsPort = (value: string): number => {
   const port = normalizePort(value)
   if (port === null) throw new Error('Invalid port. Example: betty config set httpsPort 8443')
 
-  const current = readBettyConfig()
-  writeBettyConfig({ ...current, httpsPort: port })
+  updateBettyConfig({ httpsPort: port })
   return port
 }
