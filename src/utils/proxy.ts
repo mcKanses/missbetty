@@ -107,11 +107,15 @@ export const proxyStartError = (message: string, command: string): BettyError =>
 
 // Starts (or keeps running) the global Traefik proxy. A failure is mapped to
 // proxyStartError so port conflicts and socket permissions get targeted hints.
+// Docker's error text reaches only stderr, so that is captured to match on;
+// --quiet-pull keeps the image download from filling it with progress bars.
 export const ensureProxyRunning = (composePath: string, command: string): void => {
   try {
-    execFileSync('docker', ['compose', '-f', composePath, 'up', '-d'], { cwd: path.dirname(composePath), stdio: 'inherit' })
+    execFileSync('docker', ['compose', '-f', composePath, 'up', '-d', '--quiet-pull'], { cwd: path.dirname(composePath), stdio: ['inherit', 'inherit', 'pipe'] })
   } catch (err) {
+    const captured = err instanceof Error && 'stderr' in err ? (err as { stderr: unknown }).stderr : undefined
+    const stderr = (Buffer.isBuffer(captured) ? captured.toString() : typeof captured === 'string' ? captured : '').trim()
     const message = err instanceof Error ? err.message : String(err)
-    throw proxyStartError(message, command)
+    throw proxyStartError(stderr !== '' ? stderr : message, command)
   }
 }
