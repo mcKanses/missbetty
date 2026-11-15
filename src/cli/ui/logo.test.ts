@@ -26,7 +26,7 @@ describe('animateBettyLogo', () => {
 
   test('prints static logo when stdout is not a TTY', async () => {
     const originalIsTTY = process.stdout.isTTY
-    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true })
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true, writable: true })
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
@@ -39,12 +39,12 @@ describe('animateBettyLogo', () => {
     expect(output).toContain('betty')
 
     logSpy.mockRestore()
-    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true })
+    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true, writable: true })
   })
 
   test('runs animation frames when stdout is a TTY', async () => {
     const originalIsTTY = process.stdout.isTTY
-    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true })
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true, writable: true })
 
     const writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
@@ -58,6 +58,6 @@ describe('animateBettyLogo', () => {
 
     writeSpy.mockRestore()
     logSpy.mockRestore()
-    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true })
+    Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true, writable: true })
   })
 })
