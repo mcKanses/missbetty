@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
+import path from 'path'
 import { validateDomain } from './names'
 
 // Marker Betty appends to every hosts entry it creates. Removal is gated on this
@@ -12,7 +13,8 @@ export const isWsl = (): boolean => process.platform === 'linux' &&
   ((process.env.WSL_DISTRO_NAME ?? '').trim() !== '' || /microsoft/i.test(os.release()))
 
 const getHostsPath = (): string => {
-  if (process.platform === 'win32') return 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+  // Windows need not live on C:.
+  if (process.platform === 'win32') return path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts')
   // Under WSL the browser runs on Windows, so the Windows hosts file (reachable
   // via /mnt/c) is the one that matters.
   if (isWsl()) return '/mnt/c/Windows/System32/drivers/etc/hosts'

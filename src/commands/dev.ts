@@ -1,7 +1,7 @@
 import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
 import { checkDockerRunning, getMkcertRootCaPath, isHttpsRequestedDomain, runMkcertInstall } from '../utils/setup'
@@ -18,6 +18,7 @@ import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureP
 import { DATABASE_PROTOCOLS, databaseUrl, domainUrl, isDatabaseTarget } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
+import { isProjectTrusted, trustProject } from '../utils/projectTrust'
 import { findDomainConflict, isProjectRouter, loadedFromElsewhere, projectRouteFile, readRoutes, routeFilesUnderOtherNames, samePath, tlsOptionsName } from '../utils/routes'
 
 type PermissionMode = 'prompt' | 'allowed' | 'manual' | 'denied'
@@ -47,6 +48,8 @@ interface DevCommandOptions {
   config?: string;
   dryRun?: boolean;
   yes?: boolean;
+  // Ask before loading even a trusted project, as `betty project load` does.
+  confirmLoad?: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -143,13 +146,57 @@ const confirmPermission = async (message: string, mode: PermissionMode | undefin
   if (resolved === 'allowed') return true
   if (resolved === 'manual' || resolved === 'denied') return false
 
-  const answer = await inquirer.prompt([{
+  const answer = await prompt([{
     type: 'confirm',
     name: 'ok',
     message,
     default: true,
   }]) as { ok: boolean }
   return answer.ok
+}
+
+const PERMISSION_LABELS = { hosts: 'hosts file', trustStore: 'mkcert CA', docker: 'Docker' } as const
+
+interface ConfirmProjectOptions {
+  yes?: boolean;
+  // The verb in the trust question, e.g. load or link.
+  action: string;
+  // Asked of a trusted project, which otherwise goes ahead without a question.
+  question?: { message: string; default: boolean };
+}
+
+// A .betty.yml from a cloned repository could grant itself every permission and
+// run any command. Before betty acts on a file it has not seen (or one that
+// changed since), the user sees what it does and decides whether to trust it.
+// --yes is that decision made up front.
+export const confirmProject = async (config: DevProjectConfig, configPath: string, opts: ConfirmProjectOptions): Promise<boolean> => {
+  if (opts.yes === true) return true
+  if (isProjectTrusted(configPath, config)) {
+    if (opts.question === undefined) return true
+    const { ok } = await prompt([{ type: 'confirm', name: 'ok', message: opts.question.message, default: opts.question.default }]) as { ok: boolean }
+    return ok
+  }
+
+  const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+  console.log(`\n${relPath} is new to betty or has changed since you last trusted it:`)
+  console.log(`  Project: ${config.project}`)
+  for (const domain of config.domains) console.log(`  ${domain.host} -> ${domain.target}`)
+  if (config.https?.enabled === true) console.log('  HTTPS: certificates from your local mkcert CA')
+  if (config.up?.command !== undefined) console.log(`  Start command: ${config.up.command}`)
+  if (config.down?.command !== undefined) console.log(`  Stop command: ${config.down.command}`)
+  const granted = (Object.keys(PERMISSION_LABELS) as (keyof typeof PERMISSION_LABELS)[])
+    .filter((key) => config.permissions?.[key] === 'allowed')
+    .map((key) => PERMISSION_LABELS[key])
+  if (granted.length > 0) console.log(`  Changes without asking: ${granted.join(', ')}`)
+
+  const { ok } = await prompt([{
+    type: 'confirm',
+    name: 'ok',
+    message: `Trust this file and ${opts.action} project '${config.project}'?`,
+    default: false,
+  }]) as { ok: boolean }
+  if (ok) trustProject(configPath, config)
+  return ok
 }
 
 const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]']
@@ -260,7 +307,7 @@ const prepareHosts = async (config: DevProjectConfig, dropped: string[]): Promis
     const ok = await confirmPermission(`Add hosts entry for ${missing[0].host}?`, 'prompt')
     selected = ok ? [missing[0].host] : []
   } else if (missing.length > 1) {
-    const answer = await inquirer.prompt([{
+    const answer = await prompt([{
       type: 'checkbox',
       name: 'hosts',
       message: 'Add hosts entries for (a = all/none):',
@@ -287,7 +334,7 @@ const prepareCertificates = async (config: DevProjectConfig): Promise<Record<str
 
   const certificates: Record<string, { certFile: string; keyFile: string }> = {}
   config.domains.forEach((domain) => {
-    const certificate = ensureCertificate(domain.host, { required: true })
+    const certificate = ensureCertificate(domain.host, { required: true, caVerified: true })
     if (certificate === null) throw new Error(`Could not create a certificate for ${domain.host}.`)
     certificates[domain.host] = certificate
   })
@@ -314,8 +361,9 @@ export const printUrls = (config: DevProjectConfig): void => {
   if (databaseDomains.length === 0) return
   // libpq's sslrootcert=system reads OpenSSL's store, which on Windows is not the
   // one mkcert installs into, so point at the mkcert root CA file instead. The
-  // URI percent-decodes its values; spaces (e.g. in a user folder) are encoded.
-  const rootCa = (getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem').replace(/ /g, '%20')
+  // URI percent-decodes its values, so anything but plain path characters (a
+  // space, # or & in a user folder) is encoded.
+  const rootCa = (getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem').replace(/[^A-Za-z0-9\-._~/:\\]/gu, (c) => encodeURIComponent(c))
   printHint('Database domains need a PostgreSQL 17+ client with direct TLS, for example:')
   for (const domain of databaseDomains) printHint(`psql "${databaseUrl(domain.host).replace(/^postgres:\/\//, 'postgresql://postgres@')}/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=${rootCa}"`)
 }
@@ -420,6 +468,14 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
       return
     }
 
+    const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+    const confirmed = await confirmProject(config, configPath, {
+      yes: opts.yes,
+      action: opts.confirmLoad === true ? 'load' : 'start',
+      question: opts.confirmLoad === true ? { message: `Load project '${config.project}' from ${relPath}?`, default: true } : undefined,
+    })
+    if (!confirmed) { console.log('Cancelled.'); return }
+
     await linkProject(config, { yes: opts.yes, configPath })
 
     if (config.up?.command !== undefined) {
@@ -449,7 +505,9 @@ const devCommand = async (opts: DevCommandOptions): Promise<void> => {
         }
         if (config.down?.command !== undefined) try { runProjectCommand(config.down.command, configPath) } catch { /* best-effort */ }
         cleanExit = true
-      } else if (result.status !== null && result.status !== 0) throw new Error(`Up command exited with code ${String(result.status)}`)
+      } else if (result.status !== null && result.status !== 0) throw new BettyError(`Up command exited with code ${String(result.status)}`, {
+        hints: ['The domains are still linked. Fix the command and load the project again, or remove the links with: betty project stop'],
+      })
     }
     if (!cleanExit) printUrls(config)
   } catch (err) {

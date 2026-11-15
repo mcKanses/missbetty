@@ -1,8 +1,7 @@
-import { execFileSync } from 'child_process'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { checkAllCertificates, renewCertificates } from '../utils/certs'
-import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
-import { restartTraefik } from '../utils/docker'
+import { BETTY_PROXY_COMPOSE } from '../utils/constants'
+import { isProxyRunning, restartTraefik } from '../utils/docker'
 import { ensureHostsEntries } from '../utils/hosts'
 import { withLock } from '../utils/lock'
 import {
@@ -23,7 +22,7 @@ interface SetupOptions {
 
 const askYesNo = async (message: string, yes?: boolean): Promise<boolean> => {
   if (yes === true) return true
-  const answer = await inquirer.prompt([{
+  const answer = await prompt([{
     type: 'confirm',
     name: 'ok',
     message,
@@ -38,11 +37,8 @@ const askYesNo = async (message: string, yes?: boolean): Promise<boolean> => {
 const renewDueCertificates = (): void => {
   const renewed = withLock(() => renewCertificates(checkAllCertificates()))
   if (renewed.length === 0) return
-  let proxyRunning = false
-  try {
-    proxyRunning = execFileSync('docker', ['ps', '--filter', `name=^${BETTY_TRAEFIK_CONTAINER}$`, '--format', '{{.Names}}'], { stdio: 'pipe' }).toString().trim() !== ''
-  } catch { /* Docker is not running: the proxy reads them when it starts */ }
-  if (proxyRunning) restartTraefik(BETTY_PROXY_COMPOSE)
+  // Docker not running: the proxy reads them when it starts.
+  if (isProxyRunning()) restartTraefik(BETTY_PROXY_COMPOSE)
 }
 
 const runSetupFix = (): void => {
@@ -74,7 +70,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
   const status = collectSetupStatus()
 
   if (!status.mkcertInstalled) {
-    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now? [Y/n]', yes)
+    const shouldInstallMkcert = await askYesNo('mkcert is missing. Install mkcert automatically now?', yes)
     if (shouldInstallMkcert) {
       const installResult = installMkcertPackage()
       if (!installResult.ok && installResult.warning !== undefined) {
@@ -88,7 +84,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
     // A created CA may still be untrusted (declined prompt, plain `mkcert <host>`).
     // mkcert -install only acts where it is missing, so it runs unasked then.
     const caCreated = status.mkcertCaInstalled && checkMkcertCaInstalled()
-    const shouldInstallCa = caCreated || await askYesNo('Run mkcert -install to create and trust a local CA? [Y/n]', yes)
+    const shouldInstallCa = caCreated || await askYesNo('Run mkcert -install to create and trust a local CA?', yes)
     if (shouldInstallCa) {
       if (caCreated) console.log('Making sure browsers trust the local CA (mkcert -install)...')
       const mkcertResult = runMkcertInstall()
@@ -99,7 +95,7 @@ const runSetupInteractive = async (yes?: boolean): Promise<void> => {
 
   if (!status.hostsEntryExists) {
     const missing = status.missingHostsEntries.join(', ')
-    const shouldAddHosts = await askYesNo(`Add hosts entries for ${missing}? This may ask for admin rights. [Y/n]`, yes)
+    const shouldAddHosts = await askYesNo(`Add hosts entries for ${missing}? This may ask for admin rights.`, yes)
     // Read again under the lock: links can have changed while the prompts were
     // open, and an entry for a domain unlinked meanwhile would never be removed.
     if (shouldAddHosts) withLock(() => ensureHostsEntries(findMissingHostsEntries()))

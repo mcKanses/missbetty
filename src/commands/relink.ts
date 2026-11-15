@@ -1,5 +1,5 @@
 import path from 'path'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { domainUrl, parsePort } from '../utils/config'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
@@ -50,7 +50,7 @@ const selectRoute = async (routes: RouteEntry[], target?: string, yes?: boolean)
     hints: ['Pass the domain to pick one: betty relink <domain>', ...candidates.map((route) => ` - ${route.domain}`)],
   })
 
-  const answer = await inquirer.prompt([{
+  const answer = await prompt([{
     type: 'list',
     name: 'route',
     message: 'Which link should be updated?',
@@ -97,7 +97,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
     hints: [`Pass it once: betty relink ${route.domain} --container <name>`],
   })
 
-  const answers = await inquirer.prompt([
+  const answers = await prompt([
     ...(shouldPromptValues ? [{
       type: runningContainers.length > 0 ? 'list' : 'input',
       name: 'container',
@@ -144,7 +144,7 @@ const relinkCommandImpl = async (target?: string, opts?: RelinkOptions): Promise
   if (port === null) throw new BettyError('Invalid port. Example: --port 3000')
 
   if (opts?.yes !== true) {
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: `Update link: ${containerName} → ${domain}:${String(port)}?`,

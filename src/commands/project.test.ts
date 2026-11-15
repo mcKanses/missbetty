@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, jest, test } from '@jest/globals'
 import fs from 'fs'
 import inquirer from 'inquirer'
 import { projectCreateCommand, projectLoadCommand, projectLinkCommand, projectStopCommand, projectStatusCommand, validateHttpTarget } from './project'
-import { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
+import { confirmProject, resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
 import { loadedFromElsewhere, readRoutes } from '../utils/routes'
 
@@ -33,12 +33,15 @@ jest.mock('inquirer', () => ({
 jest.mock('./dev', () => ({
   __esModule: true,
   default: jest.fn(),
+  confirmProject: jest.fn(),
   resolveConfigPath: jest.fn(),
   readDevProjectConfig: jest.fn(),
   runProjectCommand: jest.fn(),
   linkProject: jest.fn(),
   printUrls: jest.fn(),
 }))
+
+jest.mock('../utils/projectTrust', () => ({ trustProject: jest.fn() }))
 
 jest.mock('./unlink', () => ({
   __esModule: true,
@@ -66,6 +69,7 @@ beforeEach(() => {
     throw new Error(`process-exit-${String(code)}`)
   })
   devCommand.mockResolvedValue(undefined as never)
+  ;(confirmProject as unknown as jest.Mock).mockResolvedValue(true as never)
 })
 
 describe('validateHttpTarget', () => {
@@ -94,53 +98,22 @@ describe('projectLoadCommand', () => {
   test('calls devCommand with mapped options in dry-run (no prompt)', async () => {
     await projectLoadCommand({ file: 'custom.yml', dryRun: true, yes: false })
 
-    expect(devCommand).toHaveBeenCalledWith({ config: 'custom.yml', dryRun: true, yes: false })
+    expect(devCommand).toHaveBeenCalledWith({ config: 'custom.yml', dryRun: true, yes: false, confirmLoad: true })
     expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
   test('skips prompt and calls devCommand when --yes is set', async () => {
     await projectLoadCommand({ file: 'custom.yml', yes: true })
 
-    expect(devCommand).toHaveBeenCalledWith({ config: 'custom.yml', dryRun: undefined, yes: true })
+    expect(devCommand).toHaveBeenCalledWith({ config: 'custom.yml', dryRun: undefined, yes: true, confirmLoad: true })
     expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 
-  test('shows confirmation prompt and calls devCommand on confirm', async () => {
-    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
-    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue({ project: 'my-app', domains: [] })
-    mockPromptSequence({ confirm: true })
-
+  test('leaves the load confirmation to devCommand', async () => {
     await projectLoadCommand({})
 
-    expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: 'confirm' })])
-    )
-    expect(devCommand).toHaveBeenCalled()
-  })
-
-  test('cancels without calling devCommand when user declines', async () => {
-    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
-    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue({ project: 'my-app', domains: [] })
-    mockPromptSequence({ confirm: false })
-
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
-
-    await projectLoadCommand({})
-
-    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
-    expect(devCommand).not.toHaveBeenCalled()
-
-    logSpy.mockRestore()
-  })
-
-  test('exits with code 1 when resolveConfigPath throws', async () => {
-    ;(resolveConfigPath as unknown as jest.Mock).mockImplementation(() => { throw new Error('No .betty.yml found') })
-
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-
-    await expect(projectLoadCommand({})).rejects.toThrow('No .betty.yml found')
-
-    errorSpy.mockRestore()
+    expect(devCommand).toHaveBeenCalledWith({ config: undefined, dryRun: undefined, yes: undefined, confirmLoad: true })
+    expect(inquirer.prompt).not.toHaveBeenCalled()
   })
 })
 
@@ -311,7 +284,9 @@ describe('projectCreateCommand', () => {
     const domainQuestions = (inquirer.prompt as unknown as jest.Mock).mock.calls[1][0] as PromptQuestion[]
     const hostQuestion = domainQuestions.find((q) => q.name === 'host')
     expect(hostQuestion?.validate?.('')).toBe('Host is required.')
-    expect(hostQuestion?.validate?.('app.localhost')).toBe(true)
+    expect(hostQuestion?.validate?.('api.localhost')).toBe(true)
+    // app.localhost was entered already: a host listed twice is rejected on load.
+    expect(hostQuestion?.validate?.('APP.localhost')).toBe('APP.localhost is already in this project.')
   })
 
   test('uses --name option as default for project name prompt', async () => {
@@ -392,13 +367,14 @@ describe('projectLinkCommand', () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
     ;(linkProject as unknown as jest.Mock).mockResolvedValue(undefined as never)
-    mockPromptSequence({ confirm: true })
 
     await projectLinkCommand({})
 
-    expect(inquirer.prompt).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ name: 'confirm', message: expect.stringContaining('my-app') })])
-    )
+    expect(confirmProject).toHaveBeenCalledWith(mockConfig, '/project/.betty.yml', {
+      yes: undefined,
+      action: 'link',
+      question: expect.objectContaining({ message: expect.stringContaining('my-app') }),
+    })
     expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined, configPath: expect.any(String) })
     expect(printUrls).toHaveBeenCalledWith(mockConfig)
   })
@@ -406,7 +382,7 @@ describe('projectLinkCommand', () => {
   test('cancels when user declines confirmation', async () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
-    mockPromptSequence({ confirm: false })
+    ;(confirmProject as unknown as jest.Mock).mockResolvedValue(false as never)
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
@@ -425,7 +401,7 @@ describe('projectLinkCommand', () => {
 
     await projectLinkCommand({ yes: true })
 
-    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(confirmProject).toHaveBeenCalledWith(mockConfig, '/project/.betty.yml', expect.objectContaining({ yes: true }))
     expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: true, configPath: expect.any(String) })
   })
 
@@ -436,7 +412,8 @@ describe('projectLinkCommand', () => {
 
     await projectLinkCommand({ file: 'custom.yml' })
 
-    expect(inquirer.prompt).not.toHaveBeenCalled()
+    // A trusted file named with --file links without a question.
+    expect(confirmProject).toHaveBeenCalledWith(mockConfig, '/custom/.betty.yml', { yes: undefined, action: 'link', question: undefined })
     expect(resolveConfigPath).toHaveBeenCalledWith('custom.yml')
     expect(linkProject).toHaveBeenCalledWith(mockConfig, { yes: undefined, configPath: expect.any(String) })
   })
@@ -445,7 +422,6 @@ describe('projectLinkCommand', () => {
     ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
     ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfig)
     ;(linkProject as unknown as jest.Mock).mockRejectedValue(new Error('proxy failed') as never)
-    mockPromptSequence({ confirm: true })
 
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
 
@@ -544,6 +520,21 @@ describe('projectStopCommand', () => {
     expect(logSpy).toHaveBeenCalledWith('Cancelled.')
     expect(unlinkCommand).not.toHaveBeenCalled()
 
+    logSpy.mockRestore()
+  })
+
+  test('asks to trust the file before running its stop command', async () => {
+    ;(resolveConfigPath as unknown as jest.Mock).mockReturnValue('/project/.betty.yml')
+    ;(readDevProjectConfig as unknown as jest.Mock).mockReturnValue(mockConfigWithDown)
+    ;(confirmProject as unknown as jest.Mock).mockResolvedValue(false as never)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await projectStopCommand({})
+
+    expect(confirmProject).toHaveBeenCalledWith(mockConfigWithDown, '/project/.betty.yml', expect.objectContaining({ action: 'stop' }))
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+    expect(runProjectCommand).not.toHaveBeenCalled()
+    expect(unlinkCommand).not.toHaveBeenCalled()
     logSpy.mockRestore()
   })
 

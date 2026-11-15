@@ -241,7 +241,9 @@ export const run = async (argv = process.argv): Promise<void> => {
     process.exit(0)
   }
 
-  if (cmd === 'help') {
+  // `betty help <command>` is Commander's own help for that command.
+  if (cmd === 'help' && argv.length > 3) argv = [...argv.slice(0, 2), argv[3], '--help']
+  else if (cmd === 'help') {
     printBettyLogo()
     console.log('')
     const commands = createProgram().commands.map((command) => ({

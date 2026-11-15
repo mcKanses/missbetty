@@ -14,11 +14,13 @@ jest.mock('fs', () => ({
     mkdirSync: jest.fn(),
     readFileSync: jest.fn(),
     writeFileSync: jest.fn(),
+    renameSync: jest.fn(),
   },
   existsSync: jest.fn(),
   mkdirSync: jest.fn(),
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
+  renameSync: jest.fn(),
 }))
 
 const originalEnv = process.env.BETTY_DOMAIN_SUFFIX
@@ -104,7 +106,7 @@ describe('setDomainSuffix', () => {
 
     expect(result).toBe('.staging')
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      '/home/test-user/.betty/config.json',
+      expect.stringMatching(/config\.json\.[0-9]+\.tmp$/),
       expect.stringContaining('.staging'),
       'utf8'
     )
@@ -213,14 +215,14 @@ describe('setHttpPort / setHttpsPort', () => {
 
     expect(setHttpPort('8080')).toBe(8080)
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      '/home/test-user/.betty/config.json',
+      expect.stringMatching(/config\.json\.[0-9]+\.tmp$/),
       expect.stringContaining('"httpPort": 8080'),
       'utf8'
     )
 
     expect(setHttpsPort('8443')).toBe(8443)
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      '/home/test-user/.betty/config.json',
+      expect.stringMatching(/config\.json\.[0-9]+\.tmp$/),
       expect.stringContaining('"httpsPort": 8443'),
       'utf8'
     )
@@ -233,10 +235,39 @@ describe('setHttpPort / setHttpsPort', () => {
     setHttpPort('8080')
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
-      '/home/test-user/.betty/config.json',
+      expect.stringMatching(/config\.json\.[0-9]+\.tmp$/),
       expect.stringContaining('.dev'),
       'utf8'
     )
+  })
+
+  test('replace the config file atomically', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('{}')
+
+    setHttpPort('8080')
+
+    expect(fs.renameSync).toHaveBeenCalledWith(expect.stringMatching(/config\.json\.[0-9]+\.tmp$/), expect.stringMatching(/config\.json$/))
+  })
+
+  test('refuse to rewrite a config file that is not valid JSON', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('{ "domainSuffix": ".test", }')
+
+    expect(() => setHttpPort('8080')).toThrow('is not valid JSON, so betty does not change it')
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
+  })
+
+  test('ignore values of the wrong type instead of crashing', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(JSON.stringify({ domainSuffix: 123, httpPort: '8080', httpsPort: [443] }))
+    delete process.env.BETTY_DOMAIN_SUFFIX
+    delete process.env.BETTY_HTTP_PORT
+    delete process.env.BETTY_HTTPS_PORT
+
+    expect(getDomainSuffix()).toBe('.dev')
+    expect(getHttpPort()).toBe(8080)
+    expect(getHttpsPort()).toBe(443)
   })
 
   test('throw on an invalid port', () => {
@@ -299,7 +330,7 @@ describe('update check setting', () => {
     ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
     ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue('{}')
     expect(setUpdateCheck('off')).toBe(false)
-    expect(fs.writeFileSync).toHaveBeenCalledWith('/home/test-user/.betty/config.json', expect.stringContaining('"updateCheck": false'), 'utf8')
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringMatching(/config\.json\.[0-9]+\.tmp$/), expect.stringContaining('"updateCheck": false'), 'utf8')
     expect(setUpdateCheck('TRUE')).toBe(true)
     expect(() => setUpdateCheck('maybe')).toThrow('Invalid value')
   })

@@ -159,8 +159,8 @@ const installBinary = async (version: string): Promise<void> => {
   const defaultDir = windows ? path.win32.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'betty') : '/usr/local/bin'
   const ownDir = windows ? installDir.toLowerCase() !== defaultDir.toLowerCase() : installDir !== defaultDir
   const manualInstall = windows
-    ? `${ownDir ? `$env:BETTY_INSTALL_DIR='${installDir.replace(/'/g, "''")}'; ` : ''}irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex`
-    : `curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo ${ownDir ? `BETTY_INSTALL_DIR='${installDir.replace(/'/g, "'\\''")}' ` : ''}sh`
+    ? `$env:BETTY_VERSION='v${version}'; ${ownDir ? `$env:BETTY_INSTALL_DIR='${installDir.replace(/'/g, "''")}'; ` : ''}irm https://raw.githubusercontent.com/mcKanses/missbetty/v${version}/install.ps1 | iex`
+    : `curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/v${version}/install.sh | sudo BETTY_VERSION=v${version} ${ownDir ? `BETTY_INSTALL_DIR='${installDir.replace(/'/g, "'\\''")}' ` : ''}sh`
   const installer = await downloadInstaller(version, windows ? 'install.ps1' : 'install.sh')
   try {
     if (windows) {

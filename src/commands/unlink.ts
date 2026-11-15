@@ -3,8 +3,8 @@ import path from 'path'
 import { printError } from '../cli/ui/output'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
-import inquirer from 'inquirer'
-import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
+import { prompt } from '../utils/prompt'
+import { resolveTraefikComposePath, restartTraefikIfRunning } from '../utils/docker'
 import { removeHostsEntries, removeHostsEntry } from '../utils/hosts'
 import { isProjectRouter, readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
 import { removeLinkContainer } from '../utils/state'
@@ -30,7 +30,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
   for (const r of routes) console.log(`  - ${r.domain} (${r.fileName})`)
 
   if (!yes) {
-    const answer = await inquirer.prompt([
+    const answer = await prompt([
       {
         type: 'confirm',
         name: 'confirmAll',
@@ -67,7 +67,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
   // One hosts edit for all domains: a single elevation prompt on Windows.
   const hostsRemoved = removeHostsEntries(removedDomains)
 
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
@@ -86,7 +86,7 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
     if (!stillUsed) removedDomains.push(r.domain)
   }
   const hostsRemoved = removeHostsEntries(removedDomains)
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
   const projectName = path.basename(route.filePath, path.extname(route.filePath))
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`- removed domain: ${d}`)
@@ -109,7 +109,7 @@ const removeSingleWithSummary = (route: RouteEntry, composePath: string): void =
     console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
     hostsStatus = 'kept (domain still used)'
   }
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
   console.log('\nSummary:')
   console.log(`- removed domain: ${route.domain}`)
   if (fileDeleted) console.log(`- removed route file: ${route.fileName}`)
@@ -123,7 +123,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   if (routes.length === 1) {
     const route = routes[0]
     if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: `Remove link for ${route.domain}?`,
@@ -156,7 +156,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
     }
   }
 
-  const { selected } = await inquirer.prompt([{
+  const { selected } = await prompt([{
     type: 'checkbox',
     name: 'selected',
     message: 'Select what to unlink (space to toggle, a = all/none):',
@@ -218,7 +218,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
 
   // One hosts edit for all selected domains: a single elevation prompt on Windows.
   const hostsRemoved = removeHostsEntries(removedDomains)
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
@@ -265,7 +265,7 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
     if (!fs.existsSync(projectRoutes[0].filePath)) throw new BettyError(`Routing file not found: ${projectRoutes[0].fileName}`)
 
     if (opts.yes !== true) {
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await prompt([{
         type: 'confirm',
         name: 'confirm',
         message: `Remove all ${String(projectRoutes.length)} domain(s) in project '${opts.project}'?`,
@@ -286,7 +286,7 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
   if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
 
   if (opts.yes !== true) {
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: `Remove link for ${route.domain}?`,

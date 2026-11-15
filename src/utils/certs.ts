@@ -3,6 +3,8 @@ import { X509Certificate } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { BETTY_CERTS_DIR } from './constants'
+import { certificateBaseName } from './names'
+import { readRoutes } from './routes'
 import { checkMkcertInstalled, getMkcertRootCaPath } from './setup'
 
 // mkcert certificates last 825 days. Renewed a month ahead, a project that is
@@ -60,11 +62,14 @@ export const checkCertificate = (certPath: string, opts: { domain?: string; root
   return { file: certPath, domains, validTo, problem }
 }
 
-// Every certificate betty keeps, checked against the current mkcert CA.
+// The certificates of linked domains, checked against the current mkcert CA.
+// One left behind by an unlinked domain is skipped: nothing serves it, and
+// linking the domain again renews it on the spot.
 export const checkAllCertificates = (now?: number): CertificateCheck[] => {
+  const inUse = new Set(readRoutes().map((route) => `${certificateBaseName(route.domain)}.pem`))
   let files: string[] = []
   try {
-    files = fs.readdirSync(BETTY_CERTS_DIR).filter((file) => file.endsWith('.pem') && !file.endsWith('-key.pem'))
+    files = fs.readdirSync(BETTY_CERTS_DIR).filter((file) => file.endsWith('.pem') && !file.endsWith('-key.pem') && inUse.has(file.toLowerCase()))
   } catch { /* no certificates yet */ }
   if (files.length === 0) return []
   const rootCa = readRootCa()

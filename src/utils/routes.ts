@@ -329,12 +329,15 @@ export const writeRouteConfig = (
   }
 
   const nextPath = path.join(BETTY_DYNAMIC_DIR, `${name}.yml`)
-  if (oldFilePath !== undefined && oldFilePath !== nextPath && fs.existsSync(oldFilePath)) {
-    fs.unlinkSync(oldFilePath)
-    removeLinkContainer(path.basename(oldFilePath))
-  }
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
   fs.writeFileSync(nextPath, `# betty-container: ${container}\n${yaml.stringify(config)}`, 'utf8')
   setLinkContainer(`${name}.yml`, container)
+  // Removed only once the new file is written: a failed write (a full disk)
+  // must not lose the link. A rename that only changes case is the same file
+  // on Windows and macOS.
+  if (oldFilePath !== undefined && !samePath(oldFilePath, nextPath) && fs.existsSync(oldFilePath)) {
+    fs.unlinkSync(oldFilePath)
+    removeLinkContainer(path.basename(oldFilePath))
+  }
   console.log(`${oldFilePath !== undefined ? 'Updated' : 'Wrote'} routing configuration: ${name}.yml`)
 }

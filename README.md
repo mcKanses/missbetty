@@ -117,11 +117,11 @@ irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 Optional version pinning:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.11.0 sh
+curl -fsSL https://raw.githubusercontent.com/mcKanses/missbetty/main/install.sh | sudo BETTY_VERSION=v1.11.1 sh
 ```
 
 ```powershell
-$env:BETTY_VERSION = 'v1.11.0'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
+$env:BETTY_VERSION = 'v1.11.1'; irm https://raw.githubusercontent.com/mcKanses/missbetty/main/install.ps1 | iex
 ```
 
 Installer options:
@@ -300,6 +300,19 @@ Config fields:
 | `permissions.hosts` | `prompt`, `allowed`, `manual`, or `denied` for hosts-file changes |
 | `permissions.trustStore` | `prompt`, `allowed`, `manual`, or `denied` for mkcert CA setup |
 | `permissions.docker` | `prompt`, `allowed`, `manual`, or `denied` for Docker commands |
+
+##### Trusting a `.betty.yml`
+
+A `.betty.yml` can grant itself permissions and run shell commands, so betty
+does not act on one it has not seen before, for example one that came with a
+cloned repository. It first shows the domains and their targets, the
+`up`/`down` commands and the permissions the file grants, then asks whether
+to trust it. Only a trusted file's `permissions` apply, and only then do its
+commands run. When the file changes in any of these, betty asks again.
+
+Betty remembers trusted files in `~/.betty/trusted-projects.json`. A
+`.betty.yml` created with `betty project create` is trusted right away, and
+`--yes` accepts the file without asking.
 
 ##### Database domains (PostgreSQL)
 
@@ -639,8 +652,9 @@ command has finished. When one is out, it asks once a day whether to install it
 now, later, or skip that version. It only asks in an interactive terminal: not
 with `--json`, in CI, or when output is piped.
 
-The lookup is a single request to `github.com/mcKanses/missbetty/releases/latest`;
-Betty sends nothing else. Turn it off with `betty config set updateCheck false`,
+The lookup is a request to `github.com/mcKanses/missbetty/releases/latest`.
+For a global npm install, Betty also asks `registry.npmjs.org` whether that
+version is on npm yet. Nothing else is sent. Turn it off with `betty config set updateCheck false`,
 or for one shell with `BETTY_NO_UPDATE_CHECK=1`.
 
 ## Development
@@ -718,8 +732,10 @@ npm run release:major
 
 The fallback scripts are guarded and only run on the `main` branch. They only
 bump the version and tag it locally: no GitHub release and no binaries come of
-them. After pushing such a tag, create its release on GitHub and build the
-binaries with `gh workflow run release-binaries.yml --ref main -f tag=<tag>`.
+them. After pushing such a tag, create its release as a draft
+(`gh release create <tag> --draft --generate-notes`) and build the binaries
+with `gh workflow run release-binaries.yml --ref main -f tag=<tag>`; the
+workflow publishes the draft once every binary is uploaded.
 
 For emergency manual publishing:
 
@@ -790,3 +806,39 @@ Then run:
 ```sh
 betty serve
 ```
+
+### mkcert and the Java keystore
+
+By default mkcert also adds its CA to the Java `cacerts` keystore of
+`JAVA_HOME`. On Windows that file lives under `C:\Program Files\...` and needs
+administrator rights, so `mkcert -install` would fail even though the system
+store already trusts the CA. Browsers do not read the Java keystore, so betty
+runs `mkcert -install` with `TRUST_STORES=system,nss` unless you set the
+variable yourself.
+
+If a Java app needs to call your local domains, include `java` and run the
+command from an elevated shell:
+
+```sh
+TRUST_STORES=system,java,nss betty project load
+```
+
+```powershell
+$env:TRUST_STORES = "system,java,nss"; betty project load
+```
+
+### `There is no terminal to answer the prompt.`
+
+Without an interactive terminal (in CI, from a script or with piped input)
+betty cannot ask for confirmation and stops with this error instead. Pass
+`--yes` to accept the prompts up front, for example:
+
+```sh
+betty project load --yes
+```
+
+Commands that are interactive by design, such as `betty project create`, have
+no `--yes` and need a terminal. Note that with `betty project load --yes` and
+`betty dev --yes` every permission left at `prompt` in `.betty.yml` counts as
+allowed: betty edits the hosts file, trusts the mkcert CA and runs Docker
+without asking.

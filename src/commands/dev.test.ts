@@ -5,7 +5,8 @@ import path from 'path'
 import { BettyError } from '../utils/errors'
 import inquirer from 'inquirer'
 import yaml from 'yaml'
-import devCommand, { readDevProjectConfig } from './dev'
+import devCommand, { confirmProject, readDevProjectConfig } from './dev'
+import { isProjectTrusted, trustProject } from '../utils/projectTrust'
 import unlinkCommand from './unlink'
 import type { TraefikDynamicConfig } from '../types'
 import * as lockModule from '../utils/lock'
@@ -56,6 +57,8 @@ jest.mock('inquirer', () => ({
 // assert which work runs under the lock.
 jest.mock('./unlink', () => ({ __esModule: true, default: jest.fn() }))
 
+jest.mock('../utils/projectTrust', () => ({ isProjectTrusted: jest.fn(), trustProject: jest.fn() }))
+
 jest.mock('../utils/lock', () => {
   const lockState = { held: false }
   return {
@@ -99,6 +102,82 @@ beforeEach(() => {
     throw new Error(`process-exit-${String(code)}`)
   })
   ;(spawnSync as unknown as jest.Mock).mockReturnValue({ signal: null, status: 0 })
+  // Most tests load a project the user already trusts.
+  ;(isProjectTrusted as unknown as jest.Mock).mockReturnValue(true)
+})
+
+describe('confirmProject', () => {
+  const config = {
+    project: 'shop',
+    up: { command: 'docker compose up -d' },
+    down: { command: 'docker compose down' },
+    domains: [{ host: 'shop.dev', target: 'http://127.0.0.1:3000' }],
+    https: { enabled: true },
+    permissions: { hosts: 'allowed' as const, docker: 'prompt' as const },
+  }
+  const output = (spy: jest.SpiedFunction<typeof console.log>): string => spy.mock.calls.map((c) => String(c[0])).join('\n')
+
+  test('shows what an untrusted file does and trusts it once confirmed', async () => {
+    ;(isProjectTrusted as unknown as jest.Mock).mockReturnValue(false)
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true } as never)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await expect(confirmProject(config, '/repo/.betty.yml', { action: 'load' })).resolves.toBe(true)
+
+    const shown = output(logSpy)
+    expect(shown).toContain('shop.dev -> http://127.0.0.1:3000')
+    expect(shown).toContain('Start command: docker compose up -d')
+    expect(shown).toContain('Stop command: docker compose down')
+    expect(shown).toContain('Changes without asking: hosts file')
+    expect(inquirer.prompt).toHaveBeenCalledWith([expect.objectContaining({ message: "Trust this file and load project 'shop'?", default: false })])
+    expect(trustProject).toHaveBeenCalledWith('/repo/.betty.yml', config)
+    logSpy.mockRestore()
+  })
+
+  test('does not trust a file the user declines', async () => {
+    ;(isProjectTrusted as unknown as jest.Mock).mockReturnValue(false)
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await expect(confirmProject(config, '/repo/.betty.yml', { action: 'load' })).resolves.toBe(false)
+    expect(trustProject).not.toHaveBeenCalled()
+  })
+
+  test('asks only the given question for a trusted file', async () => {
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: true } as never)
+
+    await expect(confirmProject(config, '/repo/.betty.yml', { action: 'load', question: { message: 'Load?', default: true } })).resolves.toBe(true)
+    expect(inquirer.prompt).toHaveBeenCalledTimes(1)
+    expect(inquirer.prompt).toHaveBeenCalledWith([expect.objectContaining({ message: 'Load?' })])
+  })
+
+  test('goes ahead without asking for a trusted file and no question', async () => {
+    await expect(confirmProject(config, '/repo/.betty.yml', { action: 'start' })).resolves.toBe(true)
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+  })
+
+  test('takes --yes as the decision, without asking or trusting', async () => {
+    ;(isProjectTrusted as unknown as jest.Mock).mockReturnValue(false)
+
+    await expect(confirmProject(config, '/repo/.betty.yml', { yes: true, action: 'load' })).resolves.toBe(true)
+    expect(inquirer.prompt).not.toHaveBeenCalled()
+    expect(trustProject).not.toHaveBeenCalled()
+  })
+
+  test('betty dev does nothing with an untrusted file the user declines', async () => {
+    ;(isProjectTrusted as unknown as jest.Mock).mockReturnValue(false)
+    ;(fs.existsSync as unknown as jest.Mock).mockReturnValue(true)
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(SAMPLE_CONFIG)
+    ;(inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ ok: false } as never)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await devCommand({ config: '/project/.betty.yml' })
+
+    expect(logSpy).toHaveBeenCalledWith('Cancelled.')
+    expect(execSync).not.toHaveBeenCalled()
+    expect(spawnSync).not.toHaveBeenCalled()
+    logSpy.mockRestore()
+  })
 })
 
 describe('readDevProjectConfig', () => {

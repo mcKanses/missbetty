@@ -4,12 +4,13 @@ import path from 'path'
 import { getHttpPort } from './config'
 import { BettyError } from './errors'
 import { checkCertificate } from './certs'
-import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertInstalled, isHttpsRequestedDomain, mkcertInstallEnv } from './setup'
 import type { DockerInspectEntry } from '../types'
 import {
   BETTY_PROXY_COMPOSE,
   BETTY_CERTS_DIR,
   BETTY_PROXY_NETWORK,
+  BETTY_TRAEFIK_CONTAINER,
 } from './constants'
 import { certificatePaths } from './names'
 
@@ -81,19 +82,42 @@ export const restartTraefik = (composePath: string): void => {
   }
 }
 
+// Whether Betty's Traefik container is running; false when Docker is not.
+export const isProxyRunning = (): boolean => {
+  try {
+    return execFileSync('docker', ['ps', '--filter', `name=^${BETTY_TRAEFIK_CONTAINER}$`, '--format', '{{.Names}}'], { stdio: 'pipe' }).toString().trim() !== ''
+  } catch {
+    return false
+  }
+}
+
+// For changes that are already done (removed routes, renewed certificates): a
+// stopped proxy, or a stopped Docker, reads them when it starts, so that is no
+// failure.
+export const restartTraefikIfRunning = (composePath: string): void => {
+  if (isProxyRunning()) restartTraefik(composePath)
+  else console.log("Betty's proxy is not running; it picks up the change when it starts.")
+}
+
 // Returns the certificate for a domain, creating it with mkcert when missing,
 // and again when it expires soon, comes from another CA or does not cover the
 // domain.
 // Without a certificate it falls back to HTTP unless HTTPS is required: always
 // for .dev (browsers force HTTPS there), or when the caller asks for it, as a
 // project with `https.enabled` does.
-export const ensureCertificate = (domain: string, opts: { required?: boolean } = {}): { certFile: string; keyFile: string } | null => {
+// A caller that has just run `mkcert -install` itself passes caVerified, so a
+// project with many domains does not repeat it for each one.
+export const ensureCertificate = (domain: string, opts: { required?: boolean; caVerified?: boolean } = {}): { certFile: string; keyFile: string } | null => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
   const { hostPath: certPath, keyPath, certFile, keyFile } = certificatePaths(domain)
+  // A certificate that only expires soon still works; should renewing it fail,
+  // it is kept rather than dropping HTTPS or failing the command.
+  let stillValid = false
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-    const { problem } = checkCertificate(certPath, { domain })
+    const { problem, validTo } = checkCertificate(certPath, { domain })
     if (problem === null) return { certFile, keyFile }
+    stillValid = problem.startsWith('expires on') && validTo !== null && validTo.getTime() > Date.now()
     // Without mkcert the old certificate is still better than none.
     if (!checkMkcertInstalled()) {
       console.log(`\n⚠️  The certificate for ${domain} ${problem}; install mkcert to renew it (betty setup).`)
@@ -115,10 +139,14 @@ export const ensureCertificate = (domain: string, opts: { required?: boolean } =
     // the trust step never happened (a declined prompt, or plain `mkcert <host>`),
     // and then browsers reject the certificate. mkcert only prompts when the CA
     // is not trusted yet.
-    execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
+    if (opts.caVerified !== true) execFileSync('mkcert', ['-install'], { stdio: 'inherit', env: mkcertInstallEnv() })
     execFileSync('mkcert', ['-cert-file', certPath, '-key-file', keyPath, domain], { stdio: 'inherit' })
     return { certFile, keyFile }
   } catch {
+    if (stillValid) {
+      console.log(`\n⚠️  Could not renew the certificate for ${domain}; the current one is used until it expires. Run \`betty setup\` to retry.`)
+      return { certFile, keyFile }
+    }
     if (httpsRequested) throw new BettyError(`HTTPS requested for ${domain} but certificate creation failed. Run \`betty setup\`.`)
 
     console.log(`\n⚠️  Could not create a local certificate for ${domain}.`)

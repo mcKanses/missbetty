@@ -1,5 +1,5 @@
-import inquirer from 'inquirer'
-import { execSync } from 'child_process'
+import { prompt } from '../utils/prompt'
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 import { BettyError } from '../utils/errors'
 import { withLock } from '../utils/lock'
@@ -17,7 +17,7 @@ const restCommand = async (opts?: RestOptions): Promise<void> => {
   }
 
   if (opts?.yes !== true) {
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: 'Stop Betty proxy service?',
@@ -31,7 +31,7 @@ const restCommand = async (opts?: RestOptions): Promise<void> => {
     // Under the lock, so the proxy does not go down while another command is
     // between starting it and writing its route.
     withLock(() => {
-      execSync(`docker compose -f "${BETTY_PROXY_COMPOSE}" down`, {
+      execFileSync('docker', ['compose', '-f', BETTY_PROXY_COMPOSE, 'down'], {
         cwd: BETTY_HOME_DIR,
         stdio: 'inherit',
       })

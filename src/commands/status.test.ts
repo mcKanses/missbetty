@@ -188,6 +188,43 @@ describe('status command', () => {
     logSpy.mockRestore()
   })
 
+  test('says Docker is down instead of suggesting betty serve, which would fail too', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command === 'docker --version') return Buffer.from('Docker version 27')
+      throw new Error('Cannot connect to the Docker daemon')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand()
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('Docker is not running, so the links below are not served. Start Docker, then run: betty serve')
+    expect(output).not.toContain('Start it with: betty serve')
+    logSpy.mockRestore()
+  })
+
+  test('keeps the details of the other containers when one stops during the inspect', () => {
+    mockRouteFile('http://172.18.0.2:5173')
+    ;(execSync as unknown as jest.Mock).mockImplementation((...args: unknown[]) => {
+      const command = String(args[0])
+      if (command.includes('docker inspect betty-traefik')) return Buffer.from('[{"State":{"Running":true,"StartedAt":"2026-05-02T00:00:00.000Z"}}]')
+      if (command === 'docker ps --format {{.ID}}') return Buffer.from('abc123\ngone456\n')
+      if (command === 'docker inspect abc123 gone456') throw Object.assign(new Error('Error: No such object: gone456'), {
+        stdout: Buffer.from('[{"Name":"/myapp","NetworkSettings":{"Networks":{"betty_proxy":{"IPAddress":"172.18.0.2"}}},"State":{"Status":"running","StartedAt":"2026-05-02T00:00:00.000Z"},"RestartCount":4}]'),
+      })
+      throw new Error(`Unexpected command: ${command}`)
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    statusCommand({ json: true })
+
+    const output = JSON.parse(String(logSpy.mock.calls[0][0])) as { projects: { restarts: string }[] }
+    expect(output.projects[0].restarts).toBe('4')
+    logSpy.mockRestore()
+  })
+
   test('renders full table with uptime, health and restarts columns', () => {
     mockRouteFile('http://172.18.0.2:5173')
     mockRunningProxy()

@@ -80,7 +80,7 @@ describe('serve command', () => {
     const composeStart = (execSync as unknown as jest.Mock).mock.calls.find((call) =>
       String(call[0]).replace(/\\/g, '/').includes('docker compose -f /home/test-user/.betty/docker-compose.yml up -d')
     )
-    expect(composeStart?.[1]).toEqual(expect.objectContaining({ stdio: 'inherit' }))
+    expect(composeStart?.[1]).toEqual(expect.objectContaining({ stdio: ['inherit', 'inherit', 'pipe'] }))
     expect(logSpy).toHaveBeenCalledWith('Starting global Betty Traefik proxy...')
 
     logSpy.mockRestore()

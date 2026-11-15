@@ -213,11 +213,13 @@ install_dependencies_linux() {
       echo "Docker service status (if available):"
       $SUDO systemctl --no-pager --full status docker 2>/dev/null | tail -n 25 || true
     fi
-    echo "Try starting it manually and rerun:"
+    # betty is already installed; a daemon that is not up yet is something to
+    # fix before using it, not a failed install.
+    echo "Start it manually before using betty:"
     echo "  $SUDO systemctl start docker"
     echo "or"
     echo "  $SUDO service docker start"
-    exit 1
+    DOCKER_NOT_READY=true
   }
 
   # Found by path as well: sudo's secure_path (RHEL, Fedora) leaves out
@@ -255,8 +257,9 @@ install_dependencies_linux() {
         x86_64|amd64) MKCERT_ARCH="amd64"; MKCERT_SHA256="6d31c65b03972c6dc4a14ab429f2928300518b26503f58723e532d1b0a3bbb52" ;;
         aarch64|arm64) MKCERT_ARCH="arm64"; MKCERT_SHA256="b98f2cc69fd9147fe4d405d859c57504571adec0d3611c3eefd04107c7ac00d0" ;;
         *)
-          echo "Unsupported architecture for mkcert fallback: $(uname -m)"
-          exit 1
+          # mkcert is optional: without it betty serves HTTP only.
+          echo "Skipping mkcert: no fallback download for $(uname -m). Install it yourself for local HTTPS."
+          return
           ;;
       esac
 
@@ -265,19 +268,22 @@ install_dependencies_linux() {
       fetch "$MKCERT_URL" "$TMP_DIR/mkcert"
       ACTUAL_MKCERT_SHA="$(sha256sum "$TMP_DIR/mkcert" | awk '{print $1}')"
       if [ "$ACTUAL_MKCERT_SHA" != "$MKCERT_SHA256" ]; then
-        echo "Checksum verification failed for mkcert ${MKCERT_VERSION} (${MKCERT_ARCH})."
-        exit 1
+        echo "Checksum verification failed for mkcert ${MKCERT_VERSION} (${MKCERT_ARCH}); it was not installed."
+        return
       fi
       $SUDO install -m 0755 "$TMP_DIR/mkcert" /usr/local/bin/mkcert
     fi
 
     # The CA must belong to the user who runs betty: run as root, mkcert would
     # create and trust a second CA under /root that betty never uses.
+    # Without TRUST_STORES mkcert also writes to Java's keystore, and a failure
+    # there fails the whole step; browsers only need the system and NSS stores.
     MKCERT_BIN="$(find_mkcert)"
+    MKCERT_TRUST_STORES="${TRUST_STORES:-system,nss}"
     if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-      sudo -u "$SUDO_USER" -H "$MKCERT_BIN" -install >/dev/null 2>&1 || true
+      sudo -u "$SUDO_USER" -H env TRUST_STORES="$MKCERT_TRUST_STORES" "$MKCERT_BIN" -install >/dev/null 2>&1 || true
     else
-      "$MKCERT_BIN" -install >/dev/null 2>&1 || true
+      TRUST_STORES="$MKCERT_TRUST_STORES" "$MKCERT_BIN" -install >/dev/null 2>&1 || true
     fi
   }
 
@@ -291,17 +297,20 @@ install_dependencies_linux() {
     exit 1
   fi
 
-  if [ -z "$(find_mkcert)" ]; then
-    echo "mkcert installation failed."
-    exit 1
-  fi
-
   if ! docker compose version >/dev/null 2>&1 && ! $SUDO docker compose version >/dev/null 2>&1; then
     echo "Docker is installed, but Docker Compose plugin is not available yet."
     echo "Install it: https://docs.docker.com/compose/install/linux/"
   fi
 
-  echo "✓ Dependencies installed (Docker + mkcert)"
+  if [ -z "$(find_mkcert)" ]; then
+    echo "✓ Docker installed. mkcert is missing, so betty serves HTTP only until you install it (https://github.com/FiloSottile/mkcert)."
+  else
+    echo "✓ Dependencies installed (Docker + mkcert)"
+  fi
+  if [ "${DOCKER_NOT_READY:-false}" = "true" ]; then
+    echo "Docker's daemon is not running yet; start it before using betty."
+    return
+  fi
   if ! docker info >/dev/null 2>&1 && $SUDO docker info >/dev/null 2>&1; then
     echo "Docker is ready, but this shell has not picked up docker group permissions yet."
     echo "Run 'newgrp docker' now, or re-login once, then use Betty without sudo."
@@ -404,9 +413,10 @@ else
 fi
 
 TMP_DIR="$(mktemp -d)"
+VERIFY_DIR=""
 # The EXIT trap cleans up; INT and TERM must end the script, which a trap for
 # them alone would not.
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR" ${VERIFY_DIR:+"$VERIFY_DIR"}' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -474,19 +484,50 @@ for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign 
   if [ -z "$COSIGN" ] && [ -x "$candidate" ]; then COSIGN="$candidate"; fi
 done
 
+# Run as root, a cosign not owned by root (in the user's home, or a user-owned
+# Homebrew) could be replaced by anything running as that user, which would
+# then run as root. Such a cosign runs as the invoking user instead.
+COSIGN_USER=""
+if [ -n "$COSIGN" ] && [ "$(id -u)" -eq 0 ] && [ -n "$(find -L "$COSIGN" -prune ! -user 0 2>/dev/null)" ]; then
+  if [ -n "${SUDO_USER:-}" ]; then
+    COSIGN_USER="$SUDO_USER"
+  else
+    echo "Ignoring $COSIGN: it is not owned by root."
+    COSIGN=""
+  fi
+fi
+
+run_cosign() {
+  if [ -n "$COSIGN_USER" ]; then
+    sudo -u "$COSIGN_USER" -H "$COSIGN" "$@"
+  else
+    "$COSIGN" "$@"
+  fi
+}
+
 if [ -n "$COSIGN" ]; then
   # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
   # bundle. Releases from 1.11.0 carry one; older ones and older cosign use the
   # signature and certificate.
-  COSIGN_MAJOR="$("$COSIGN" version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  COSIGN_MAJOR="$(run_cosign version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  # Paths are relative to the directory cosign runs in.
   if [ "${COSIGN_MAJOR:-0}" -ge 3 ] && fetch "$URL.sigstore.json" "$TMP_DIR/betty.tar.gz.sigstore.json" 2>/dev/null; then
-    set -- --bundle "$TMP_DIR/betty.tar.gz.sigstore.json"
+    set -- --bundle betty.tar.gz.sigstore.json
   else
     fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
     fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
-    set -- --signature "$TMP_DIR/betty.tar.gz.sig" --certificate "$TMP_DIR/betty.tar.gz.pem"
+    set -- --signature betty.tar.gz.sig --certificate betty.tar.gz.pem
   fi
-  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" "$@" \
+  # Root's temporary directory is out of the user's reach (on macOS its parent
+  # too), so a cosign running as the user checks copies in a directory of its own.
+  VERIFY_IN="$TMP_DIR"
+  if [ -n "$COSIGN_USER" ]; then
+    VERIFY_DIR="$(sudo -u "$COSIGN_USER" mktemp -d)"
+    cp "$TMP_DIR"/betty.tar.gz* "$VERIFY_DIR"/
+    chmod 644 "$VERIFY_DIR"/betty.tar.gz*
+    VERIFY_IN="$VERIFY_DIR"
+  fi
+  if ! COSIGN_OUTPUT="$(cd "$VERIFY_IN" && run_cosign verify-blob betty.tar.gz "$@" \
     --certificate-identity-regexp "$SIGNER_IDENTITY" \
     --certificate-oidc-issuer "$SIGNER_ISSUER" 2>&1)"; then
     echo "Signature verification failed for ${ASSET}:"

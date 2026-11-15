@@ -1,14 +1,15 @@
 import fs from 'fs'
 import path from 'path'
 import yaml from 'yaml'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { BettyError } from '../utils/errors'
-import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
+import devCommand, { confirmProject, resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
 import { isProjectRouter, loadedFromElsewhere, readRoutes } from '../utils/routes'
 import { isHttpsRequestedDomain } from '../utils/setup'
 import { sanitizeName, validateDomain } from '../utils/names'
 import { isDatabaseTarget } from '../utils/config'
+import { trustProject } from '../utils/projectTrust'
 
 interface ProjectCreateOptions {
   name?: string;
@@ -38,7 +39,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
   const configPath = path.resolve(process.cwd(), '.betty.yml')
 
   if (fs.existsSync(configPath)) {
-    const { overwrite } = await inquirer.prompt([{
+    const { overwrite } = await prompt([{
       type: 'confirm',
       name: 'overwrite',
       message: '.betty.yml already exists. Overwrite it?',
@@ -47,24 +48,28 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     if (!overwrite) { console.log('Cancelled.'); return }
   }
 
-  const { projectName } = await inquirer.prompt([{
+  const { projectName } = await prompt([{
     type: 'input',
     name: 'projectName',
     message: 'Project name:',
     default: opts.name?.trim() ?? path.basename(process.cwd()),
-    validate: (v: string) => v.trim() !== '' || 'Project name is required.',
+    validate: (v: string) => v.trim() === '' ? 'Project name is required.' : sanitizeName(v) !== '' || 'Use at least one letter or digit (a-z, 0-9).',
   }]) as { projectName: string }
 
   const domains: { host: string; target: string }[] = []
   let addingDomains = true
   while (addingDomains) {
     const idx = domains.length + 1
-    const { host, target } = await inquirer.prompt([
+    const { host, target } = await prompt([
       {
         type: 'input',
         name: 'host',
         message: `Domain ${String(idx)} host (e.g. my-app.localhost):`,
-        validate: (v: string) => v.trim() !== '' ? validateDomain(v) : 'Host is required.',
+        validate: (v: string) => {
+          if (v.trim() === '') return 'Host is required.'
+          if (domains.some((d) => d.host.toLowerCase() === v.trim().toLowerCase())) return `${v.trim()} is already in this project.`
+          return validateDomain(v)
+        },
       },
       {
         type: 'input',
@@ -75,7 +80,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
     ]) as { host: string; target: string }
     domains.push({ host: host.trim(), target: target.trim() })
 
-    const { another } = await inquirer.prompt([{
+    const { another } = await prompt([{
       type: 'confirm',
       name: 'another',
       message: 'Add another domain?',
@@ -90,7 +95,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
   const hasDev = domains.some((domain) => isHttpsRequestedDomain(domain.host))
   if (hasDatabase) console.log('HTTPS is enabled: database domains need it.')
   else if (hasDev) console.log('HTTPS is enabled: browsers open .dev domains only over HTTPS.')
-  const answers = await inquirer.prompt([
+  const answers = await prompt([
     ...(hasDatabase || hasDev ? [] : [{
       type: 'confirm',
       name: 'httpsEnabled',
@@ -126,8 +131,10 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
 
   writeBettyYml(configPath, config)
   console.log('\n✅ Created .betty.yml')
+  // The user just wrote it, so loading it needs no trust question.
+  try { trustProject(configPath, readDevProjectConfig(configPath)) } catch { /* loading it reports what is wrong */ }
 
-  const { startNow } = await inquirer.prompt([{
+  const { startNow } = await prompt([{
     type: 'confirm',
     name: 'startNow',
     message: 'Start the project now?',
@@ -138,24 +145,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
 }
 
 export const projectLoadCommand = async (opts: ProjectLoadOptions): Promise<void> => {
-  try {
-    if (opts.yes !== true && opts.dryRun !== true) {
-      const configPath = resolveConfigPath(opts.file)
-      const config = readDevProjectConfig(configPath)
-      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
-      const { confirm } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Load project '${config.project}' from ${relPath}?`,
-        default: true,
-      }]) as { confirm: boolean }
-      if (!confirm) { console.log('Cancelled.'); return }
-    }
-  } catch (err) {
-    if (err instanceof BettyError) throw err
-    throw new BettyError(err instanceof Error ? err.message : String(err))
-  }
-  await devCommand({ config: opts.file, dryRun: opts.dryRun, yes: opts.yes })
+  await devCommand({ config: opts.file, dryRun: opts.dryRun, yes: opts.yes, confirmLoad: true })
 }
 
 interface ProjectActionOptions {
@@ -168,16 +158,13 @@ export const projectLinkCommand = async (opts: ProjectActionOptions): Promise<vo
     const configPath = resolveConfigPath(opts.file)
     const config = readDevProjectConfig(configPath)
 
-    if (opts.yes !== true && opts.file === undefined) {
-      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
-      const { confirm } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Link project '${config.project}' from ${relPath}?`,
-        default: true,
-      }]) as { confirm: boolean }
-      if (!confirm) { console.log('Cancelled.'); return }
-    }
+    const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+    const confirmed = await confirmProject(config, configPath, {
+      yes: opts.yes,
+      action: 'link',
+      question: opts.file === undefined ? { message: `Link project '${config.project}' from ${relPath}?`, default: true } : undefined,
+    })
+    if (!confirmed) { console.log('Cancelled.'); return }
 
     await linkProject(config, { yes: opts.yes, configPath })
     printUrls(config)
@@ -199,13 +186,13 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
       hints: ['Run `betty project stop` in that project instead.', `Or remove its links from anywhere: betty project unlink ${config.project}`],
     })
 
-    if (opts.yes !== true) {
-      const { confirm } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Stop project '${config.project}'?`,
-        default: false,
-      }]) as { confirm: boolean }
+    // Only the stop command runs anything from the file; without one there is
+    // nothing to trust.
+    const question = { message: `Stop project '${config.project}'?`, default: false }
+    if (config.down?.command !== undefined) {
+      if (!await confirmProject(config, configPath, { yes: opts.yes, action: 'stop', question })) { console.log('Cancelled.'); return }
+    } else if (opts.yes !== true) {
+      const { confirm } = await prompt([{ type: 'confirm', name: 'confirm', ...question }]) as { confirm: boolean }
       if (!confirm) { console.log('Cancelled.'); return }
     }
 
@@ -277,7 +264,7 @@ export const projectStatusCommand = async (opts: { file?: string; name?: string 
       // for a missing one.
       const foundConfig = readDevProjectConfig(configPath)
       const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await prompt([{
         type: 'confirm',
         name: 'confirm',
         message: `Found project '${foundConfig.project}' in ${relPath}. Show status?`,

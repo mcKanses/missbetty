@@ -16,6 +16,7 @@ jest.mock('./setup', () => ({
   checkMkcertInstalled: jest.fn(),
   checkMkcertCaInstalled: jest.fn(),
   isHttpsRequestedDomain: jest.fn(),
+  mkcertInstallEnv: jest.fn(),
 }))
 
 jest.mock('./certs', () => ({ checkCertificate: jest.fn() }))
@@ -39,7 +40,7 @@ jest.mock('./names', () => ({
 import fs from 'fs'
 import { execFileSync } from 'child_process'
 import { BettyError } from './errors'
-import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain, mkcertInstallEnv } from './setup'
 import { sanitizeName } from './names'
 import { checkCertificate } from './certs'
 import {
@@ -207,11 +208,30 @@ describe('ensureCertificate', () => {
   })
 
   it('renews an existing certificate that expires soon', () => {
-    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-11-01' })
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-11-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
     jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
     expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-cert-file', '/home/test/.betty/certs/myapp.dev.pem', '-key-file', '/home/test/.betty/certs/myapp.dev-key.pem', 'myapp.dev'], { stdio: 'inherit' })
+  })
+
+  it('keeps a certificate that still works when renewing it fails', () => {
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-12-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
+    ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert -install failed') })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('Could not renew the certificate for myapp.dev')
+  })
+
+  it('does not keep an expired certificate when renewing it fails', () => {
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expired on 2026-01-01', validTo: new Date(Date.now() - 86_400_000) })
+    ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert failed') })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(() => { ensureCertificate('myapp.dev') }).toThrow('certificate creation failed')
   })
 
   it('keeps an old certificate when mkcert is missing to renew it', () => {
@@ -267,6 +287,27 @@ describe('ensureCertificate', () => {
     const calls = (execFileSync as unknown as jest.Mock).mock.calls.map((call) => (call[1] as string[]).join(' '))
     expect(calls.indexOf('-install')).toBeGreaterThanOrEqual(0)
     expect(calls.indexOf('-install')).toBeLessThan(calls.findIndex((c) => c.startsWith('-cert-file')))
+  })
+
+  it('runs mkcert -install without the Java keystore', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p) === CERTS_DIR)
+    ;(mkcertInstallEnv as unknown as jest.Mock).mockReturnValue({ TRUST_STORES: 'system,nss' })
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    ensureCertificate('myapp.dev')
+
+    expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-install'], { stdio: 'inherit', env: { TRUST_STORES: 'system,nss' } })
+  })
+
+  it('skips mkcert -install when the caller has just verified the CA', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p) === CERTS_DIR)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    ensureCertificate('myapp.dev', { caVerified: true })
+
+    const calls = (execFileSync as unknown as jest.Mock).mock.calls.map((call) => (call[1] as string[]).join(' '))
+    expect(calls).not.toContain('-install')
+    expect(calls.some((c) => c.startsWith('-cert-file'))).toBe(true)
   })
 
   it('returns null when mkcert is not installed and domain does not require https', () => {
