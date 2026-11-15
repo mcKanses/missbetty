@@ -83,6 +83,19 @@ const containerFromTarget = (target: string): string | undefined => {
   return host
 }
 
+// The certificate files the route files point at, by lower-case file name. A
+// domain linked by an older betty may use a file named differently from what
+// its domain gives today.
+export const routeCertificateFiles = (): Set<string> => {
+  const files = new Set<string>()
+  if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return files
+  for (const file of fs.readdirSync(BETTY_DYNAMIC_DIR).filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))) try {
+    const doc = yaml.parse(fs.readFileSync(path.join(BETTY_DYNAMIC_DIR, file), 'utf8')) as TraefikDynamicConfig | null
+    for (const certificate of doc?.tls?.certificates ?? []) files.add(path.basename(certificate.certFile).toLowerCase())
+  } catch { /* a broken route file serves no certificate */ }
+  return files
+}
+
 export const readRoutes = (): RouteEntry[] => {
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) return []
 
@@ -331,13 +344,15 @@ export const writeRouteConfig = (
   const nextPath = path.join(BETTY_DYNAMIC_DIR, `${name}.yml`)
   if (!fs.existsSync(BETTY_DYNAMIC_DIR)) fs.mkdirSync(BETTY_DYNAMIC_DIR, { recursive: true })
   fs.writeFileSync(nextPath, `# betty-container: ${container}\n${yaml.stringify(config)}`, 'utf8')
-  setLinkContainer(`${name}.yml`, container)
   // Removed only once the new file is written: a failed write (a full disk)
   // must not lose the link. A rename that only changes case is the same file
-  // on Windows and macOS.
-  if (oldFilePath !== undefined && !samePath(oldFilePath, nextPath) && fs.existsSync(oldFilePath)) {
-    fs.unlinkSync(oldFilePath)
-    removeLinkContainer(path.basename(oldFilePath))
+  // on Windows and macOS: it was just written under its old name, which is
+  // renamed instead.
+  if (oldFilePath !== undefined && oldFilePath !== nextPath) {
+    if (samePath(oldFilePath, nextPath)) fs.renameSync(oldFilePath, nextPath)
+    else if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath)
+    if (path.basename(oldFilePath) !== `${name}.yml`) removeLinkContainer(path.basename(oldFilePath))
   }
+  setLinkContainer(`${name}.yml`, container)
   console.log(`${oldFilePath !== undefined ? 'Updated' : 'Wrote'} routing configuration: ${name}.yml`)
 }

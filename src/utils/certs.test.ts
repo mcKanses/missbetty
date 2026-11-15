@@ -5,10 +5,10 @@ import os from 'os'
 import path from 'path'
 import { checkAllCertificates, checkCertificate } from './certs'
 import { BETTY_CERTS_DIR } from './constants'
-import { readRoutes } from './routes'
+import { routeCertificateFiles } from './routes'
 
 jest.mock('./setup', () => ({ checkMkcertInstalled: jest.fn(), getMkcertRootCaPath: jest.fn(() => null) }))
-jest.mock('./routes', () => ({ readRoutes: jest.fn(() => []) }))
+jest.mock('./routes', () => ({ routeCertificateFiles: jest.fn(() => new Set()) }))
 jest.mock('./constants', () => {
   /* eslint-disable @typescript-eslint/no-require-imports */
   const p = require('path') as typeof path
@@ -105,8 +105,8 @@ describe('checkAllCertificates', () => {
   })
   afterEach(() => { fs.rmSync(BETTY_CERTS_DIR, { recursive: true, force: true }) })
 
-  test('checks only the certificates of linked domains', () => {
-    ;(readRoutes as unknown as jest.Mock).mockReturnValue([{ domain: 'App.test' }])
+  test('checks only the certificates the route files point at', () => {
+    ;(routeCertificateFiles as unknown as jest.Mock).mockReturnValue(new Set(['app.test.pem']))
 
     const checked = checkAllCertificates(validTo - 100 * DAY_MS).map((c) => path.basename(c.file))
 

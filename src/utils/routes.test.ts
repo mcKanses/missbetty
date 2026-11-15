@@ -10,6 +10,7 @@ jest.mock('fs', () => ({
     writeFileSync: jest.fn(),
     unlinkSync: jest.fn(),
     mkdirSync: jest.fn(),
+    renameSync: jest.fn(),
   },
   existsSync: jest.fn(),
   readdirSync: jest.fn(),
@@ -17,6 +18,7 @@ jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
   unlinkSync: jest.fn(),
   mkdirSync: jest.fn(),
+  renameSync: jest.fn(),
 }))
 
 jest.mock('yaml', () => ({
@@ -399,6 +401,23 @@ describe('writeRouteConfig', () => {
 
     expect(order).toEqual(['write', 'unlink'])
     expect(fs.unlinkSync).toHaveBeenCalledWith(oldPath)
+  })
+
+  it('fixes the case of the route file name on case-insensitive file systems', () => {
+    const platform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const oldPath = path.join(DYNAMIC_DIR, 'MyApp-dev.yml')
+
+      writeRouteConfig('myapp', 'myapp.dev', 3000, null, oldPath)
+
+      expect(fs.renameSync).toHaveBeenCalledWith(oldPath, NEXT_PATH)
+      expect(fs.unlinkSync).not.toHaveBeenCalled()
+      expect(removeLinkContainer).toHaveBeenCalledWith('MyApp-dev.yml')
+      expect(setLinkContainer).toHaveBeenCalledWith('myapp-dev.yml', 'myapp')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+    }
   })
 
   it('keeps the old route file when writing the new one fails', () => {

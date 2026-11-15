@@ -216,13 +216,27 @@ describe('ensureCertificate', () => {
   })
 
   it('keeps a certificate that still works when renewing it fails', () => {
-    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-12-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
+    // The second check judges it as if its expiry were not due yet.
+    ;(checkCertificate as unknown as jest.Mock)
+      .mockReturnValueOnce({ problem: 'expires on 2026-12-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
+      .mockReturnValueOnce({ problem: null })
     ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
     ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert -install failed') })
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
     expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('Could not renew the certificate for myapp.dev')
+  })
+
+  it('does not keep an expiring certificate from a replaced CA when renewing it fails', () => {
+    ;(checkCertificate as unknown as jest.Mock)
+      .mockReturnValueOnce({ problem: 'expires on 2026-12-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
+      .mockReturnValueOnce({ problem: 'was issued by another CA than the current mkcert one' })
+    ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert failed') })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(() => { ensureCertificate('myapp.dev') }).toThrow('certificate creation failed')
   })
 
   it('does not keep an expired certificate when renewing it fails', () => {
