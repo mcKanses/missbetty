@@ -404,9 +404,10 @@ else
 fi
 
 TMP_DIR="$(mktemp -d)"
+VERIFY_DIR=""
 # The EXIT trap cleans up; INT and TERM must end the script, which a trap for
 # them alone would not.
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR" ${VERIFY_DIR:+"$VERIFY_DIR"}' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -481,8 +482,6 @@ COSIGN_USER=""
 if [ -n "$COSIGN" ] && [ "$(id -u)" -eq 0 ] && [ -n "$(find -L "$COSIGN" -prune ! -user 0 2>/dev/null)" ]; then
   if [ -n "${SUDO_USER:-}" ]; then
     COSIGN_USER="$SUDO_USER"
-    # mktemp -d is private to root; the user needs to read the downloads.
-    chmod 755 "$TMP_DIR"
   else
     echo "Ignoring $COSIGN: it is not owned by root."
     COSIGN=""
@@ -502,14 +501,24 @@ if [ -n "$COSIGN" ]; then
   # bundle. Releases from 1.11.0 carry one; older ones and older cosign use the
   # signature and certificate.
   COSIGN_MAJOR="$(run_cosign version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  # Paths are relative to the directory cosign runs in.
   if [ "${COSIGN_MAJOR:-0}" -ge 3 ] && fetch "$URL.sigstore.json" "$TMP_DIR/betty.tar.gz.sigstore.json" 2>/dev/null; then
-    set -- --bundle "$TMP_DIR/betty.tar.gz.sigstore.json"
+    set -- --bundle betty.tar.gz.sigstore.json
   else
     fetch "$URL.sig" "$TMP_DIR/betty.tar.gz.sig"
     fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
-    set -- --signature "$TMP_DIR/betty.tar.gz.sig" --certificate "$TMP_DIR/betty.tar.gz.pem"
+    set -- --signature betty.tar.gz.sig --certificate betty.tar.gz.pem
   fi
-  if ! COSIGN_OUTPUT="$(run_cosign verify-blob "$TMP_DIR/betty.tar.gz" "$@" \
+  # Root's temporary directory is out of the user's reach (on macOS its parent
+  # too), so a cosign running as the user checks copies in a directory of its own.
+  VERIFY_IN="$TMP_DIR"
+  if [ -n "$COSIGN_USER" ]; then
+    VERIFY_DIR="$(sudo -u "$COSIGN_USER" mktemp -d)"
+    cp "$TMP_DIR"/betty.tar.gz* "$VERIFY_DIR"/
+    chmod 644 "$VERIFY_DIR"/betty.tar.gz*
+    VERIFY_IN="$VERIFY_DIR"
+  fi
+  if ! COSIGN_OUTPUT="$(cd "$VERIFY_IN" && run_cosign verify-blob betty.tar.gz "$@" \
     --certificate-identity-regexp "$SIGNER_IDENTITY" \
     --certificate-oidc-issuer "$SIGNER_ISSUER" 2>&1)"; then
     echo "Signature verification failed for ${ASSET}:"
