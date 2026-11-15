@@ -140,6 +140,9 @@ describe('unlink command', () => {
     ;(execFileSync as unknown as jest.Mock).mockImplementation((file: unknown, args: unknown, opts: unknown) =>
       (execSync as unknown as jest.Mock)(`${String(file)} ${Array.isArray(args) ? args.join(' ') : ''}`.trim(), opts)
     )
+    // The proxy is running unless a test stops it.
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) =>
+      Buffer.from(String(cmd).startsWith('docker ps --filter name=^betty-traefik$') ? 'betty-traefik' : ''))
   })
 
   test('throws a BettyError when Betty proxy is not set up', async () => {
@@ -186,6 +189,27 @@ describe('unlink command', () => {
 
     expect(logSpy).toHaveBeenCalledWith('No links found.')
 
+    logSpy.mockRestore()
+  })
+
+  test('removes the link without failing when the proxy is not running', async () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => {
+      const np = normalizePath(String(p))
+      return np.endsWith('/.betty/docker-compose.yml') || np.endsWith('/.betty/dynamic') || np.endsWith('/.betty/dynamic/app.yml')
+    })
+    ;(fs.readdirSync as unknown as jest.Mock).mockReturnValue(['app.yml'])
+    ;(fs.readFileSync as unknown as jest.Mock).mockReturnValue(YAML_APP_ROUTE)
+    ;(execSync as unknown as jest.Mock).mockImplementation((cmd: unknown) => {
+      if (String(cmd).startsWith('docker ps')) throw new Error('Cannot connect to the Docker daemon')
+      return Buffer.from('')
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    await unlinkCommand({ domain: 'app.localhost', yes: true })
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining('app.yml'))
+    expect(execSync).not.toHaveBeenCalledWith(expect.stringContaining('restart traefik'), expect.anything())
+    expect(logSpy).toHaveBeenCalledWith("Betty's proxy is not running; it picks up the change when it starts.")
     logSpy.mockRestore()
   })
 
