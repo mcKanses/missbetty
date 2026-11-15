@@ -3,12 +3,13 @@ import path from 'path'
 import yaml from 'yaml'
 import { prompt } from '../utils/prompt'
 import { BettyError } from '../utils/errors'
-import devCommand, { resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
+import devCommand, { confirmProject, resolveConfigPath, readDevProjectConfig, runProjectCommand, linkProject, printUrls } from './dev'
 import unlinkCommand from './unlink'
 import { isProjectRouter, loadedFromElsewhere, readRoutes } from '../utils/routes'
 import { isHttpsRequestedDomain } from '../utils/setup'
 import { sanitizeName, validateDomain } from '../utils/names'
 import { isDatabaseTarget } from '../utils/config'
+import { trustProject } from '../utils/projectTrust'
 
 interface ProjectCreateOptions {
   name?: string;
@@ -126,6 +127,8 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
 
   writeBettyYml(configPath, config)
   console.log('\n✅ Created .betty.yml')
+  // The user just wrote it, so loading it needs no trust question.
+  try { trustProject(configPath, readDevProjectConfig(configPath)) } catch { /* loading it reports what is wrong */ }
 
   const { startNow } = await prompt([{
     type: 'confirm',
@@ -138,24 +141,7 @@ export const projectCreateCommand = async (opts: ProjectCreateOptions): Promise<
 }
 
 export const projectLoadCommand = async (opts: ProjectLoadOptions): Promise<void> => {
-  try {
-    if (opts.yes !== true && opts.dryRun !== true) {
-      const configPath = resolveConfigPath(opts.file)
-      const config = readDevProjectConfig(configPath)
-      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
-      const { confirm } = await prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Load project '${config.project}' from ${relPath}?`,
-        default: true,
-      }]) as { confirm: boolean }
-      if (!confirm) { console.log('Cancelled.'); return }
-    }
-  } catch (err) {
-    if (err instanceof BettyError) throw err
-    throw new BettyError(err instanceof Error ? err.message : String(err))
-  }
-  await devCommand({ config: opts.file, dryRun: opts.dryRun, yes: opts.yes })
+  await devCommand({ config: opts.file, dryRun: opts.dryRun, yes: opts.yes, confirmLoad: true })
 }
 
 interface ProjectActionOptions {
@@ -168,16 +154,13 @@ export const projectLinkCommand = async (opts: ProjectActionOptions): Promise<vo
     const configPath = resolveConfigPath(opts.file)
     const config = readDevProjectConfig(configPath)
 
-    if (opts.yes !== true && opts.file === undefined) {
-      const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
-      const { confirm } = await prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Link project '${config.project}' from ${relPath}?`,
-        default: true,
-      }]) as { confirm: boolean }
-      if (!confirm) { console.log('Cancelled.'); return }
-    }
+    const relPath = path.relative(process.cwd(), configPath) || path.basename(configPath)
+    const confirmed = await confirmProject(config, configPath, {
+      yes: opts.yes,
+      action: 'link',
+      question: opts.file === undefined ? { message: `Link project '${config.project}' from ${relPath}?`, default: true } : undefined,
+    })
+    if (!confirmed) { console.log('Cancelled.'); return }
 
     await linkProject(config, { yes: opts.yes, configPath })
     printUrls(config)
@@ -199,13 +182,13 @@ export const projectStopCommand = async (opts: ProjectActionOptions): Promise<vo
       hints: ['Run `betty project stop` in that project instead.', `Or remove its links from anywhere: betty project unlink ${config.project}`],
     })
 
-    if (opts.yes !== true) {
-      const { confirm } = await prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Stop project '${config.project}'?`,
-        default: false,
-      }]) as { confirm: boolean }
+    // Only the stop command runs anything from the file; without one there is
+    // nothing to trust.
+    const question = { message: `Stop project '${config.project}'?`, default: false }
+    if (config.down?.command !== undefined) {
+      if (!await confirmProject(config, configPath, { yes: opts.yes, action: 'stop', question })) { console.log('Cancelled.'); return }
+    } else if (opts.yes !== true) {
+      const { confirm } = await prompt([{ type: 'confirm', name: 'confirm', ...question }]) as { confirm: boolean }
       if (!confirm) { console.log('Cancelled.'); return }
     }
 
