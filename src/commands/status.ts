@@ -6,6 +6,7 @@ import yaml from 'yaml'
 import type { DockerInspectEntry, TraefikDynamicConfig } from '../types'
 import { databaseUrl, domainUrl } from '../utils/config'
 import { parseRoutes } from '../utils/routes'
+import { checkDockerRunning } from '../utils/setup'
 import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 
 interface ProjectStatus {
@@ -28,8 +29,9 @@ interface StatusOptions {
 const resolveTraefikComposePath = (): string | null =>
   fs.existsSync(BETTY_PROXY_COMPOSE) ? BETTY_PROXY_COMPOSE : null
 
-const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolean; proxyInfo: string; proxyUptime: string; traefikContainer: DockerInspectEntry | null } => {
+const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolean; dockerRunning: boolean; proxyInfo: string; proxyUptime: string; traefikContainer: DockerInspectEntry | null } => {
   let proxyRunning = false
+  let dockerRunning = true
   let proxyInfo = 'Proxy is not running.'
   let proxyUptime = ''
   let traefikContainer: DockerInspectEntry | null = null
@@ -45,10 +47,12 @@ const getTraefikContainerStatus = (_composePath: string): { proxyRunning: boolea
       : ''
     proxyInfo = proxyRunning ? 'Proxy is running.' : 'Proxy is not running.'
   } catch {
-    // proxyInfo defaults to 'Proxy is not running.'
+    // Not found, or Docker itself is down: then `betty serve` would fail too.
+    dockerRunning = checkDockerRunning()
+    if (!dockerRunning) proxyInfo = 'Docker is not running.'
   }
 
-  return { proxyRunning, proxyInfo, proxyUptime, traefikContainer }
+  return { proxyRunning, dockerRunning, proxyInfo, proxyUptime, traefikContainer }
 }
 
 interface ContainerMeta {
@@ -62,12 +66,24 @@ const NO_META: ContainerMeta = { uptime: 'n/a', health: 'n/a', restarts: 'n/a' }
 // Inspects every running container in a single call. Status then costs two docker
 // calls in total instead of one inspect per container for every route.
 const inspectRunningContainers = (): DockerInspectEntry[] => {
+  let ids: string[]
   try {
-    const ids = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().split(/\r?\n/).map((id) => id.trim()).filter(Boolean)
-    if (ids.length === 0) return []
-    return JSON.parse(execSync(`docker inspect ${ids.join(' ')}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[]
+    ids = execSync('docker ps --format {{.ID}}', { stdio: 'pipe' }).toString().split(/\r?\n/).map((id) => id.trim()).filter(Boolean)
   } catch {
     return []
+  }
+  if (ids.length === 0) return []
+  try {
+    return JSON.parse(execSync(`docker inspect ${ids.join(' ')}`, { stdio: 'pipe' }).toString()) as DockerInspectEntry[]
+  } catch (err) {
+    // A container that stopped since `docker ps` makes docker exit 1, but it
+    // still prints the others; without them every row would show n/a.
+    const out = err instanceof Error && 'stdout' in err ? (err as { stdout: unknown }).stdout : undefined
+    try {
+      return JSON.parse(Buffer.isBuffer(out) ? out.toString() : typeof out === 'string' ? out : '') as DockerInspectEntry[]
+    } catch {
+      return []
+    }
   }
 }
 
@@ -138,6 +154,7 @@ const statusCommand = (opts?: StatusOptions): void => {
     ? getTraefikContainerStatus(composePath)
     : {
         proxyRunning: false,
+        dockerRunning: true,
         proxyInfo: 'Could not determine proxy status.',
         proxyUptime: '',
         traefikContainer: null,
@@ -160,7 +177,8 @@ const statusCommand = (opts?: StatusOptions): void => {
   }
 
   if (projects.length > 0) {
-    if (!proxy.proxyRunning) console.log(`⚠️  ${proxy.proxyInfo} The links below are not served. Start it with: betty serve`)
+    if (!proxy.dockerRunning) console.log('⚠️  Docker is not running, so the links below are not served. Start Docker, then run: betty serve')
+    else if (!proxy.proxyRunning) console.log(`⚠️  ${proxy.proxyInfo} The links below are not served. Start it with: betty serve`)
     const nameW = Math.max(12, ...projects.map((p) => p.name.length))
     const domainW = Math.max(12, ...projects.map((p) => p.domain.length))
     const portW = Math.max(4, ...projects.map((p) => p.port.length))
