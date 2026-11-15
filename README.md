@@ -652,8 +652,9 @@ command has finished. When one is out, it asks once a day whether to install it
 now, later, or skip that version. It only asks in an interactive terminal: not
 with `--json`, in CI, or when output is piped.
 
-The lookup is a single request to `github.com/mcKanses/missbetty/releases/latest`;
-Betty sends nothing else. Turn it off with `betty config set updateCheck false`,
+The lookup is a request to `github.com/mcKanses/missbetty/releases/latest`.
+For a global npm install, Betty also asks `registry.npmjs.org` whether that
+version is on npm yet. Nothing else is sent. Turn it off with `betty config set updateCheck false`,
 or for one shell with `BETTY_NO_UPDATE_CHECK=1`.
 
 ## Development
@@ -731,8 +732,10 @@ npm run release:major
 
 The fallback scripts are guarded and only run on the `main` branch. They only
 bump the version and tag it locally: no GitHub release and no binaries come of
-them. After pushing such a tag, create its release on GitHub and build the
-binaries with `gh workflow run release-binaries.yml --ref main -f tag=<tag>`.
+them. After pushing such a tag, create its release as a draft
+(`gh release create <tag> --draft --generate-notes`) and build the binaries
+with `gh workflow run release-binaries.yml --ref main -f tag=<tag>`; the
+workflow publishes the draft once every binary is uploaded.
 
 For emergency manual publishing:
 
