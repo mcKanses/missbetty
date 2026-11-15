@@ -381,7 +381,8 @@ export const printUrls = (config: DevProjectConfig): void => {
   // one mkcert installs into, so point at the mkcert root CA file instead. The
   // URI percent-decodes its values, so anything but plain path characters (a
   // space, # or & in a user folder) is encoded.
-  const rootCa = (getMkcertRootCaPath() ?? '<mkcert -CAROOT>/rootCA.pem').replace(/[^A-Za-z0-9\-._~/:\\]/gu, (c) => encodeURIComponent(c))
+  const rootCaPath = getMkcertRootCaPath()
+  const rootCa = rootCaPath === null ? '<mkcert -CAROOT>/rootCA.pem' : rootCaPath.replace(/[^A-Za-z0-9\-._~/:\\]/gu, (c) => encodeURIComponent(c))
   printHint('Database domains need a PostgreSQL 17+ client with direct TLS, for example:')
   for (const domain of databaseDomains) printHint(`psql "${databaseUrl(domain.host).replace(/^postgres:\/\//, 'postgresql://postgres@')}/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=${rootCa}"`)
 }

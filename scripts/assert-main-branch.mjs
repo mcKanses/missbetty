@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process'
 // a worktree.
 const readCurrentBranch = () => {
   try {
-    return execFileSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
+    return execFileSync('git', ['symbolic-ref', '--quiet', 'HEAD'], { encoding: 'utf8' }).trim().replace(/^refs\/heads\//, '')
   } catch {
     return ''
   }
