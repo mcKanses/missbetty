@@ -1,3 +1,11 @@
+## [1.11.4](https://github.com/mcKanses/missbetty/compare/v1.11.3...v1.11.4) (2026-11-15)
+
+
+### Bug Fixes
+
+* **certs:** Judge kept certificates and those in use by what routes actually serve ([126aa5f](https://github.com/mcKanses/missbetty/commit/126aa5fd4f77af8ca95659a12bbe86898857c316))
+* **cli:** Small follow-ups from reviewing the 1.11.2 changes ([da2c103](https://github.com/mcKanses/missbetty/commit/da2c103cf63609d7e345478030b2c5b0a6e60651))
+
 ## [1.11.3](https://github.com/mcKanses/missbetty/compare/v1.11.2...v1.11.3) (2026-11-15)
 
 
