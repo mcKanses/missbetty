@@ -1,7 +1,7 @@
 import { execSync, spawnSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import yaml from 'yaml'
 import { printHint, printWarn } from '../cli/ui/output'
 import { checkDockerRunning, getMkcertRootCaPath, isHttpsRequestedDomain, runMkcertInstall } from '../utils/setup'
@@ -143,7 +143,7 @@ const confirmPermission = async (message: string, mode: PermissionMode | undefin
   if (resolved === 'allowed') return true
   if (resolved === 'manual' || resolved === 'denied') return false
 
-  const answer = await inquirer.prompt([{
+  const answer = await prompt([{
     type: 'confirm',
     name: 'ok',
     message,
@@ -260,7 +260,7 @@ const prepareHosts = async (config: DevProjectConfig, dropped: string[]): Promis
     const ok = await confirmPermission(`Add hosts entry for ${missing[0].host}?`, 'prompt')
     selected = ok ? [missing[0].host] : []
   } else if (missing.length > 1) {
-    const answer = await inquirer.prompt([{
+    const answer = await prompt([{
       type: 'checkbox',
       name: 'hosts',
       message: 'Add hosts entries for (a = all/none):',
@@ -287,7 +287,7 @@ const prepareCertificates = async (config: DevProjectConfig): Promise<Record<str
 
   const certificates: Record<string, { certFile: string; keyFile: string }> = {}
   config.domains.forEach((domain) => {
-    const certificate = ensureCertificate(domain.host, { required: true })
+    const certificate = ensureCertificate(domain.host, { required: true, caVerified: true })
     if (certificate === null) throw new Error(`Could not create a certificate for ${domain.host}.`)
     certificates[domain.host] = certificate
   })

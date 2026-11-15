@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { checkAllCertificates, renewCertificates } from '../utils/certs'
 import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
 import { restartTraefik } from '../utils/docker'
@@ -23,7 +23,7 @@ interface SetupOptions {
 
 const askYesNo = async (message: string, yes?: boolean): Promise<boolean> => {
   if (yes === true) return true
-  const answer = await inquirer.prompt([{
+  const answer = await prompt([{
     type: 'confirm',
     name: 'ok',
     message,

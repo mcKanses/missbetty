@@ -81,10 +81,20 @@ const linkedDomainsNeedingHosts = (): string[] => [...new Set(readRoutes()
 
 export const resolveSetupDomain = (): string => [...linkedDomainsNeedingHosts(), `betty${getDomainSuffix()}`][0]
 
+// The environment for `mkcert -install`. By default mkcert also adds its CA to
+// the Java keystore of JAVA_HOME, which fails without admin rights when Java
+// lives under C:\Program Files, and the whole install fails with it. Browsers
+// only need the system and NSS stores, so betty skips Java unless TRUST_STORES
+// is set.
+export const mkcertInstallEnv = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  TRUST_STORES: (process.env.TRUST_STORES ?? '') === '' ? 'system,nss' : process.env.TRUST_STORES,
+})
+
 export const runMkcertInstall = (): { ok: boolean; warning?: string } => {
   if (!checkMkcertInstalled()) return { ok: false, warning: 'mkcert is not installed.' }
   try {
-    execSync('mkcert -install', { stdio: 'inherit' })
+    execSync('mkcert -install', { stdio: 'inherit', env: mkcertInstallEnv() })
     if (checkMkcertCaInstalled()) return { ok: true }
     return { ok: false, warning: 'mkcert ran, but the local CA could not be verified.' }
   } catch {

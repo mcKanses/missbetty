@@ -16,6 +16,7 @@ jest.mock('./setup', () => ({
   checkMkcertInstalled: jest.fn(),
   checkMkcertCaInstalled: jest.fn(),
   isHttpsRequestedDomain: jest.fn(),
+  mkcertInstallEnv: jest.fn(),
 }))
 
 jest.mock('./certs', () => ({ checkCertificate: jest.fn() }))
@@ -39,7 +40,7 @@ jest.mock('./names', () => ({
 import fs from 'fs'
 import { execFileSync } from 'child_process'
 import { BettyError } from './errors'
-import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertCaInstalled, checkMkcertInstalled, isHttpsRequestedDomain, mkcertInstallEnv } from './setup'
 import { sanitizeName } from './names'
 import { checkCertificate } from './certs'
 import {
@@ -267,6 +268,27 @@ describe('ensureCertificate', () => {
     const calls = (execFileSync as unknown as jest.Mock).mock.calls.map((call) => (call[1] as string[]).join(' '))
     expect(calls.indexOf('-install')).toBeGreaterThanOrEqual(0)
     expect(calls.indexOf('-install')).toBeLessThan(calls.findIndex((c) => c.startsWith('-cert-file')))
+  })
+
+  it('runs mkcert -install without the Java keystore', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p) === CERTS_DIR)
+    ;(mkcertInstallEnv as unknown as jest.Mock).mockReturnValue({ TRUST_STORES: 'system,nss' })
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    ensureCertificate('myapp.dev')
+
+    expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-install'], { stdio: 'inherit', env: { TRUST_STORES: 'system,nss' } })
+  })
+
+  it('skips mkcert -install when the caller has just verified the CA', () => {
+    ;(fs.existsSync as unknown as jest.Mock).mockImplementation((p: unknown) => String(p) === CERTS_DIR)
+    ;(execFileSync as unknown as jest.Mock).mockReturnValue(undefined)
+
+    ensureCertificate('myapp.dev', { caVerified: true })
+
+    const calls = (execFileSync as unknown as jest.Mock).mock.calls.map((call) => (call[1] as string[]).join(' '))
+    expect(calls).not.toContain('-install')
+    expect(calls.some((c) => c.startsWith('-cert-file'))).toBe(true)
   })
 
   it('returns null when mkcert is not installed and domain does not require https', () => {

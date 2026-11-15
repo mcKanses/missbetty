@@ -1,5 +1,5 @@
 import { execSync, execFileSync } from 'child_process'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { printHint } from '../cli/ui/output'
 import { domainUrl, getDomainSuffix, parsePort } from '../utils/config'
 import type { DockerInspectEntry } from '../types'
@@ -94,7 +94,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
 
     if (resolvedContainer === undefined && runningContainers.length === 0) throw new BettyError('No containers are currently running.', { hints: ['Start a container first, then run: betty link'] })
 
-    const answers = await inquirer.prompt([
+    const answers = await prompt([
       ...(resolvedContainer === undefined ? [{
         type: runningContainers.length > 0 ? 'list' : 'input',
         name: 'container',
@@ -119,7 +119,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
     if (opts.yes === true) resolvedPort = exposedPorts.length > 0 ? String(exposedPorts[0]) : '80'
      else if (exposedPorts.length > 0) {
       const CUSTOM_PORT = '__custom__'
-      const portAnswer = await inquirer.prompt([{
+      const portAnswer = await prompt([{
         type: 'list',
         name: 'port',
         message: 'Port:',
@@ -127,7 +127,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
         default: String(exposedPorts[0]),
       }]) as { port: string }
       if (portAnswer.port === CUSTOM_PORT) {
-        const customAnswer = await inquirer.prompt([{
+        const customAnswer = await prompt([{
           type: 'input',
           name: 'port',
           message: 'Port:',
@@ -136,7 +136,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
         resolvedPort = customAnswer.port
       } else resolvedPort = portAnswer.port
     } else {
-      const portAnswer = await inquirer.prompt([{
+      const portAnswer = await prompt([{
         type: 'input',
         name: 'port',
         message: 'Port:',
@@ -180,7 +180,7 @@ const linkCommandImpl = async (containerName: string | undefined, opts: LinkComm
   }
 
   if (opts.yes !== true) {
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: `Link '${containerNameResolved}' → ${domainResolved}:${String(port)}?`,

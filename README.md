@@ -791,51 +791,38 @@ Then run:
 betty serve
 ```
 
-### `mkcert -install failed` because of the Java keystore
+### mkcert and the Java keystore
 
-With HTTPS enabled, `betty project load` (and `betty setup`) run
-`mkcert -install`. When a JDK is installed and `JAVA_HOME` is set, mkcert also
-tries to add the local CA to Java's `cacerts` keystore. On Windows that file
-lives under `C:\Program Files\...` and needs administrator rights, so the call
-fails even though the CA is already trusted by the system store:
+By default mkcert also adds its CA to the Java `cacerts` keystore of
+`JAVA_HOME`. On Windows that file lives under `C:\Program Files\...` and needs
+administrator rights, so `mkcert -install` would fail even though the system
+store already trusts the CA. Browsers do not read the Java keystore, so betty
+runs `mkcert -install` with `TRUST_STORES=system,nss` unless you set the
+variable yourself.
 
-```text
-The local CA is already installed in the system trust store! 👍
-ERROR: failed to execute "keytool -importcert": exit status 1
-Keytool-Fehler: java.io.FileNotFoundException: C:\Program Files\Eclipse Adoptium\jdk-8.0.512.9-hotspot\jre\lib\security\cacerts (Zugriff verweigert)
-Error: mkcert -install failed.
-```
-
-Browsers do not read the Java keystore, so it can be skipped. mkcert reads the
-`TRUST_STORES` variable to limit which stores it touches:
+If a Java app needs to call your local domains, include `java` and run the
+command from an elevated shell:
 
 ```sh
-TRUST_STORES=system betty project load
+TRUST_STORES=system,java,nss betty project load
 ```
 
 ```powershell
-$env:TRUST_STORES = "system"; betty project load
+$env:TRUST_STORES = "system,java,nss"; betty project load
 ```
 
-Add `nss` (`TRUST_STORES=system,nss`) if you use Firefox. Only include `java`
-when a Java app needs to call your local domains, and then run the command from
-an elevated shell.
+### `There is no terminal to answer the prompt.`
 
-### `ERR_USE_AFTER_CLOSE: readline was closed` without a terminal
-
-Commands that ask for confirmation (such as `betty project load`) currently
-crash instead of failing cleanly when stdin is not an interactive terminal, for
-example in CI or from a script:
-
-```text
-? Load project 'my-app' from .betty.yml? (Y/n)
-Error [ERR_USE_AFTER_CLOSE]: readline was closed
-    at PromptUI.close (...\node_modules\inquirer\lib\ui\baseUI.js:56:13)
-```
-
-Until betty detects the missing TTY itself, pass `--yes` to accept the prompts
-up front:
+Without an interactive terminal (in CI, from a script or with piped input)
+betty cannot ask for confirmation and stops with this error instead. Pass
+`--yes` to accept the prompts up front, for example:
 
 ```sh
 betty project load --yes
 ```
+
+Commands that are interactive by design, such as `betty project create`, have
+no `--yes` and need a terminal. Note that with `betty project load --yes` and
+`betty dev --yes` every permission left at `prompt` in `.betty.yml` counts as
+allowed: betty edits the hosts file, trusts the mkcert CA and runs Docker
+without asking.

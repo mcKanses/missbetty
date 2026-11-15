@@ -3,7 +3,7 @@ import path from 'path'
 import { printError } from '../cli/ui/output'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
 import { removeHostsEntries, removeHostsEntry } from '../utils/hosts'
 import { isProjectRouter, readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
@@ -30,7 +30,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
   for (const r of routes) console.log(`  - ${r.domain} (${r.fileName})`)
 
   if (!yes) {
-    const answer = await inquirer.prompt([
+    const answer = await prompt([
       {
         type: 'confirm',
         name: 'confirmAll',
@@ -123,7 +123,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
   if (routes.length === 1) {
     const route = routes[0]
     if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: `Remove link for ${route.domain}?`,
@@ -156,7 +156,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
     }
   }
 
-  const { selected } = await inquirer.prompt([{
+  const { selected } = await prompt([{
     type: 'checkbox',
     name: 'selected',
     message: 'Select what to unlink (space to toggle, a = all/none):',
@@ -265,7 +265,7 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
     if (!fs.existsSync(projectRoutes[0].filePath)) throw new BettyError(`Routing file not found: ${projectRoutes[0].fileName}`)
 
     if (opts.yes !== true) {
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await prompt([{
         type: 'confirm',
         name: 'confirm',
         message: `Remove all ${String(projectRoutes.length)} domain(s) in project '${opts.project}'?`,
@@ -286,7 +286,7 @@ const unlinkCommandImpl = async (opts: UnlinkOptions = {}): Promise<void> => {
   if (!fs.existsSync(route.filePath)) throw new BettyError(`Routing file not found: ${route.fileName}`)
 
   if (opts.yes !== true) {
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: `Remove link for ${route.domain}?`,
