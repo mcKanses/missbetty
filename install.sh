@@ -213,11 +213,13 @@ install_dependencies_linux() {
       echo "Docker service status (if available):"
       $SUDO systemctl --no-pager --full status docker 2>/dev/null | tail -n 25 || true
     fi
-    echo "Try starting it manually and rerun:"
+    # betty is already installed; a daemon that is not up yet is something to
+    # fix before using it, not a failed install.
+    echo "Start it manually before using betty:"
     echo "  $SUDO systemctl start docker"
     echo "or"
     echo "  $SUDO service docker start"
-    exit 1
+    DOCKER_NOT_READY=true
   }
 
   # Found by path as well: sudo's secure_path (RHEL, Fedora) leaves out
@@ -255,8 +257,9 @@ install_dependencies_linux() {
         x86_64|amd64) MKCERT_ARCH="amd64"; MKCERT_SHA256="6d31c65b03972c6dc4a14ab429f2928300518b26503f58723e532d1b0a3bbb52" ;;
         aarch64|arm64) MKCERT_ARCH="arm64"; MKCERT_SHA256="b98f2cc69fd9147fe4d405d859c57504571adec0d3611c3eefd04107c7ac00d0" ;;
         *)
-          echo "Unsupported architecture for mkcert fallback: $(uname -m)"
-          exit 1
+          # mkcert is optional: without it betty serves HTTP only.
+          echo "Skipping mkcert: no fallback download for $(uname -m). Install it yourself for local HTTPS."
+          return
           ;;
       esac
 
@@ -265,8 +268,8 @@ install_dependencies_linux() {
       fetch "$MKCERT_URL" "$TMP_DIR/mkcert"
       ACTUAL_MKCERT_SHA="$(sha256sum "$TMP_DIR/mkcert" | awk '{print $1}')"
       if [ "$ACTUAL_MKCERT_SHA" != "$MKCERT_SHA256" ]; then
-        echo "Checksum verification failed for mkcert ${MKCERT_VERSION} (${MKCERT_ARCH})."
-        exit 1
+        echo "Checksum verification failed for mkcert ${MKCERT_VERSION} (${MKCERT_ARCH}); it was not installed."
+        return
       fi
       $SUDO install -m 0755 "$TMP_DIR/mkcert" /usr/local/bin/mkcert
     fi
@@ -294,17 +297,20 @@ install_dependencies_linux() {
     exit 1
   fi
 
-  if [ -z "$(find_mkcert)" ]; then
-    echo "mkcert installation failed."
-    exit 1
-  fi
-
   if ! docker compose version >/dev/null 2>&1 && ! $SUDO docker compose version >/dev/null 2>&1; then
     echo "Docker is installed, but Docker Compose plugin is not available yet."
     echo "Install it: https://docs.docker.com/compose/install/linux/"
   fi
 
-  echo "✓ Dependencies installed (Docker + mkcert)"
+  if [ -z "$(find_mkcert)" ]; then
+    echo "✓ Docker installed. mkcert is missing, so betty serves HTTP only until you install it (https://github.com/FiloSottile/mkcert)."
+  else
+    echo "✓ Dependencies installed (Docker + mkcert)"
+  fi
+  if [ "${DOCKER_NOT_READY:-false}" = "true" ]; then
+    echo "Docker's daemon is not running yet; start it before using betty."
+    return
+  fi
   if ! docker info >/dev/null 2>&1 && $SUDO docker info >/dev/null 2>&1; then
     echo "Docker is ready, but this shell has not picked up docker group permissions yet."
     echo "Run 'newgrp docker' now, or re-login once, then use Betty without sudo."
