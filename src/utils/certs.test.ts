@@ -3,9 +3,19 @@ import { X509Certificate } from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { checkCertificate } from './certs'
+import { checkAllCertificates, checkCertificate } from './certs'
+import { BETTY_CERTS_DIR } from './constants'
+import { readRoutes } from './routes'
 
 jest.mock('./setup', () => ({ checkMkcertInstalled: jest.fn(), getMkcertRootCaPath: jest.fn(() => null) }))
+jest.mock('./routes', () => ({ readRoutes: jest.fn(() => []) }))
+jest.mock('./constants', () => {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const p = require('path') as typeof path
+  const o = require('os') as typeof os
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  return { BETTY_CERTS_DIR: p.join(o.tmpdir(), `betty-certs-test-${String(process.pid)}`) }
+})
 
 // A test CA, a second CA, and a certificate for app.test issued by the first,
 // made with openssl. Times are given relative to the certificate's end date,
@@ -82,5 +92,24 @@ describe('checkCertificate', () => {
   test('reports a file that is no certificate', () => {
     fs.writeFileSync(certPath, 'not a certificate')
     expect(check({ now: validTo - 100 * DAY_MS }).problem).toBe('is unreadable')
+  })
+})
+
+describe('checkAllCertificates', () => {
+  beforeEach(() => {
+    fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
+    for (const name of ['app.test', 'gone.test']) {
+      fs.writeFileSync(path.join(BETTY_CERTS_DIR, `${name}.pem`), LEAF)
+      fs.writeFileSync(path.join(BETTY_CERTS_DIR, `${name}-key.pem`), 'key')
+    }
+  })
+  afterEach(() => { fs.rmSync(BETTY_CERTS_DIR, { recursive: true, force: true }) })
+
+  test('checks only the certificates of linked domains', () => {
+    ;(readRoutes as unknown as jest.Mock).mockReturnValue([{ domain: 'App.test' }])
+
+    const checked = checkAllCertificates(validTo - 100 * DAY_MS).map((c) => path.basename(c.file))
+
+    expect(checked).toEqual(['app.test.pem'])
   })
 })
