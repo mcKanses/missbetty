@@ -474,11 +474,34 @@ for candidate in /opt/homebrew/bin/cosign /usr/local/bin/cosign /usr/bin/cosign 
   if [ -z "$COSIGN" ] && [ -x "$candidate" ]; then COSIGN="$candidate"; fi
 done
 
+# Run as root, a cosign not owned by root (in the user's home, or a user-owned
+# Homebrew) could be replaced by anything running as that user, which would
+# then run as root. Such a cosign runs as the invoking user instead.
+COSIGN_USER=""
+if [ -n "$COSIGN" ] && [ "$(id -u)" -eq 0 ] && [ -n "$(find -L "$COSIGN" -prune ! -user 0 2>/dev/null)" ]; then
+  if [ -n "${SUDO_USER:-}" ]; then
+    COSIGN_USER="$SUDO_USER"
+    # mktemp -d is private to root; the user needs to read the downloads.
+    chmod 755 "$TMP_DIR"
+  else
+    echo "Ignoring $COSIGN: it is not owned by root."
+    COSIGN=""
+  fi
+fi
+
+run_cosign() {
+  if [ -n "$COSIGN_USER" ]; then
+    sudo -u "$COSIGN_USER" -H "$COSIGN" "$@"
+  else
+    "$COSIGN" "$@"
+  fi
+}
+
 if [ -n "$COSIGN" ]; then
   # cosign v3 deprecates --signature/--certificate in favour of a Sigstore
   # bundle. Releases from 1.11.0 carry one; older ones and older cosign use the
   # signature and certificate.
-  COSIGN_MAJOR="$("$COSIGN" version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  COSIGN_MAJOR="$(run_cosign version 2>&1 | sed -n 's/^GitVersion:[[:space:]]*v\([0-9][0-9]*\).*/\1/p' | head -n 1)"
   if [ "${COSIGN_MAJOR:-0}" -ge 3 ] && fetch "$URL.sigstore.json" "$TMP_DIR/betty.tar.gz.sigstore.json" 2>/dev/null; then
     set -- --bundle "$TMP_DIR/betty.tar.gz.sigstore.json"
   else
@@ -486,7 +509,7 @@ if [ -n "$COSIGN" ]; then
     fetch "$URL.pem" "$TMP_DIR/betty.tar.gz.pem"
     set -- --signature "$TMP_DIR/betty.tar.gz.sig" --certificate "$TMP_DIR/betty.tar.gz.pem"
   fi
-  if ! COSIGN_OUTPUT="$("$COSIGN" verify-blob "$TMP_DIR/betty.tar.gz" "$@" \
+  if ! COSIGN_OUTPUT="$(run_cosign verify-blob "$TMP_DIR/betty.tar.gz" "$@" \
     --certificate-identity-regexp "$SIGNER_IDENTITY" \
     --certificate-oidc-issuer "$SIGNER_ISSUER" 2>&1)"; then
     echo "Signature verification failed for ${ASSET}:"
