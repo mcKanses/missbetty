@@ -72,6 +72,8 @@ const configCommand = (action?: string, key?: string, value?: string): void => {
       console.log(`Saved: ${key}=${normalized}`)
       // The running proxy keeps the ports it was started with.
       if (key === 'httpPort' || key === 'httpsPort') console.log('Run `betty serve` to apply it to the running proxy.')
+      const envOverride = { domainSuffix: 'BETTY_DOMAIN_SUFFIX', httpPort: 'BETTY_HTTP_PORT', httpsPort: 'BETTY_HTTPS_PORT', updateCheck: 'BETTY_NO_UPDATE_CHECK' }[key]
+      if (envOverride !== undefined && (process.env[envOverride] ?? '') !== '') console.log(`Note: ${envOverride} is set in this shell and takes precedence over the saved value.`)
       return
     } catch (err) {
       if (err instanceof BettyError) throw err

@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { getHttpPort } from './config'
 import { BettyError } from './errors'
-import { checkCertificate } from './certs'
+import { RENEW_BEFORE_DAYS, checkCertificate } from './certs'
 import { checkMkcertInstalled, isHttpsRequestedDomain, mkcertInstallEnv } from './setup'
 import type { DockerInspectEntry } from '../types'
 import {
@@ -94,9 +94,14 @@ export const isProxyRunning = (): boolean => {
 // For changes that are already done (removed routes, renewed certificates): a
 // stopped proxy, or a stopped Docker, reads them when it starts, so that is no
 // failure.
-export const restartTraefikIfRunning = (composePath: string): void => {
-  if (isProxyRunning()) restartTraefik(composePath)
-  else console.log("Betty's proxy is not running; it picks up the change when it starts.")
+// Returns whether it restarted the proxy.
+export const restartTraefikIfRunning = (composePath: string): boolean => {
+  if (isProxyRunning()) {
+    restartTraefik(composePath)
+    return true
+  }
+  console.log("Betty's proxy is not running; it picks up the change when it starts.")
+  return false
 }
 
 // Returns the certificate for a domain, creating it with mkcert when missing,
@@ -117,7 +122,10 @@ export const ensureCertificate = (domain: string, opts: { required?: boolean; ca
   if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     const { problem, validTo } = checkCertificate(certPath, { domain })
     if (problem === null) return { certFile, keyFile }
-    stillValid = problem.startsWith('expires on') && validTo !== null && validTo.getTime() > Date.now()
+    // Expiry is checked first, so the other checks are run again as if it were
+    // not due yet: a certificate from a replaced CA is rejected by browsers now.
+    stillValid = problem.startsWith('expires on') && validTo !== null && validTo.getTime() > Date.now() &&
+      checkCertificate(certPath, { domain, now: validTo.getTime() - (RENEW_BEFORE_DAYS + 1) * 86_400_000 }).problem === null
     // Without mkcert the old certificate is still better than none.
     if (!checkMkcertInstalled()) {
       console.log(`\n⚠️  The certificate for ${domain} ${problem}; install mkcert to renew it (betty setup).`)
