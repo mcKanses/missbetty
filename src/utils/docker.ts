@@ -4,7 +4,7 @@ import path from 'path'
 import { getHttpPort } from './config'
 import { BettyError } from './errors'
 import { checkCertificate } from './certs'
-import { checkMkcertInstalled, isHttpsRequestedDomain } from './setup'
+import { checkMkcertInstalled, isHttpsRequestedDomain, mkcertInstallEnv } from './setup'
 import type { DockerInspectEntry } from '../types'
 import {
   BETTY_PROXY_COMPOSE,
@@ -87,7 +87,9 @@ export const restartTraefik = (composePath: string): void => {
 // Without a certificate it falls back to HTTP unless HTTPS is required: always
 // for .dev (browsers force HTTPS there), or when the caller asks for it, as a
 // project with `https.enabled` does.
-export const ensureCertificate = (domain: string, opts: { required?: boolean } = {}): { certFile: string; keyFile: string } | null => {
+// A caller that has just run `mkcert -install` itself passes caVerified, so a
+// project with many domains does not repeat it for each one.
+export const ensureCertificate = (domain: string, opts: { required?: boolean; caVerified?: boolean } = {}): { certFile: string; keyFile: string } | null => {
   if (!fs.existsSync(BETTY_CERTS_DIR)) fs.mkdirSync(BETTY_CERTS_DIR, { recursive: true })
 
   const { hostPath: certPath, keyPath, certFile, keyFile } = certificatePaths(domain)
@@ -115,7 +117,7 @@ export const ensureCertificate = (domain: string, opts: { required?: boolean } =
     // the trust step never happened (a declined prompt, or plain `mkcert <host>`),
     // and then browsers reject the certificate. mkcert only prompts when the CA
     // is not trusted yet.
-    execFileSync('mkcert', ['-install'], { stdio: 'inherit' })
+    if (opts.caVerified !== true) execFileSync('mkcert', ['-install'], { stdio: 'inherit', env: mkcertInstallEnv() })
     execFileSync('mkcert', ['-cert-file', certPath, '-key-file', keyPath, domain], { stdio: 'inherit' })
     return { certFile, keyFile }
   } catch {

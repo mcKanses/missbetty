@@ -6,6 +6,7 @@ import {
   checkMkcertCaInstalled,
   collectSetupStatus,
   installMkcertPackage,
+  mkcertInstallEnv,
   printDockerInstallInstructions,
   printMkcertInstallInstructions,
   resolveSetupDomain,
@@ -343,6 +344,30 @@ describe('setup utils', () => {
 
     expect(result.ok).toBe(false)
     expect(result.warning).toBe('mkcert -install failed.')
+  })
+
+  test('runMkcertInstall leaves the Java keystore out of mkcert -install', () => {
+    ;(execSync as unknown as jest.Mock).mockReturnValue(Buffer.from(''))
+
+    runMkcertInstall()
+
+    expect(execSync).toHaveBeenCalledWith('mkcert -install', { stdio: 'inherit', env: expect.objectContaining({ TRUST_STORES: 'system,nss' }) })
+  })
+
+  test.each([
+    [undefined, 'system,nss'],
+    ['', 'system,nss'],
+    ['system,java,nss', 'system,java,nss'],
+  ])('mkcertInstallEnv with TRUST_STORES=%p uses %p', (value, expected) => {
+    const original = process.env.TRUST_STORES
+    if (value === undefined) delete process.env.TRUST_STORES
+    else process.env.TRUST_STORES = value
+    try {
+      expect(mkcertInstallEnv().TRUST_STORES).toBe(expected)
+    } finally {
+      if (original === undefined) delete process.env.TRUST_STORES
+      else process.env.TRUST_STORES = original
+    }
   })
 
   test('installMkcertPackage installs mkcert via apt on Linux when apt-get is missing', () => {

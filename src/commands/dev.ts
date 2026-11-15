@@ -287,7 +287,7 @@ const prepareCertificates = async (config: DevProjectConfig): Promise<Record<str
 
   const certificates: Record<string, { certFile: string; keyFile: string }> = {}
   config.domains.forEach((domain) => {
-    const certificate = ensureCertificate(domain.host, { required: true })
+    const certificate = ensureCertificate(domain.host, { required: true, caVerified: true })
     if (certificate === null) throw new Error(`Could not create a certificate for ${domain.host}.`)
     certificates[domain.host] = certificate
   })
