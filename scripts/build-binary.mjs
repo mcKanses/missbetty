@@ -25,6 +25,8 @@ const binaryOut = join(dist, binaryName);
 const targetNodeBinary = process.env.BETTY_SEA_NODE_BINARY || process.execPath;
 
 const run = (cmd) => execSync(cmd, { stdio: 'inherit', cwd: root });
+// Paths go into a shell command: quoted, a checkout path with spaces works.
+const q = (p) => JSON.stringify(p);
 
 // 1. Clean dist
 if (existsSync(dist)) rmSync(dist, { recursive: true, force: true });
@@ -52,7 +54,7 @@ writeFileSync(seaConfig, JSON.stringify({
 
 // 5. Generate blob
 console.log('\n[4/5] Generating SEA blob…');
-run(`node --experimental-sea-config ${seaConfig}`);
+run(`node --experimental-sea-config ${q(seaConfig)}`);
 
 // 6. Copy node binary + inject
 console.log('\n[5/5] Creating binary…');
@@ -60,11 +62,11 @@ copyFileSync(targetNodeBinary, binaryOut);
 
 // On macOS, remove code signature before injection
 if (process.platform === 'darwin') {
-  try { run(`codesign --remove-signature ${binaryOut}`); } catch { /* ignore if no signature */ }
+  try { run(`codesign --remove-signature ${q(binaryOut)}`); } catch { /* ignore if no signature */ }
 }
 
 run(
-  `npx postject ${binaryOut} NODE_SEA_BLOB ${blobPath} --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`
+  `npx postject ${q(binaryOut)} NODE_SEA_BLOB ${q(blobPath)} --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`
   + (process.platform === 'darwin' ? ` --macho-segment-name NODE_SEA` : '')
 );
 

@@ -1,11 +1,13 @@
-import { readFileSync } from 'fs'
-import { join } from 'path'
+import { execFileSync } from 'child_process'
 
+// Asks git rather than reading .git/HEAD, which is a file, not a directory, in
+// a worktree.
 const readCurrentBranch = () => {
-  const head = readFileSync(join(process.cwd(), '.git', 'HEAD'), 'utf8').trim()
-  const prefix = 'ref: refs/heads/'
-
-  return head.startsWith(prefix) ? head.slice(prefix.length) : ''
+  try {
+    return execFileSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { encoding: 'utf8' }).trim()
+  } catch {
+    return ''
+  }
 }
 
 const branch = readCurrentBranch()
