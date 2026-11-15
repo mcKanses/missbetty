@@ -273,11 +273,14 @@ install_dependencies_linux() {
 
     # The CA must belong to the user who runs betty: run as root, mkcert would
     # create and trust a second CA under /root that betty never uses.
+    # Without TRUST_STORES mkcert also writes to Java's keystore, and a failure
+    # there fails the whole step; browsers only need the system and NSS stores.
     MKCERT_BIN="$(find_mkcert)"
+    MKCERT_TRUST_STORES="${TRUST_STORES:-system,nss}"
     if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
-      sudo -u "$SUDO_USER" -H "$MKCERT_BIN" -install >/dev/null 2>&1 || true
+      sudo -u "$SUDO_USER" -H env TRUST_STORES="$MKCERT_TRUST_STORES" "$MKCERT_BIN" -install >/dev/null 2>&1 || true
     else
-      "$MKCERT_BIN" -install >/dev/null 2>&1 || true
+      TRUST_STORES="$MKCERT_TRUST_STORES" "$MKCERT_BIN" -install >/dev/null 2>&1 || true
     fi
   }
 
