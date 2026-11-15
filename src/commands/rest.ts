@@ -1,4 +1,4 @@
-import inquirer from 'inquirer'
+import { prompt } from '../utils/prompt'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import { BettyError } from '../utils/errors'
@@ -17,7 +17,7 @@ const restCommand = async (opts?: RestOptions): Promise<void> => {
   }
 
   if (opts?.yes !== true) {
-    const { confirm } = await inquirer.prompt([{
+    const { confirm } = await prompt([{
       type: 'confirm',
       name: 'confirm',
       message: 'Stop Betty proxy service?',
