@@ -301,6 +301,19 @@ Config fields:
 | `permissions.trustStore` | `prompt`, `allowed`, `manual`, or `denied` for mkcert CA setup |
 | `permissions.docker` | `prompt`, `allowed`, `manual`, or `denied` for Docker commands |
 
+##### Trusting a `.betty.yml`
+
+A `.betty.yml` can grant itself permissions and run shell commands, so betty
+does not act on one it has not seen before, for example one that came with a
+cloned repository. It first shows the domains and their targets, the
+`up`/`down` commands and the permissions the file grants, then asks whether
+to trust it. Only a trusted file's `permissions` apply, and only then do its
+commands run. When the file changes in any of these, betty asks again.
+
+Betty remembers trusted files in `~/.betty/trusted-projects.json`. A
+`.betty.yml` created with `betty project create` is trusted right away, and
+`--yes` accepts the file without asking.
+
 ##### Database domains (PostgreSQL)
 
 A `postgres://` target gives a project's database a domain, so clients connect
