@@ -208,11 +208,30 @@ describe('ensureCertificate', () => {
   })
 
   it('renews an existing certificate that expires soon', () => {
-    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-11-01' })
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-11-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
     jest.spyOn(console, 'log').mockImplementation(() => undefined)
 
     expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
     expect(execFileSync).toHaveBeenCalledWith('mkcert', ['-cert-file', '/home/test/.betty/certs/myapp.dev.pem', '-key-file', '/home/test/.betty/certs/myapp.dev-key.pem', 'myapp.dev'], { stdio: 'inherit' })
+  })
+
+  it('keeps a certificate that still works when renewing it fails', () => {
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expires on 2026-12-01', validTo: new Date(Date.now() + 20 * 86_400_000) })
+    ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert -install failed') })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(ensureCertificate('myapp.dev')).toEqual({ certFile: '/certs/myapp.dev.pem', keyFile: '/certs/myapp.dev-key.pem' })
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('Could not renew the certificate for myapp.dev')
+  })
+
+  it('does not keep an expired certificate when renewing it fails', () => {
+    ;(checkCertificate as unknown as jest.Mock).mockReturnValue({ problem: 'expired on 2026-01-01', validTo: new Date(Date.now() - 86_400_000) })
+    ;(isHttpsRequestedDomain as unknown as jest.Mock).mockReturnValue(true)
+    ;(execFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('mkcert failed') })
+    jest.spyOn(console, 'log').mockImplementation(() => undefined)
+
+    expect(() => { ensureCertificate('myapp.dev') }).toThrow('certificate creation failed')
   })
 
   it('keeps an old certificate when mkcert is missing to renew it', () => {

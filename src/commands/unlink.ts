@@ -4,7 +4,7 @@ import { printError } from '../cli/ui/output'
 import { BettyError } from '../utils/errors'
 import { withLockAsync } from '../utils/lock'
 import { prompt } from '../utils/prompt'
-import { resolveTraefikComposePath, restartTraefik } from '../utils/docker'
+import { resolveTraefikComposePath, restartTraefikIfRunning } from '../utils/docker'
 import { removeHostsEntries, removeHostsEntry } from '../utils/hosts'
 import { isProjectRouter, readRoutes, removeRouteFromFile, type RouteEntry } from '../utils/routes'
 import { removeLinkContainer } from '../utils/state'
@@ -67,7 +67,7 @@ const unlinkAll = async (composePath: string, routes: RouteEntry[], yes: boolean
   // One hosts edit for all domains: a single elevation prompt on Windows.
   const hostsRemoved = removeHostsEntries(removedDomains)
 
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)
@@ -86,7 +86,7 @@ const removeProjectFile = (route: RouteEntry, projectRoutes: RouteEntry[], compo
     if (!stillUsed) removedDomains.push(r.domain)
   }
   const hostsRemoved = removeHostsEntries(removedDomains)
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
   const projectName = path.basename(route.filePath, path.extname(route.filePath))
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`- removed domain: ${d}`)
@@ -109,7 +109,7 @@ const removeSingleWithSummary = (route: RouteEntry, composePath: string): void =
     console.log(`Keeping hosts entry because the domain is still in use: ${route.domain}`)
     hostsStatus = 'kept (domain still used)'
   }
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
   console.log('\nSummary:')
   console.log(`- removed domain: ${route.domain}`)
   if (fileDeleted) console.log(`- removed route file: ${route.fileName}`)
@@ -218,7 +218,7 @@ const unlinkInteractive = async (composePath: string, routes: RouteEntry[]): Pro
 
   // One hosts edit for all selected domains: a single elevation prompt on Windows.
   const hostsRemoved = removeHostsEntries(removedDomains)
-  restartTraefik(composePath)
+  restartTraefikIfRunning(composePath)
 
   console.log('\nSummary:')
   for (const d of removedDomains) console.log(`  ✅ removed: ${d}`)

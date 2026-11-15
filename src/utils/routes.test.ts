@@ -389,6 +389,26 @@ describe('writeRouteConfig', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(NEXT_PATH, expect.stringContaining('# betty-container: myapp'), 'utf8')
   })
 
+  it('writes the new route file before it removes the old one', () => {
+    const oldPath = path.join(DYNAMIC_DIR, 'old-name.yml')
+    const order: string[] = []
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { order.push('write') })
+    ;(fs.unlinkSync as unknown as jest.Mock).mockImplementation(() => { order.push('unlink') })
+
+    writeRouteConfig('myapp', 'myapp.dev', 3000, null, oldPath)
+
+    expect(order).toEqual(['write', 'unlink'])
+    expect(fs.unlinkSync).toHaveBeenCalledWith(oldPath)
+  })
+
+  it('keeps the old route file when writing the new one fails', () => {
+    const oldPath = path.join(DYNAMIC_DIR, 'old-name.yml')
+    ;(fs.writeFileSync as unknown as jest.Mock).mockImplementation(() => { throw new Error('ENOSPC') })
+
+    expect(() => { writeRouteConfig('myapp', 'myapp.dev', 3000, null, oldPath) }).toThrow('ENOSPC')
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+  })
+
   it('records the container in the link state under the route file name', () => {
     writeRouteConfig('myapp', 'myapp.dev', 3000, null)
 

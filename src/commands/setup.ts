@@ -1,8 +1,7 @@
-import { execFileSync } from 'child_process'
 import { prompt } from '../utils/prompt'
 import { checkAllCertificates, renewCertificates } from '../utils/certs'
-import { BETTY_PROXY_COMPOSE, BETTY_TRAEFIK_CONTAINER } from '../utils/constants'
-import { restartTraefik } from '../utils/docker'
+import { BETTY_PROXY_COMPOSE } from '../utils/constants'
+import { isProxyRunning, restartTraefik } from '../utils/docker'
 import { ensureHostsEntries } from '../utils/hosts'
 import { withLock } from '../utils/lock'
 import {
@@ -38,11 +37,8 @@ const askYesNo = async (message: string, yes?: boolean): Promise<boolean> => {
 const renewDueCertificates = (): void => {
   const renewed = withLock(() => renewCertificates(checkAllCertificates()))
   if (renewed.length === 0) return
-  let proxyRunning = false
-  try {
-    proxyRunning = execFileSync('docker', ['ps', '--filter', `name=^${BETTY_TRAEFIK_CONTAINER}$`, '--format', '{{.Names}}'], { stdio: 'pipe' }).toString().trim() !== ''
-  } catch { /* Docker is not running: the proxy reads them when it starts */ }
-  if (proxyRunning) restartTraefik(BETTY_PROXY_COMPOSE)
+  // Docker not running: the proxy reads them when it starts.
+  if (isProxyRunning()) restartTraefik(BETTY_PROXY_COMPOSE)
 }
 
 const runSetupFix = (): void => {

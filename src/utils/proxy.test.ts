@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, jest, it } from '@jest/globals'
 
-jest.mock('child_process', () => ({ execSync: jest.fn() }))
+jest.mock('child_process', () => ({ execSync: jest.fn(), execFileSync: jest.fn() }))
 
 jest.mock('fs', () => ({
   __esModule: true,
@@ -48,7 +48,7 @@ import fs from 'fs'
 import { execSync } from 'child_process'
 import { printError } from '../cli/ui/output'
 import { getDockerPortOwners, getSystemPortOwners, filterSystemOwnersForBettyPort } from './portOwners'
-import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, proxyStartError } from './proxy'
+import { ensureHttpsPortAvailable, ensureProxySetup, ensureProxyNetwork, ensureProxyRunning, proxyStartError } from './proxy'
 import { BettyError } from './errors'
 
 const captureBettyError = (fn: () => void): BettyError => {
@@ -217,6 +217,24 @@ describe('ensureProxyNetwork', () => {
 
     expect(err.message).toContain("Could not create the Docker network 'betty_proxy'. Cannot connect to the Docker daemon")
     expect(err.hints.join(' ')).toContain('Make sure Docker is running')
+  })
+})
+
+describe('ensureProxyRunning', () => {
+  it("matches the hints on Docker's stderr, which the error message lacks", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { execFileSync } = require('child_process') as { execFileSync: jest.Mock }
+    execFileSync.mockImplementation(() => {
+      throw Object.assign(new Error('Command failed: docker compose -f compose.yml up -d'), {
+        stderr: Buffer.from('Error response from daemon: Bind for 0.0.0.0:80 failed: port is already allocated'),
+      })
+    })
+
+    let thrown: unknown
+    try { ensureProxyRunning('/home/test/.betty/docker-compose.yml', 'serve') } catch (err) { thrown = err }
+
+    expect((thrown as { hints: string[] }).hints.join('\n')).toContain('betty config set httpPort')
+    expect(execFileSync).toHaveBeenCalledWith('docker', expect.arrayContaining(['up', '-d']), expect.objectContaining({ stdio: ['inherit', 'inherit', 'pipe'] }))
   })
 })
 
