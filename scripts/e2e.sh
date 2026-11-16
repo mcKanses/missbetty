@@ -122,15 +122,15 @@ expect_backend https://proj.e2e.test e2e-proj
 # psql 17 for sslnegotiation=direct, which Traefik's HostSNI routing needs.
 # A container of its own has its own hosts file, hence --add-host.
 query=''
-for _ in $(seq 1 30); do
-  query="$(docker run --rm --network host --add-host db.e2e.test:127.0.0.1 \
+for _ in $(seq 1 15); do
+  query="$(timeout 20 docker run --rm --network host --add-host db.e2e.test:127.0.0.1 \
     -v "$(dirname "$CA"):/ca:ro" -e PGPASSWORD=e2e "$POSTGRES" \
     psql "postgresql://postgres@db.e2e.test:443/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=/ca/rootCA.pem" \
     -tAc 'select 40 + 2' 2>&1 || true)"
   [ "$query" = '42' ] && break
   sleep 1
 done
-[ "$query" = '42' ] || fail "psql through db.e2e.test failed: $query"
+[ "$query" = '42' ] || { docker logs --tail 50 betty-traefik; cat ~/.betty/dynamic/betty-e2e.yml; fail "psql through db.e2e.test failed: $query"; }
 echo 'ok: psql through db.e2e.test'
 
 step 'betty project stop'
