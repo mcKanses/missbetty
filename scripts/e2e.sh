@@ -14,7 +14,9 @@ WHOAMI=traefik/whoami:v1.10
 POSTGRES=postgres:17-alpine
 CONTAINERS=(betty-e2e-one betty-e2e-two betty-e2e-proj betty-e2e-db)
 
-betty() { node "$ROOT/bin/betty.js" "$@"; }
+# A timeout, so a command that waits for input fails with a log instead of
+# hanging the job.
+betty() { timeout 180 node "$ROOT/bin/betty.js" "$@" </dev/null; }
 step() { printf '\n=== %s\n' "$*"; }
 fail() { printf '\nFAIL: %s\n' "$*" >&2; exit 1; }
 
