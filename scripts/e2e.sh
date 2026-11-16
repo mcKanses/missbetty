@@ -124,7 +124,7 @@ expect_backend https://proj.e2e.test e2e-proj
 query=''
 for _ in $(seq 1 15); do
   query="$(timeout 20 docker run --rm --network host --add-host db.e2e.test:127.0.0.1 \
-    -v "$(dirname "$CA"):/ca:ro" -e PGPASSWORD=e2e "$POSTGRES" \
+    -v "$(dirname "$CA"):/ca:ro" -e PGPASSWORD=e2e -e PGCONNECT_TIMEOUT=5 "$POSTGRES" \
     psql "postgresql://postgres@db.e2e.test:443/postgres?sslmode=verify-full&sslnegotiation=direct&sslrootcert=/ca/rootCA.pem" \
     -tAc 'select 40 + 2' 2>&1 || true)"
   [ "$query" = '42' ] && break
