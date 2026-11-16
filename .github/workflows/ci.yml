@@ -43,3 +43,34 @@ jobs:
       # Runs the whole test suite once, with coverage.
       - name: Test
         run: npm run test:coverage
+
+  # The CLI against real Docker, mkcert and Traefik: link, relink, a project
+  # with a postgres database, unlink. Catches what the mocked unit tests cannot.
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install mkcert
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q mkcert libnss3-tools
+          mkcert -install
+
+      - name: End-to-end test
+        run: scripts/e2e.sh
